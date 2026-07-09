@@ -3,6 +3,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "tools"))
 from validate_upload_package import validate_zip, ValidationError
+from match_score import evaluate as evaluate_matchrate
 
 DIRECTORY = "/Users/massis/Desktop/fastblog/poi-test-data"
 PORT = 8420
@@ -293,6 +294,16 @@ def build_records(dataset_filter):
     return recs
 
 
+def build_matchrate(dataset_filter="all", mode="exact"):
+    """Live MVP match-rate API.
+
+    Scoring is intentionally provider-aware and exact by default:
+    South Korea -> kakao_local, all other countries -> mapkit.
+    provider_place_id is optional/nullable and not required for matching.
+    """
+    return evaluate_matchrate(dataset=dataset_filter or "all", mode=mode or "exact")
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def _send_json(self, payload_obj, code=200):
         payload = json.dumps(payload_obj, ensure_ascii=False).encode("utf-8")
@@ -311,6 +322,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             ds = (q.get("dataset", ["all"])[0])
             try:
                 self._send_json(build_records(ds))
+            except Exception as e:
+                self._send_json({"error": str(e)}, code=500)
+            return
+        if route == "/api/matchrate":
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            ds = (q.get("dataset", ["all"])[0])
+            mode = (q.get("mode", ["exact"])[0])
+            try:
+                self._send_json(build_matchrate(ds, mode))
             except Exception as e:
                 self._send_json({"error": str(e)}, code=500)
             return

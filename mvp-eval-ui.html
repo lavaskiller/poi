@@ -173,7 +173,7 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="mockbar">🧪 <b>UI 목업</b> — 개요 탭은 <b>현재 실수치</b> 반영 · 평가 탭 숫자는 <b>예시</b>(raw baseline n=190만 실측, 정규화 엔진 연결 전) · 추가 탭은 온보딩 <b>계약 가이드</b>.</div>
+  <div class="mockbar">🧪 <b>MVP UI</b> — 개요/케이스/평가 지표는 서버 API 실수치 반영 · 알고리즘 실행 탭은 아직 로컬 프로토타입입니다.</div>
   <h1>POI 평가 도구</h1>
   <p class="sub">Bloggo · KS2-32 / KS2-34 — 데이터셋 분석 · 평가 자동화 · 확장</p>
 
@@ -313,7 +313,7 @@
         <div class="lg" style="margin-top:6px;color:var(--ink3);font-size:12px">y = GT가 top-N 후보에 존재<br>x = N (1·2·3·5·10)</div>
       </div>
     </div>
-    <div class="note"><b>검색만.</b> 후보 리스트에 답이 들어오나. 알고리즘이 아니라 <b>검색 API가 바뀌어야</b> 선이 바뀐다(예: Google/Kakao). 상한선 위 100%까지 = 어떤 알고리즘도 못 메우는 부분.</div></div>
+    <div class="note"><b>검색만.</b> 후보 리스트에 답이 들어오나. 한국은 Kakao Local, 한국 외는 MapKit 기준. 상한선 위 100%까지 = 어떤 알고리즘도 못 메우는 부분.</div></div>
 
     <h2>식별(selection) 정확도 — 알고리즘별</h2>
     <div class="panel">
@@ -389,7 +389,7 @@
     </div><div class="note" style="margin-top:12px">사진 + GT 2개만 넣으면 → 좌표·시각·OCR·도시·국가·MapKit rank·매치근거·신뢰등급·dataset·photo 등 9개 이상이 자동. 확장 비용이 낮아야 데이터셋이 자유롭게 는다.</div></div>
   </div>
 
-  <footer>mvp-eval-ui.html · 목업 · 개요=실수치 · 평가=예시(raw n=190 실측) · 추가=계약 가이드</footer>
+  <footer>mvp-eval-ui.html · MVP · /api/overview + /api/matchrate + /api/records</footer>
 </div>
 
 <script>
@@ -399,31 +399,25 @@ document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on", v.id==="v-"+b.dataset.t));
 });
 
-// ---------- eval (mock) ----------
-// ceiling = 검색(MapKit): GT가 top-N 후보에 존재 %.  apiB = 다른 검색 API(예시).
-// algos = 식별 알고리즘별 정확도(예측==GT) %. 각 막대 = 제출된 실행.
-// ceiling = 오목(diminishing returns): top-1~3에서 급상승, 뒤로 평평. 카드(r1/t3/t5/miss)는 ceiling과 일치.
-const DATA={
-  all:{raw:{n:190,r1:30,t3:49,t5:55,miss:129,ceiling:[16,22,26,29,32],apiB:[22,30,36,41,45],algos:[["최근접",16],["OCR+LLM",22],["FastVLM",28]]},
-       norm:{n:190,r1:48,t3:76,t5:86,miss:99,ceiling:[25,34,40,45,48],apiB:[32,44,52,58,62],algos:[["최근접",25],["OCR+LLM",36],["FastVLM",46]]},excl:"KR 28 · no_gt 4 · no_venue 6"},
-  linkedspaces:{raw:{n:190,r1:30,t3:49,t5:55,miss:129,ceiling:[16,22,26,29,32],apiB:[22,30,36,41,45],algos:[["최근접",16],["OCR+LLM",22],["FastVLM",28]]},
-       norm:{n:190,r1:48,t3:76,t5:86,miss:99,ceiling:[25,34,40,45,48],apiB:[32,44,52,58,62],algos:[["최근접",25],["OCR+LLM",36],["FastVLM",46]]},excl:"KR 28 · no_gt 4 · no_venue 6"},
-  "union-city":{raw:{n:20,r1:6,t3:9,t5:11,miss:9,ceiling:[30,40,47,53,57],apiB:[38,50,58,64,68],algos:[["최근접",30],["OCR+LLM",39],["FastVLM",47]]},
-       norm:{n:20,r1:9,t3:13,t5:14,miss:5,ceiling:[45,58,66,72,75],apiB:[52,66,74,80,84],algos:[["최근접",45],["OCR+LLM",58],["FastVLM",68]]},excl:"non_poi 6 · no_venue 2"},
-  vancouver:{raw:{n:11,r1:2,t3:4,t5:4,miss:7,ceiling:[18,26,32,36,37],apiB:[26,36,44,50,52],algos:[["최근접",18],["OCR+LLM",25],["FastVLM",31]]},
-       norm:{n:11,r1:4,t3:6,t5:7,miss:4,ceiling:[36,50,58,63,64],apiB:[44,58,66,72,74],algos:[["최근접",36],["OCR+LLM",48],["FastVLM",56]]},excl:"unresolved 8"},
-};
+// ---------- eval (live /api/matchrate) ----------
 const $=s=>document.querySelector(s);
 let scope="all",mode="raw";
-function render(){
-  const d=DATA[scope][mode],raw=DATA[scope].raw;
-  $("#meta").innerHTML=`실사용자 GT <b>n=${d.n}</b> · 제외: ${DATA[scope].excl} · 기준: <b>${mode==='raw'?'raw exact-match':'normalized 토큰셋'}</b>`;
-  const pct=x=>Math.round(100*x/d.n), set=(id,c)=>{$("#p-"+id).textContent=pct(c)+"%";$("#c-"+id).textContent=c+" / "+d.n;};
-  set("r1",d.r1);set("t3",d.t3);set("t5",d.t5);set("miss",d.miss);
+async function render(){
+  const apiMode=mode==='raw'?'exact':'normalized';
+  let d;
+  try{d=await(await fetch(`/api/matchrate?dataset=${encodeURIComponent(scope)}&mode=${apiMode}`,{cache:'no-store'})).json();}
+  catch(e){d={n:0,rank1:0,top3:0,top5:0,miss:0,counts:{},by_provider:{},matching_policy:{}};}
+  const n=d.n||0, pct=x=>n?Math.round(100*x/n):0;
+  const excl=[]; if(d.excluded_non_poi)excl.push(`non_poi ${d.excluded_non_poi}`); if(d.excluded_no_gt)excl.push(`no_gt ${d.excluded_no_gt}`); if(d.no_provider_data)excl.push(`provider_data 없음 ${d.no_provider_data}`);
+  $("#meta").innerHTML=`평가 가능 GT <b>n=${n}</b> · 제외/대기: ${excl.join(' · ')||'-'} · 기준: <b>${mode==='raw'?'provider exact name':'normalized fallback/evidence'}</b> · KR=Kakao / non-KR=MapKit`;
+  const set=(id,c)=>{$("#p-"+id).textContent=pct(c)+"%";$("#c-"+id).textContent=c+" / "+n;};
+  set("r1",d.rank1||0);set("t3",d.top3||0);set("t5",d.top5||0);set("miss",d.miss||0);
   const flip=$("#flip");
-  if(mode==="norm"){flip.classList.remove("hidden");flip.textContent=`raw→normalized 뒤집힘: MISS ${raw.miss} → ${d.miss} (가짜 MISS ${raw.miss-d.miss}개 매칭으로 회복)`;}
+  if(mode==="norm"){flip.classList.remove("hidden");flip.textContent='normalized는 provider 기준을 대체하지 않는 fallback/evidence 보기입니다.';}
   else flip.classList.add("hidden");
-  drawCurve(d.ceiling,d.apiB);drawBars(d.algos);
+  drawCurve([pct(d.rank1||0),pct(d.top3||0),pct(d.top3||0),pct(d.top5||0),pct(d.top5||0)],[]);
+  const bp=d.by_provider||{};
+  drawBars(Object.entries(bp).map(([name,v])=>[name, Math.round(100*(v.rank1_rate||0))]).concat([["baseline",pct(d.rank1||0)]]));
 }
 function drawCurve(ceil,apiB){
   const W=580,H=260,pl=44,pr=16,pt=16,pb=32,xs=[1,2,3,5,10];
@@ -433,7 +427,7 @@ function drawCurve(ceil,apiB){
   xs.forEach((n,i)=>g+=`<text x="${x(i)}" y="${H-11}" text-anchor="middle" fill="var(--ink3)" font-size="11" font-family="var(--mono)">${n}</text>`);
   const poly=(a,c,dash)=>`<polyline points="${a.map((v,i)=>`${x(i)},${y(v)}`).join(" ")}" fill="none" stroke="${c}" stroke-width="2.4"${dash?' stroke-dasharray="5 4" stroke-width="1.8"':''}/>`;
   const dots=(a,c)=>a.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="${c}"/>`).join("");
-  let s=poly(apiB,"var(--ink3)",true);                                 // 다른 API(예시)
+  let s=apiB&&apiB.length?poly(apiB,"var(--ink3)",true):"";             // optional comparison API
   s+=poly(ceil,"var(--green)",false)+dots(ceil,"var(--green)");        // MapKit
   ceil.forEach((v,i)=>s+=`<text x="${x(i)}" y="${y(v)-9}" text-anchor="middle" fill="var(--ink)" font-size="10.5" font-family="var(--mono)">${v}%</text>`);
   $("#curve").innerHTML=g+s;
