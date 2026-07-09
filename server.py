@@ -3,12 +3,20 @@ from collections import Counter
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "tools"))
 from validate_upload_package import validate_zip, ValidationError
-from match_score import evaluate as evaluate_matchrate
+from match_score import (
+    evaluate as evaluate_matchrate,
+    load_candidates as load_match_candidates,
+    read_rows as read_match_rows,
+)
 
 DIRECTORY = "/Users/massis/Desktop/fastblog/poi-test-data"
 PORT = 8420
 CSV_PATH = os.path.join(DIRECTORY, "eval_set_reconciled.csv")
 CONFIG_PATH = os.path.join(DIRECTORY, "dashboard_config.json")
+MATCH_CANDIDATE_PATHS = [
+    os.path.join(DIRECTORY, "generated", "mapkit_candidates.jsonl"),
+    os.path.join(DIRECTORY, "generated", "kakao_local_candidates.jsonl"),
+]
 
 
 def load_config():
@@ -302,7 +310,12 @@ def build_matchrate(dataset_filter="all", mode="exact"):
     all other countries use MapKit.
     provider_place_id is optional/nullable and not required for matching.
     """
-    return evaluate_matchrate(dataset=dataset_filter or "all", mode=mode or "exact")
+    return evaluate_matchrate(
+        dataset=dataset_filter or "all",
+        mode=mode or "exact",
+        rows=read_match_rows(CSV_PATH),
+        candidates=load_match_candidates(MATCH_CANDIDATE_PATHS),
+    )
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
