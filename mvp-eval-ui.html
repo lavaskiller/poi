@@ -313,7 +313,7 @@
         <div class="lg" style="margin-top:6px;color:var(--ink3);font-size:12px">y = GT가 top-N 후보에 존재<br>x = N (1·2·3·5·10)</div>
       </div>
     </div>
-    <div class="note"><b>검색만.</b> 후보 리스트에 답이 들어오나. 한국은 Kakao Local, 한국 외는 MapKit 기준. 상한선 위 100%까지 = 어떤 알고리즘도 못 메우는 부분.</div></div>
+    <div class="note"><b>검색만.</b> 후보 리스트에 답이 들어오나. 지금은 한국 row를 제외하고 한국 외 MapKit 기준으로 계산한다. 상한선 위 100%까지 = 어떤 알고리즘도 못 메우는 부분.</div></div>
 
     <h2>식별(selection) 정확도 — 알고리즘별</h2>
     <div class="panel">
@@ -408,8 +408,8 @@ async function render(){
   try{d=await(await fetch(`/api/matchrate?dataset=${encodeURIComponent(scope)}&mode=${apiMode}`,{cache:'no-store'})).json();}
   catch(e){d={n:0,rank1:0,top3:0,top5:0,miss:0,counts:{},by_provider:{},matching_policy:{}};}
   const n=d.n||0, pct=x=>n?Math.round(100*x/n):0;
-  const excl=[]; if(d.excluded_non_poi)excl.push(`non_poi ${d.excluded_non_poi}`); if(d.excluded_no_gt)excl.push(`no_gt ${d.excluded_no_gt}`); if(d.no_provider_data)excl.push(`provider_data 없음 ${d.no_provider_data}`);
-  $("#meta").innerHTML=`평가 가능 GT <b>n=${n}</b> · 제외/대기: ${excl.join(' · ')||'-'} · 기준: <b>${mode==='raw'?'provider exact name':'normalized fallback/evidence'}</b> · KR=Kakao / non-KR=MapKit`;
+  const excl=[]; if(d.excluded_korea_pending_kakao)excl.push(`KR 제외 ${d.excluded_korea_pending_kakao}`); if(d.excluded_non_poi)excl.push(`non_poi ${d.excluded_non_poi}`); if(d.excluded_no_gt)excl.push(`no_gt ${d.excluded_no_gt}`); if(d.no_provider_data)excl.push(`provider_data 없음 ${d.no_provider_data}`);
+  $("#meta").innerHTML=`평가 가능 GT <b>n=${n}</b> · 제외/대기: ${excl.join(' · ')||'-'} · 기준: <b>${mode==='raw'?'provider exact name':'normalized fallback/evidence'}</b> · 현재 KR 제외 / non-KR=MapKit`;
   const set=(id,c)=>{$("#p-"+id).textContent=pct(c)+"%";$("#c-"+id).textContent=c+" / "+n;};
   set("r1",d.rank1||0);set("t3",d.top3||0);set("t5",d.top5||0);set("miss",d.miss||0);
   const flip=$("#flip");

@@ -298,7 +298,8 @@ def build_matchrate(dataset_filter="all", mode="exact"):
     """Live MVP match-rate API.
 
     Scoring is intentionally provider-aware and exact by default:
-    South Korea -> kakao_local, all other countries -> mapkit.
+    South Korea is currently held out until Kakao Local data is available;
+    all other countries use MapKit.
     provider_place_id is optional/nullable and not required for matching.
     """
     return evaluate_matchrate(dataset=dataset_filter or "all", mode=mode or "exact")

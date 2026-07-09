@@ -2,8 +2,9 @@
 """Provider-aware POI match-rate metrics for the MVP dashboard.
 
 MVP policy:
-- South Korea rows are evaluated against Kakao Local candidates.
-- All non-Korea rows are evaluated against MapKit candidates.
+- South Korea rows are currently held out until Kakao Local canonical/candidate
+  data is populated.
+- Non-Korea rows are evaluated against MapKit candidates.
 - The primary matching rule is exact string equality between the provider
   canonical name and provider candidate name.
 - provider_place_id is kept when present, but is nullable and never required.
@@ -201,7 +202,10 @@ def evaluate(dataset: str = "all", mode: str = "exact", rows: Optional[List[Dict
         country = canonical_country(row, cfg)
         photo = (row.get("photo") or "").strip()
 
-        if tier == "non_poi":
+        if provider == "kakao_local":
+            status = "excluded_korea_pending_kakao"
+            counts[status] += 1
+        elif tier == "non_poi":
             status = "excluded_non_poi"
             counts[status] += 1
         elif not gt:
@@ -303,7 +307,7 @@ def evaluate(dataset: str = "all", mode: str = "exact", rows: Optional[List[Dict
         "mode": "exact" if mode in ("raw", "exact") else "normalized",
         "matching_policy": {
             "primary": "same-provider exact string equality",
-            "korea_provider": "kakao_local",
+            "korea_provider": "kakao_local (held out until Kakao data is available)",
             "non_korea_provider": "mapkit",
             "provider_place_id": "nullable/fallback; not required for MVP scoring",
         },
@@ -322,6 +326,7 @@ def evaluate(dataset: str = "all", mode: str = "exact", rows: Optional[List[Dict
         "no_provider_data": counts["no_provider_data"],
         "excluded_non_poi": counts["excluded_non_poi"],
         "excluded_no_gt": counts["excluded_no_gt"],
+        "excluded_korea_pending_kakao": counts["excluded_korea_pending_kakao"],
         "by_provider": {k: summarize(v) for k, v in sorted(by_provider.items())},
         "by_dataset": {k: summarize(v) for k, v in sorted(by_dataset.items())},
         "cases": cases,
