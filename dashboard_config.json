@@ -1,0 +1,79 @@
+{
+  "_comment": "편집 가능한 대시보드 설명 레이어. 서버가 매 요청마다 읽음(라이브). 라벨/색/설명을 여기서 고치면 코드 수정 없이 반영. config에 없는 dataset/컬럼/등급은 API가 config_warnings로 드러내고 뷰에 '⚠ config 없음' 표시.",
+
+  "palette": ["blue", "cyan", "violet", "gold", "green", "pink", "orange", "red"],
+
+  "_sources_note": "데이터셋 = 1급 개념. 새 데이터셋은 여기 한 항목 등록 + 사진/GT 제공 → 나머지 컬럼은 ingest가 자동 채움. owner/source_type은 provenance(누구 블로그/실사용자)와 기본 신뢰등급을 정함.",
+  "sources": {
+    "linkedspaces": { "label": "실사용자 방문",   "color": "blue",   "owner": "실사용자", "source_type": "real-user-export", "default_confidence": "user_selected", "desc": "실사용자들의 실제 장소 방문 기록 (In Seo export, KS2-10)." },
+    "union-city":   { "label": "우혁 개인블로그",  "color": "cyan",   "owner": "우혁",    "source_type": "personal-blog",    "default_confidence": "confirmed_user", "desc": "우혁의 Union City 여행 블로그." },
+    "vancouver":    { "label": "인소 개인블로그",  "color": "violet", "owner": "인소",    "source_type": "personal-blog",    "default_confidence": "confirmed_user", "desc": "인소의 Vancouver 여행 블로그." }
+  },
+
+  "_confidence_note": "신뢰등급은 '채점 시 이 행을 어떻게 다루나'가 달라질 때만 존재. raw gt_confidence(CSV)는 그대로 두고 confidence_rollup으로 4개 캐노니컬 등급에 묶음. 라벨 출처(사용자 구두확인/OCR/추론)는 신뢰등급 아니라 메타데이터라 tiers에서 뺌.",
+  "confidence_tiers": {
+    "user_selected": { "color": "gold",  "order": 1, "desc": "사용자가 확정한 실제 정답(GT). 앱에서 직접 선택했거나 구두로 확인해준 장소. 헤드라인 매치율은 이 등급으로만 계산." },
+    "confident":     { "color": "green", "order": 2, "desc": "우리가 신뢰하는 정답을 보유한 행(강한 콘텐츠 증거·합성 명명·맥락 추론). 사용자 확정은 아니라 회귀 앵커로만 사용, 헤드라인 지표엔 미포함." },
+    "non_poi":       { "color": "ink3",  "order": 3, "desc": "애초에 POI가 아님(기내·이동 중 등). 정답은 '거절'. 모델 환각(hallucination) 측정용." },
+    "unresolved":    { "color": "red",   "order": 4, "desc": "정답을 하나로 확정 불가(미확인·후보 상충). 밴쿠버 미확인 카페 등 '아무도 못 푸는' 하드 케이스." }
+  },
+  "confidence_rollup": {
+    "user_selected": "user_selected",
+    "strong_content": "confident",
+    "confirmed_user": "user_selected",
+    "synthetic_named": "confident",
+    "inferred": "confident",
+    "non_poi": "non_poi",
+    "synthetic_unconfirmed": "unresolved",
+    "ambiguous": "unresolved"
+  },
+
+  "country_normalize": {
+    "United States of America": "United States",
+    "United States": "United States",
+    "대한민국": "South Korea",
+    "South Korea": "South Korea",
+    "México": "Mexico",
+    "España": "Spain",
+    "Nederland": "Netherlands"
+  },
+  "country_by_dataset": { "union-city": "United States", "vancouver": "Canada" },
+  "country_flags": {
+    "United States": "🇺🇸", "South Korea": "🇰🇷", "Canada": "🇨🇦", "Mexico": "🇲🇽",
+    "Spain": "🇪🇸", "France": "🇫🇷", "Netherlands": "🇳🇱", "Unknown": "·"
+  },
+
+  "roles": {
+    "in": { "label": "입력신호", "tag": "t-in" },
+    "gt": { "label": "정답",     "tag": "t-gt" },
+    "bl": { "label": "베이스라인", "tag": "t-bl" },
+    "mt": { "label": "메타",     "tag": "t-mt" }
+  },
+
+  "schema_groups": [
+    { "group": "capture_lat/lon", "role": "in", "cols": ["capture_lat", "capture_lon"], "desc": "사진 EXIF GPS 좌표. 모든 행에 존재." },
+    { "group": "caption_ondevice", "role": "in", "cols": ["caption_ondevice"], "desc": "Vision OCR로 뽑은 사진 속 텍스트. linkedspaces OCR은 <b>머지 대기</b>." },
+    { "group": "photo_url / photo", "role": "in", "cols": ["photo", "photo_url"], "desc": "S3 URL + 로컬 파일명. FastVLM·OCR 입력." },
+    { "group": "timestamp", "role": "in", "cols": ["timestamp"], "desc": "촬영 시각. 우리 세트만 보존, export엔 없음." },
+    { "group": "gt_place_name", "role": "gt", "cols": ["gt_place_name"], "desc": "사용자가 최종 선택한 장소명 = <b>채점 기준</b>." },
+    { "group": "gt_confidence", "role": "gt", "cols": ["gt_confidence"], "desc": "라벨 신뢰 등급(섹션1)." },
+    { "group": "category", "role": "gt", "cols": ["category"], "desc": "POI 타입. 실패 유형 분류에 사용." },
+    { "group": "city / country / address", "role": "gt", "cols": ["city", "country", "address"], "desc": "export가 제공한 역지오코딩 문자열." },
+    { "group": "app_poi_rank", "role": "bl", "cols": ["app_poi_rank"], "desc": "현재 앱(MapKit) 검색 시 정답 순위. <b>190행 추출됐으나 CSV 머지 대기</b>." },
+    { "group": "app_nearby_top1 / _n_wide / _dist", "role": "bl", "cols": ["app_nearby_top1", "app_nearby_n_wide", "app_poi_dist_m"], "desc": "MapKit 250m 반경 1위 결과 · 후보 수 · 매칭된 POI까지 거리(m)." },
+    { "group": "baseline_place_title", "role": "bl", "cols": ["baseline_place_title"], "desc": "앱이 실제로 붙였을 제목(예: \"Near Downtown\")." },
+    { "group": "poi_list_match / _keyword", "role": "bl", "cols": ["poi_list_match", "poi_match_keyword"], "desc": "정답을 MapKit 결과에서 찾을 매칭 키워드." },
+    { "group": "dataset / photo / notes / username", "role": "mt", "cols": ["dataset", "notes", "username"], "desc": "출처·작성자·수기 메모." },
+    { "group": "caption_oracle", "role": "mt", "cols": ["caption_oracle"], "desc": "<s>강한 비전모델 캡션</s> — 순환참조라 <b>전량 삭제</b>(의도적 0%)." }
+  ],
+
+  "pipeline": [
+    { "label": "GPS 좌표",          "kind": "column", "column": "capture_lat" },
+    { "label": "사진 다운로드+변환",  "kind": "column", "column": "photo" },
+    { "label": "GT 라벨",           "kind": "column", "column": "gt_place_name" },
+    { "label": "Vision OCR",       "kind": "ocr" },
+    { "label": "MapKit 베이스라인",  "kind": "baseline" },
+    { "label": "온디바이스 LLM (v2)", "kind": "tsv", "file": "ai_ocr_v2.tsv" },
+    { "label": "FastVLM (이미지)",   "kind": "file_exists", "file": "fastvlm_results.tsv", "detail_wait": "셋업·스모크" }
+  ]
+}

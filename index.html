@@ -1,0 +1,197 @@
+<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POI 사진 라벨링 (콘텐츠 기반)</title>
+<style>
+  body{font-family:ui-sans-serif,system-ui,-apple-system,"Apple SD Gothic Neo",sans-serif;margin:0;padding:20px;background:#fafafa;color:#17181a}
+  h1{font-size:18px;margin:0 0 4px}
+  .sub{font-size:13px;color:#666;margin:0 0 16px}
+  .legend{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;font-size:12px;color:#666;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #e3e3e3}
+  .cluster{margin-bottom:26px}
+  .chead{display:flex;align-items:baseline;gap:10px;border-bottom:1px solid #e3e3e3;padding-bottom:6px;margin-bottom:14px;flex-wrap:wrap}
+  .chead h3{margin:0;font-size:15px;font-weight:650}
+  .csub{font-size:12px;color:#777}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+  .card{margin:0;border:1px solid #e3e3e3;border-radius:12px;overflow:hidden;background:#fff}
+  .card img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;background:#e5e5e5;image-orientation:from-image}
+  figcaption{padding:9px 11px 12px}
+  .fn{font-size:11px;color:#8a8a8a;letter-spacing:.02em}
+  .gt{font-size:13.5px;font-weight:650;margin:2px 0 7px;line-height:1.25}
+  .badges{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:7px}
+  .b{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
+  .b.sig{background:rgba(38,160,90,.16);color:#1c7a45}
+  .b.con{background:rgba(220,150,20,.17);color:#9a6a00}
+  .b.cat{background:rgba(120,120,120,.16);color:#555}
+  .res{font-size:10.5px;padding:2px 8px;border-radius:20px;font-weight:600}
+  .res.ok{background:rgba(38,160,90,.13);color:#1c7a45}
+  .res.no{background:rgba(230,60,50,.15);color:#c02a20}
+  .note{font-size:11px;color:#8d8d8d;line-height:1.35}
+</style></head><body>
+  <h1>POI 사진 라벨링 — 실제 콘텐츠 기준 (19장)</h1>
+  <p class="sub">각 사진을 실제로 보고 라벨링. 뱃지=이름 근거, ✓/✗=거리 기반 알고리즘 정답 여부.</p>
+  <div class="legend">
+    <span>이름 근거:</span><span class="b sig">간판</span><span class="b con">내용</span><span class="b cat">업종만(상호 불명)</span>
+    <span style="margin-left:6px">거리 알고리즘:</span><span class="res ok">✓ 맞음</span><span class="res no">✗ 틀림</span>
+  </div>
+  <section class="cluster">
+      <div class="chead"><h3>☕ 카페 (브런치)</h3><span class="csub">49.283, −123.110 · 오전 · 좌표추정=Rogers Arena ❌ · 3장</span></div>
+      <div class="grid"><figure class="card">
+      <img loading="lazy" src="photos/IMG_6133.jpeg" alt="Café (unidentified)" title="two lattes on wood table; interior. No legible name -&gt; business unknown from content alone"/>
+      <figcaption>
+        <div class="fn">IMG_6133 · 18:54</div>
+        <div class="gt">Café (unidentified)</div>
+        <div class="badges"><span class="b cat">업종만</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">two lattes on wood table; interior. No legible name -&gt; business unknown from content alone</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6135.jpeg" alt="Café (unidentified)" title="wood-slat wall with postcards/plants; cafe interior"/>
+      <figcaption>
+        <div class="fn">IMG_6135 · 18:54</div>
+        <div class="gt">Café (unidentified)</div>
+        <div class="badges"><span class="b cat">업종만</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">wood-slat wall with postcards/plants; cafe interior</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6136.jpeg" alt="Café (unidentified)" title="ham &amp; cheese croissant + coffee; brunch. Window shows street"/>
+      <figcaption>
+        <div class="fn">IMG_6136 · 19:01</div>
+        <div class="gt">Café (unidentified)</div>
+        <div class="badges"><span class="b cat">업종만</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">ham &amp; cheese croissant + coffee; brunch. Window shows street</div>
+      </figcaption>
+    </figure></div>
+    </section><section class="cluster">
+      <div class="chead"><h3>🍣 일식당 (스시·타다키)</h3><span class="csub">49.275, −123.121 · 오후 · 좌표추정=Yaletown ❌ · 5장</span></div>
+      <div class="grid"><figure class="card">
+      <img loading="lazy" src="photos/IMG_6140.jpeg" alt="Japanese restaurant (unidentified)" title="Hokusai-wave mural over a dessert/gelato case; Japanese venue"/>
+      <figcaption>
+        <div class="fn">IMG_6140 · 19:31</div>
+        <div class="gt">Japanese restaurant (unidentified)</div>
+        <div class="badges"><span class="b cat">업종만</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">Hokusai-wave mural over a dessert/gelato case; Japanese venue</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6143.jpeg" alt="Japanese restaurant (unidentified)" title="beef tataki with poached egg in red lacquer box"/>
+      <figcaption>
+        <div class="fn">IMG_6143 · 19:57</div>
+        <div class="gt">Japanese restaurant (unidentified)</div>
+        <div class="badges"><span class="b cat">업종만</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">beef tataki with poached egg in red lacquer box</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6144.jpeg" alt="Japanese restaurant (unidentified)" title="beef tataki plated dish"/>
+      <figcaption>
+        <div class="fn">IMG_6144 · 19:57</div>
+        <div class="gt">Japanese restaurant (unidentified)</div>
+        <div class="badges"><span class="b cat">업종만</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">beef tataki plated dish</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6145.jpeg" alt="Japanese restaurant (unidentified)" title="nigiri/sushi assortment plate"/>
+      <figcaption>
+        <div class="fn">IMG_6145 · 19:57</div>
+        <div class="gt">Japanese restaurant (unidentified)</div>
+        <div class="badges"><span class="b cat">업종만</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">nigiri/sushi assortment plate</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6146.jpeg" alt="Japanese restaurant (unidentified)" title="sushi rolls + nigiri on plates"/>
+      <figcaption>
+        <div class="fn">IMG_6146 · 19:57</div>
+        <div class="gt">Japanese restaurant (unidentified)</div>
+        <div class="badges"><span class="b cat">업종만</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">sushi rolls + nigiri on plates</div>
+      </figcaption>
+    </figure></div>
+    </section><section class="cluster">
+      <div class="chead"><h3>🌲 Capilano Suspension Bridge Park</h3><span class="csub">49.34, −123.11 · 저녁 · 좌표추정=대략 맞음, 하위 POI 오라벨 · 11장</span></div>
+      <div class="grid"><figure class="card">
+      <img loading="lazy" src="photos/IMG_6148.jpeg" alt="Capilano Suspension Bridge Park" title="CAPILANO SUSPENSION BRIDGE entrance sign + admission rates"/>
+      <figcaption>
+        <div class="fn">IMG_6148 · 21:23</div>
+        <div class="gt">Capilano Suspension Bridge Park</div>
+        <div class="badges"><span class="b sig">간판</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">CAPILANO SUSPENSION BRIDGE entrance sign + admission rates</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6161.jpeg" alt="Capilano Suspension Bridge" title="canyon/river + bridge cable &amp; mesh; SUBJECT=canyon"/>
+      <figcaption>
+        <div class="fn">IMG_6161 · 21:34</div>
+        <div class="gt">Capilano Suspension Bridge</div>
+        <div class="badges"><span class="b con">내용</span><span class="res no">✗ 거리예측: Capilano Suspension Bridge Park</span></div>
+        <div class="note">canyon/river + bridge cable &amp; mesh; SUBJECT=canyon</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6166.jpeg" alt="Treetops Adventure" title="elevated wooden treetop walkways with netting"/>
+      <figcaption>
+        <div class="fn">IMG_6166 · 21:38</div>
+        <div class="gt">Treetops Adventure</div>
+        <div class="badges"><span class="b con">내용</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">elevated wooden treetop walkways with netting</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6172.jpeg" alt="Treetops Adventure" title="carved &quot;TREETOPS ADVENTURE&quot; sign on tree trunk"/>
+      <figcaption>
+        <div class="fn">IMG_6172 · 21:43</div>
+        <div class="gt">Treetops Adventure</div>
+        <div class="badges"><span class="b sig">간판</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">carved &quot;TREETOPS ADVENTURE&quot; sign on tree trunk</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6178.jpeg" alt="Capilano Suspension Bridge" title="long suspension bridge spanning forest with people"/>
+      <figcaption>
+        <div class="fn">IMG_6178 · 21:48</div>
+        <div class="gt">Capilano Suspension Bridge</div>
+        <div class="badges"><span class="b con">내용</span><span class="res no">✗ 거리예측: Treetops Adventure</span></div>
+        <div class="note">long suspension bridge spanning forest with people</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6183.jpeg" alt="Raptors Ridge Birds of Prey" title="handler holding Gyr Falcon; &quot;GYR F...&quot; chalkboard"/>
+      <figcaption>
+        <div class="fn">IMG_6183 · 22:04</div>
+        <div class="gt">Raptors Ridge Birds of Prey</div>
+        <div class="badges"><span class="b sig">간판</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">handler holding Gyr Falcon; &quot;GYR F...&quot; chalkboard</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6186.jpeg" alt="Capilano Suspension Bridge Park" title="tall forest canopy from below; general park (ambiguous sub-POI)"/>
+      <figcaption>
+        <div class="fn">IMG_6186 · 22:21</div>
+        <div class="gt">Capilano Suspension Bridge Park</div>
+        <div class="badges"><span class="b con">내용</span><span class="res no">✗ 거리예측: Treetops Adventure</span></div>
+        <div class="note">tall forest canopy from below; general park (ambiguous sub-POI)</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6187.jpeg" alt="Otterballs (Capilano food stand)" title="OTTERBALLS - A CAPILANO ORIGINAL mini-pancake stand"/>
+      <figcaption>
+        <div class="fn">IMG_6187 · 22:29</div>
+        <div class="gt">Otterballs (Capilano food stand)</div>
+        <div class="badges"><span class="b sig">간판</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">OTTERBALLS - A CAPILANO ORIGINAL mini-pancake stand</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6192.jpeg" alt="Capilano Suspension Bridge" title="crowd walking across main suspension bridge"/>
+      <figcaption>
+        <div class="fn">IMG_6192 · 22:45</div>
+        <div class="gt">Capilano Suspension Bridge</div>
+        <div class="badges"><span class="b con">내용</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">crowd walking across main suspension bridge</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6202.jpeg" alt="Capilano Suspension Bridge Park" title="entrance plaza; red Adirondack chairs; &quot;A CAPILANO SUSPENSION BRIDGE PARK&quot; sign"/>
+      <figcaption>
+        <div class="fn">IMG_6202 · 22:58</div>
+        <div class="gt">Capilano Suspension Bridge Park</div>
+        <div class="badges"><span class="b sig">간판</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">entrance plaza; red Adirondack chairs; &quot;A CAPILANO SUSPENSION BRIDGE PARK&quot; sign</div>
+      </figcaption>
+    </figure><figure class="card">
+      <img loading="lazy" src="photos/IMG_6226.jpeg" alt="Capilano Suspension Bridge Park" title="gift shop/ticket counter; 1908 Capilano Timber Co. historical mural"/>
+      <figcaption>
+        <div class="fn">IMG_6226 · 23:51</div>
+        <div class="gt">Capilano Suspension Bridge Park</div>
+        <div class="badges"><span class="b con">내용</span><span class="res ok">✓ 거리로도 맞음</span></div>
+        <div class="note">gift shop/ticket counter; 1908 Capilano Timber Co. historical mural</div>
+      </figcaption>
+    </figure></div>
+    </section>
+</body></html>

@@ -1,0 +1,16 @@
+# Local/generated/private-heavy POI artifacts
+*.csv
+*.tsv
+*.backup-*.csv
+photos/
+linkedspaces-photos/
+union-city-trip/
+tools/fastvlm-venv/
+tools/ml-fastvlm/
+*_err.txt
+ai_poi_run
+scratch/
+tmp/
+.DS_Store
+__pycache__/
+*.pyc

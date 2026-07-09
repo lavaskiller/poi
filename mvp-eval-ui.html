@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MVP — POI 평가 UI 목업</title>
+<style>
+  :root{
+    --bg:#050A30; --bg2:#080E38; --card:#101744; --card2:#0c123a;
+    --ink:#eef3ff; --ink2:#aeb9e6; --ink3:#7683b8; --line:rgba(255,255,255,.09);
+    --blue:#3B82F6; --cyan:#38E0D0; --gold:#F5C451; --green:#5FD37B;
+    --pink:#FF5C87; --violet:#8B62FF; --orange:#FF9F45; --red:#FF6B5C;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,var(--bg),var(--bg2) 60%,#05082a);color:var(--ink);font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1060px;margin:0 auto;padding:30px 24px 80px}
+  h1{font-size:24px;margin:0 0 4px;font-weight:700;letter-spacing:-.02em}
+  .sub{color:var(--ink3);font-size:13px;font-family:var(--mono);margin:0 0 18px}
+  .mockbar{background:repeating-linear-gradient(45deg,rgba(245,196,81,.10),rgba(245,196,81,.10) 12px,rgba(245,196,81,.05) 12px,rgba(245,196,81,.05) 24px);
+    border:1px solid rgba(245,196,81,.4);border-radius:10px;padding:10px 14px;font-size:12.5px;color:#f5d689;margin-bottom:20px}
+  .mockbar b{color:var(--gold)}
+  /* tabs */
+  .tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);margin-bottom:24px}
+  .tabs button{background:none;border:none;border-bottom:2px solid transparent;color:var(--ink3);padding:11px 16px;font-size:14px;cursor:pointer;font-family:var(--sans)}
+  .tabs button.on{color:var(--ink);border-bottom-color:var(--blue);font-weight:650}
+  .view{display:none} .view.on{display:block}
+  /* shared */
+  h2{font-size:12px;font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);border-bottom:1px solid var(--line);padding-bottom:9px;margin:30px 0 16px;font-weight:600}
+  h2:first-child{margin-top:6px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px}
+  .note{background:var(--card2);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:10px;padding:12px 14px;color:var(--ink2);font-size:12.5px;margin-top:14px}
+  .note b{color:var(--ink)}
+  .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(59,130,246,.45);background:rgba(59,130,246,.12);color:var(--ink);border-radius:9px;padding:7px 10px;text-decoration:none;font-size:12px;font-weight:650}
+  .btn:hover{background:rgba(59,130,246,.22)}
+  .bars{display:flex;flex-direction:column;gap:8px}
+  .bar{display:grid;grid-template-columns:150px 1fr 44px;align-items:center;gap:10px;font-size:13px}
+  .bar .lbl{color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar .track{height:14px;background:rgba(255,255,255,.05);border-radius:7px;overflow:hidden}
+  .bar .fill{height:100%;border-radius:7px}
+  .bar .v{font-family:var(--mono);font-size:12px;text-align:right}
+  /* ===== OVERVIEW ===== */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:8px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:15px}
+  .kpi .n{font-size:26px;font-weight:700} .kpi .l{color:var(--ink3);font-size:12px;margin-top:2px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .srccard{display:flex;flex-direction:column;gap:10px}
+  .src{display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:center;font-size:13px}
+  .src .dot{width:12px;height:12px;border-radius:3px}
+  .src .prov{color:var(--ink3);font-size:11.5px;font-family:var(--mono)}
+  .src b{font-family:var(--mono)}
+  .pipe{display:flex;flex-direction:column;gap:9px}
+  .pl{display:grid;grid-template-columns:120px 1fr 60px;align-items:center;gap:10px;font-size:12.5px}
+  .pl .lbl{color:var(--ink2)} .pl .track{height:16px;background:rgba(255,255,255,.05);border-radius:7px;display:flex;overflow:hidden}
+  .pl .seg{height:100%} .pl .st{font-family:var(--mono);font-size:11px;text-align:right}
+  .done{color:var(--green)} .run{color:var(--orange)} .wait{color:var(--ink3)}
+  /* ===== EVAL ===== */
+  .controls{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  .ctl{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink2)}
+  select{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-family:var(--mono);font-size:13px}
+  .toggle{display:inline-flex;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .toggle button{background:none;border:none;color:var(--ink3);padding:7px 14px;font-family:var(--mono);font-size:12.5px;cursor:pointer}
+  .toggle button.on{background:var(--blue);color:#04122a;font-weight:700}
+  .meta{color:var(--ink3);font-size:12px;font-family:var(--mono);margin:10px 0 18px}
+  .meta b{color:var(--ink2)}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:10px}
+  .rc{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:15px 17px}
+  .rc .k{font-family:var(--mono);font-size:11.5px;color:var(--ink3)}
+  .rc .pct{font-size:28px;font-weight:700;margin-top:4px} .rc .cnt{font-family:var(--mono);font-size:12px;color:var(--ink2)}
+  .rc.r1 .pct{color:var(--green)} .rc.t3 .pct{color:var(--cyan)} .rc.t5 .pct{color:var(--blue)} .rc.miss .pct{color:var(--red)}
+  .flip{font-family:var(--mono);font-size:12.5px;color:var(--gold);margin:2px 0 26px} .flip.hidden{visibility:hidden}
+  .chartwrap{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
+  .legend{display:flex;flex-direction:column;gap:9px;font-size:13px}
+  .lg{display:flex;align-items:center;gap:9px;color:var(--ink2)} .lg .sw{width:22px;height:3px;border-radius:2px} .lg .soon{font-size:11px;color:var(--ink3);font-family:var(--mono)}
+  .fgwrap{display:grid;grid-template-columns:320px 1fr;gap:18px}
+  .fb{display:grid;grid-template-columns:130px 1fr 28px;gap:9px;align-items:center;font-size:12.5px;cursor:pointer;padding:4px;border-radius:8px}
+  .fb:hover,.fb.sel{background:var(--card2)} .fb .track{height:12px;background:rgba(255,255,255,.05);border-radius:6px;overflow:hidden}
+  .fb .fill{height:100%;background:var(--orange);border-radius:6px} .fb .v{font-family:var(--mono);font-size:12px;text-align:right;color:var(--ink2)}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
+  .tile{border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+  .tile .img{height:66px;display:flex;align-items:flex-end}.tile .badge{font-size:10px;padding:2px 6px;margin:5px;border-radius:5px;background:rgba(0,0,0,.5)}
+  .tile .cap{padding:6px 8px;font-size:11px} .tile .gt{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tile .rk{font-family:var(--mono);font-size:10px} .ok{color:var(--green)} .bad{color:var(--red)} .neutral{color:var(--ink3)}
+  /* ===== ADD DATASET ===== */
+  .steps{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;align-items:stretch}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;position:relative}
+  .step .num{font-family:var(--mono);font-size:11px;color:var(--blue);letter-spacing:.05em}
+  .step h3{margin:5px 0 10px;font-size:15px}
+  .step .who{font-size:11px;font-family:var(--mono);padding:2px 7px;border-radius:5px;display:inline-block;margin-bottom:10px}
+  .who.human{background:rgba(245,196,81,.15);color:var(--gold)} .who.tool{background:rgba(95,211,123,.15);color:var(--green)}
+  .step ul{margin:0;padding-left:16px;font-size:12.5px;color:var(--ink2)} .step li{margin-bottom:5px}
+  .step code{font-family:var(--mono);font-size:11.5px;color:var(--cyan)}
+  .arrow{position:absolute;right:-11px;top:50%;transform:translateY(-50%);color:var(--ink3);font-size:18px;z-index:2}
+  .req{color:var(--gold)} .opt{color:var(--ink3)}
+  .cli{background:#0a1140;border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-family:var(--mono);font-size:12.5px;color:var(--cyan);margin-top:16px;overflow-x:auto}
+  .cli .c{color:var(--ink3)}
+  .flagrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .flag{font-family:var(--mono);font-size:11.5px;padding:5px 10px;border-radius:7px;background:rgba(255,107,92,.12);border:1px solid rgba(255,107,92,.3);color:#ffb3aa}
+  /* ===== RUN ===== */
+  .field{margin-bottom:14px}
+  .field .fl{display:block;font-size:11.5px;color:var(--ink3);font-family:var(--mono);margin-bottom:6px;letter-spacing:.04em}
+  input[type=text]{background:var(--card2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-family:var(--mono);font-size:13px;width:280px}
+  .ver{font-family:var(--mono);font-size:12px;color:var(--ink2);margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .ver .bg{color:var(--gold)}
+  .params{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .param{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--ink2);background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;cursor:pointer}
+  .param input{accent-color:var(--blue);width:15px;height:15px}
+  .param .pk{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  .param .fl2{margin-left:auto;font-size:10px;font-family:var(--mono);color:var(--orange)}
+  .sig{font-family:var(--mono);font-size:11.5px;color:var(--cyan);background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:8px 11px;margin-bottom:10px;word-break:break-all}
+  .plist{display:flex;flex-direction:column;gap:6px}
+  .prow{display:grid;grid-template-columns:18px 120px 150px 1fr;gap:10px;align-items:center;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:13px;cursor:pointer}
+  .prow .nm{color:var(--ink2)} .prow .warn2{color:var(--orange);font-size:11px}
+  .prow .pk{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  .prow .m{font-family:var(--mono);font-size:11px;color:var(--cyan)}
+  .prow select{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:4px 7px;font-family:var(--mono);font-size:11px;max-width:100%}
+  .mcell{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}
+  .topk{border-color:rgba(59,130,246,.5)!important;color:var(--cyan)!important}
+  .prow input{accent-color:var(--blue);width:15px;height:15px}
+  #prov .pv{color:var(--ink);display:block} #prov .mm{color:var(--cyan)}
+  /* ===== CASE ANALYSIS ===== */
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+  .chip{font-family:var(--mono);font-size:12px;padding:6px 12px;border-radius:20px;border:1px solid var(--line);background:var(--card2);color:var(--ink2);cursor:pointer}
+  .chip.on{background:var(--blue);color:#04122a;font-weight:700;border-color:var(--blue)}
+  .chip .c{opacity:.65;margin-left:5px}
+  .caselayout{display:grid;grid-template-columns:290px 1fr;gap:16px}
+  .caselist{max-height:560px;overflow-y:auto;display:flex;flex-direction:column;gap:7px;padding-right:6px}
+  .ci{display:grid;grid-template-columns:44px 1fr auto;gap:9px;align-items:center;background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:6px;cursor:pointer}
+  .ci.sel{outline:1.5px solid var(--blue)}
+  .ci img{width:44px;height:44px;object-fit:cover;border-radius:6px;background:#0c123a}
+  .ci .g{font-size:12px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ci .oc{font-family:var(--mono);font-size:9px;padding:2px 5px;border-radius:4px;white-space:nowrap}
+  .oc.correct{background:rgba(95,211,123,.18);color:var(--green)}
+  .oc.selection{background:rgba(255,159,69,.18);color:var(--orange)}
+  .oc.retrieval{background:rgba(255,107,92,.18);color:var(--red)}
+  .oc.non_poi,.oc.deferred,.oc.no_gt,.oc.other{background:rgba(118,131,184,.18);color:var(--ink3)}
+  .cd{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:16px;min-height:420px;font-size:13px}
+  .cd img{width:100%;max-height:230px;object-fit:cover;border-radius:10px;margin-bottom:12px;background:#0c123a}
+  .cd .drow{display:flex;gap:10px;margin-bottom:7px}
+  .cd .lab{color:var(--ink3);font-family:var(--mono);font-size:11px;width:78px;flex:none;padding-top:2px}
+  .cd .val{color:var(--ink);word-break:break-word} .cd .val.gt{color:var(--gold);font-weight:600}
+  .cd .expl{border-radius:8px;padding:10px 12px;font-size:12.5px;margin:8px 0 12px;border:1px solid var(--line)}
+  .cand{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-radius:7px;background:var(--card);border:1px solid var(--line);margin-bottom:5px;font-size:12.5px}
+  .cand.isgt{border-color:var(--green);background:rgba(95,211,123,.09)}
+  .cand.ispick{border-color:var(--orange)}
+  .cand .tg{font-family:var(--mono);font-size:9.5px;padding:2px 6px;border-radius:4px;margin-left:8px}
+  /* ===== ROW STRUCTURE ===== */
+  .rst{width:100%;border-collapse:collapse;font-size:12.5px}
+  .rst th,.rst td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .rst th{color:var(--ink3);font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
+  .rst .nm3{color:var(--ink)} .rst .m3{font-family:var(--mono);font-size:11px;color:var(--cyan)}
+  .rst .rl{font-family:var(--mono);font-size:11px}
+  .rst .fb2{display:flex;align-items:center;gap:8px}
+  .rst .mt2{width:80px;height:7px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}
+  .rst .mf2{height:100%;border-radius:4px} .rst .mp2{font-family:var(--mono);font-size:11px;color:var(--ink2);width:34px}
+  .editor{width:100%;min-height:200px;background:#0a1140;color:#cfe3ff;border:1px solid var(--line);border-radius:10px;padding:14px;font-family:var(--mono);font-size:12.5px;line-height:1.6;resize:vertical;white-space:pre}
+  .loadsnippet{margin:0;background:#0a1140;color:#cfe3ff;border:1px solid var(--line);border-radius:10px;padding:14px;font-family:var(--mono);font-size:12.5px;line-height:1.65;overflow-x:auto;white-space:pre}
+  .filedrop{display:flex;align-items:center;justify-content:center;gap:8px;border:1.5px dashed var(--line);border-radius:10px;padding:24px;cursor:pointer;color:var(--ink2);font-size:13px;background:var(--card2);transition:border-color .2s}
+  .filedrop:hover{border-color:var(--blue)} .filedrop.has{border-color:var(--green);color:var(--green)}
+  .runbar{display:flex;gap:12px;align-items:center;margin-top:14px}
+  .runbtn{background:var(--blue);color:#04122a;border:none;border-radius:9px;padding:10px 22px;font-weight:700;font-size:14px;cursor:pointer;font-family:var(--sans)}
+  .runs{width:100%;border-collapse:collapse;font-size:12.5px}
+  .runs th,.runs td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  .runs th{color:var(--ink3);font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
+  .runs td code{font-family:var(--mono);color:var(--cyan);font-size:11px}
+  .runs td.name{font-family:var(--mono);color:var(--ink)}
+  .stt{font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:5px}
+  .stt.ok{background:rgba(95,211,123,.15);color:var(--green)} .stt.run2{background:rgba(255,159,69,.15);color:var(--orange)}
+  footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);color:var(--ink3);font-size:12px;font-family:var(--mono)}
+  @media(max-width:800px){.kpis,.cards{grid-template-columns:repeat(2,1fr)}.grid2,.fgwrap,.steps{grid-template-columns:1fr}.grid{grid-template-columns:repeat(3,1fr)}.arrow{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="mockbar">🧪 <b>UI 목업</b> — 개요 탭은 <b>현재 실수치</b> 반영 · 평가 탭 숫자는 <b>예시</b>(raw baseline n=190만 실측, 정규화 엔진 연결 전) · 추가 탭은 온보딩 <b>계약 가이드</b>.</div>
+  <h1>POI 평가 도구</h1>
+  <p class="sub">Bloggo · KS2-32 / KS2-34 — 데이터셋 분석 · 평가 자동화 · 확장</p>
+
+  <div class="tabs">
+    <button data-t="overview" class="on">① 개요</button>
+    <button data-t="run">② 평가 실행</button>
+    <button data-t="eval">③ 평가 결과</button>
+    <button data-t="add">④ 데이터셋 추가</button>
+  </div>
+
+  <!-- ================= OVERVIEW ================= -->
+  <div class="view on" id="v-overview">
+    <div class="kpis">
+      <div class="kpi"><div class="n">280</div><div class="l">총 행</div></div>
+      <div class="kpi"><div class="n">233</div><div class="l">실사용자 GT (지표 대상)</div></div>
+      <div class="kpi"><div class="n">268</div><div class="l">사진 있는 행</div></div>
+      <div class="kpi"><div class="n">8</div><div class="l">국가</div></div>
+    </div>
+    <div class="grid2" style="margin-top:16px">
+      <div class="panel">
+        <h2 style="margin-top:0">출처 (provenance)</h2>
+        <div class="srccard">
+          <div class="src"><span class="dot" style="background:var(--blue)"></span><span>linkedspaces <span class="prov">· owner 실사용자 · real-user-export</span></span><b>228</b></div>
+          <div class="src"><span class="dot" style="background:var(--cyan)"></span><span>union-city <span class="prov">· owner 우혁 · personal-blog</span></span><b>33</b></div>
+          <div class="src"><span class="dot" style="background:var(--violet)"></span><span>vancouver <span class="prov">· owner 인소 · personal-blog</span></span><b>19</b></div>
+        </div>
+        <h2>신뢰등급 (채점 취급)</h2>
+        <div class="bars">
+          <div class="bar"><span class="lbl">user_selected</span><div class="track"><div class="fill" style="width:100%;background:var(--gold)"></div></div><span class="v">233</span></div>
+          <div class="bar"><span class="lbl">confident</span><div class="track"><div class="fill" style="width:14%;background:var(--green)"></div></div><span class="v">32</span></div>
+          <div class="bar"><span class="lbl">non_poi</span><div class="track"><div class="fill" style="width:3%;background:var(--ink3)"></div></div><span class="v">6</span></div>
+          <div class="bar"><span class="lbl">unresolved</span><div class="track"><div class="fill" style="width:4%;background:var(--red)"></div></div><span class="v">9</span></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2 style="margin-top:0">국가</h2>
+        <div class="bars">
+          <div class="bar"><span class="lbl">🇺🇸 United States</span><div class="track"><div class="fill" style="width:100%;background:var(--blue)"></div></div><span class="v">206</span></div>
+          <div class="bar"><span class="lbl">🇰🇷 South Korea</span><div class="track"><div class="fill" style="width:14%;background:var(--pink)"></div></div><span class="v">28</span></div>
+          <div class="bar"><span class="lbl">🇨🇦 Canada</span><div class="track"><div class="fill" style="width:12%;background:var(--cyan)"></div></div><span class="v">24</span></div>
+          <div class="bar"><span class="lbl">기타 (MX·ES·FR·NL·?)</span><div class="track"><div class="fill" style="width:10%;background:var(--violet)"></div></div><span class="v">22</span></div>
+        </div>
+        <h2>신호 파이프라인</h2>
+        <div class="pipe">
+          <div class="pl"><span class="lbl">Vision OCR</span><div class="track"><div class="seg" style="width:96%;background:var(--green)"></div></div><span class="st done">완료</span></div>
+          <div class="pl"><span class="lbl">MapKit 베이스라인</span><div class="track"><div class="seg" style="width:86%;background:var(--green)"></div></div><span class="st done">완료</span></div>
+          <div class="pl"><span class="lbl">온디바이스 LLM</span><div class="track"><div class="seg" style="width:19%;background:var(--orange)"></div></div><span class="st run">진행중</span></div>
+          <div class="pl"><span class="lbl">FastVLM</span><div class="track"><div class="seg" style="width:4%;background:#333c66"></div></div><span class="st wait">대기</span></div>
+        </div>
+      </div>
+    </div>
+    <h2>한 행의 구조 — 라벨 컬럼 · 채움 · 입력벡터</h2>
+    <div class="panel">
+      <table class="rst"><thead><tr><th>필드</th><th>역할</th><th>채움</th><th>추출 방법</th></tr></thead><tbody id="rowstruct"></tbody></table>
+      <div class="note" style="margin-top:14px"><b>입력벡터</b> = ② 평가 실행에서 함수가 받을 수 있는 신호 — 각 행이 실제로 들고 있는 것. <b>채움이 낮으면 그 신호를 쓰는 알고리즘의 상한도 낮음</b> (예: VLM 설명 0% = 아직 못 씀, OCR 44% = 절반만 텍스트 존재).</div>
+    </div>
+    <div class="note"><b>전체 라이브 버전</b> = <code>dataset-overview.html</code> (스키마 테이블·툴팁·경고배너·라이브 집계 포함). 이 탭은 그 요약이며 수치는 현재 실제 데이터.</div>
+  </div>
+
+  <!-- ================= RUN ================= -->
+  <div class="view" id="v-run">
+    <p style="color:var(--ink2);font-size:14px;margin:0 0 18px">함수 하나가 든 스크립트를 제출하면 <b>eval set 전체에 실행 → 매칭·스코어 → ③ 평가 결과</b>에 새 실행으로 뜬다. 함수는 <b>선택한 입력만</b> 받고 <b>예측 장소명</b>을 반환한다.</p>
+
+    <h2 style="margin-top:6px">실행 설정</h2>
+    <div class="panel">
+      <div class="field"><span class="fl">테스트 이름</span>
+        <input type="text" id="tname" value="ocr-match" spellcheck="false">
+        <div class="ver" id="verstat"></div>
+      </div>
+      <div class="field"><span class="fl">저장 모드 · 스코프</span>
+        <select id="savemode">
+          <option value="auto">자동 (다음 버전)</option>
+          <option value="v1">v1 덮어쓰기</option>
+          <option value="v2">v2 덮어쓰기</option>
+        </select>
+        &nbsp;
+        <select id="rscope"><option>전체</option><option>linkedspaces</option><option>union-city</option><option>vancouver</option></select>
+      </div>
+    </div>
+
+    <h2>입력 파라미터 선택 <span style="color:var(--ink3);text-transform:none;letter-spacing:0">— 함수가 받을 것 · 추출 방법 · 후보 top-K</span></h2>
+    <div class="panel">
+      <div id="params"></div>
+    </div>
+
+    <h2>사용 방법 <span style="color:var(--ink3);text-transform:none;letter-spacing:0">— 선택한 입력을 이렇게 불러옵니다 (스크립트에서 참고)</span></h2>
+    <div class="panel">
+      <pre class="loadsnippet" id="loadsnippet"></pre>
+    </div>
+
+    <h2>예측 함수 <span style="color:var(--ink3);text-transform:none;letter-spacing:0">— 파일 첨부 (.py / .c …)</span></h2>
+    <div class="panel">
+      <label class="filedrop" for="scriptfile">
+        <input type="file" id="scriptfile" accept=".py,.c,.cpp,.rs,.js,.sh" hidden>
+        <span id="filelabel">📎 predict 계약을 구현한 스크립트를 첨부 — 클릭 또는 드롭</span>
+      </label>
+      <div style="color:var(--ink3);font-size:11.5px;font-family:var(--mono);margin-top:8px">계약: Python <span style="color:var(--cyan)">def predict(case) → str | {"prediction","reason"}</span> · 그 외 언어는 stdin JSON → stdout 예측</div>
+      <div class="runbar">
+        <button class="runbtn" id="runbtn">▶ 실행</button>
+        <span style="color:var(--ink3);font-size:12px;font-family:var(--mono)" id="runhint"></span>
+      </div>
+    </div>
+
+    <h2>최근 실행 <span style="color:var(--ink3);text-transform:none;letter-spacing:0">— 이름 같으면 자동 버저닝</span></h2>
+    <div class="panel">
+      <table class="runs"><thead><tr><th>이름</th><th>버전</th><th>스크립트</th><th>입력</th><th>스코프</th><th>rank-1</th><th>상태</th></tr></thead>
+        <tbody id="runsbody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- ================= EVAL ================= -->
+  <div class="view" id="v-eval">
+    <div class="controls">
+      <div class="ctl">스코프 <select id="scope">
+        <option value="all">전체</option>
+        <option value="linkedspaces">linkedspaces · 실사용자</option>
+        <option value="union-city">union-city · 우혁</option>
+        <option value="vancouver">vancouver · 인소</option>
+      </select></div>
+      <div class="ctl">매칭 <span class="toggle" id="mode"><button data-m="raw" class="on">raw</button><button data-m="norm">normalized</button></span></div>
+    </div>
+    <div class="meta" id="meta"></div>
+    <div class="cards">
+      <div class="rc r1"><div class="k">rank-1 · GT=최근접</div><div class="pct" id="p-r1">–</div><div class="cnt" id="c-r1"></div></div>
+      <div class="rc t3"><div class="k">top-3 · 상위 3 안</div><div class="pct" id="p-t3">–</div><div class="cnt" id="c-t3"></div></div>
+      <div class="rc t5"><div class="k">top-5 · 상위 5 안</div><div class="pct" id="p-t5">–</div><div class="cnt" id="c-t5"></div></div>
+      <div class="rc miss"><div class="k">MISS · 후보에 없음</div><div class="pct" id="p-miss">–</div><div class="cnt" id="c-miss"></div></div>
+    </div>
+    <div class="flip" id="flip"></div>
+
+    <h2>검색(retrieval) — top-N, 후보 API별</h2>
+    <div class="panel"><div class="chartwrap">
+      <svg id="curve" width="580" height="260" viewBox="0 0 580 260"></svg>
+      <div class="legend">
+        <div class="lg"><span class="sw" style="background:var(--green)"></span>MapKit <span class="soon">현재</span></div>
+        <div class="lg"><span class="sw" style="background:var(--ink3);height:0;border-top:2px dashed var(--ink3)"></span>Google Places <span class="soon">예시 · 이후</span></div>
+        <div class="lg" style="margin-top:6px;color:var(--ink3);font-size:12px">y = GT가 top-N 후보에 존재<br>x = N (1·2·3·5·10)</div>
+      </div>
+    </div>
+    <div class="note"><b>검색만.</b> 후보 리스트에 답이 들어오나. 알고리즘이 아니라 <b>검색 API가 바뀌어야</b> 선이 바뀐다(예: Google/Kakao). 상한선 위 100%까지 = 어떤 알고리즘도 못 메우는 부분.</div></div>
+
+    <h2>식별(selection) 정확도 — 알고리즘별</h2>
+    <div class="panel">
+      <svg id="bars" width="580" height="250" viewBox="0 0 580 250"></svg>
+      <div class="note"><b>각 막대 = 제출된 알고리즘</b>(② 평가 실행). 예측==GT 비율. <b>x=알고리즘 · y=정확도%</b> — N의 함수가 아니라 알고리즘당 한 숫자. 후보를 어떻게 쓰든(또는 이미지 직접) 결과는 하나.</div>
+    </div>
+
+    <h2>케이스 분석 — 성공 / 실패 <span style="color:var(--green);text-transform:none;letter-spacing:0"> · 실데이터 · baseline(MapKit 최근접)</span></h2>
+    <div class="panel">
+      <div class="chips" id="chips"></div>
+      <div class="caselayout">
+        <div class="caselist" id="caselist"></div>
+        <div class="cd" id="casedetail" style="color:var(--ink3)">왼쪽에서 케이스를 선택하세요.</div>
+      </div>
+      <div class="note"><b>검색실패 vs 식별실패:</b> <span style="color:var(--red)">검색실패</span>=GT가 250m 후보에 아예 없음(알고리즘으론 못 고침). <span style="color:var(--orange)">식별실패</span>=GT가 후보엔 있는데 앱이 최근접만 골라 놓침(신호로 고칠 수 있음). 케이스를 열면 후보 리스트에서 GT·앱선택을 하이라이트.</div>
+    </div>
+  </div>
+
+  <!-- ================= ADD DATASET ================= -->
+  <div class="view" id="v-add">
+    <p style="color:var(--ink2);font-size:14px;margin:0 0 18px">새 블로그/소스를 붙이는 절차. <b style="color:var(--gold)">사람은 2개만</b> 넣고, 나머지는 <b style="color:var(--green)">도구가 자동으로</b> 채운다.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="num">STEP 1</div><h3>등록</h3><span class="who human">사람 · config</span>
+        <ul>
+          <li><code>dashboard_config.json ›  sources</code>에 한 항목</li>
+          <li><code>key · owner · source_type</code></li>
+          <li><code>label · color · default_confidence</code></li>
+        </ul>
+        <div class="arrow">→</div>
+      </div>
+      <div class="step">
+        <div class="num">STEP 2</div><h3>템플릿 ZIP</h3><span class="who human">사람 · 업로드</span>
+        <ul>
+          <li><span class="req">✅ photos/</span> 이미지 파일</li>
+          <li><span class="req">✅ manifest.csv</span> photo + gt_input_raw</li>
+          <li><span class="opt">· notes (선택)</span></li>
+        </ul>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <a class="btn" href="templates/poi-dataset-upload-template.zip" download>템플릿 ZIP 다운로드</a>
+          <label class="btn" style="cursor:pointer">ZIP 검증<input id="uploadZip" type="file" accept=".zip,application/zip" style="display:none"></label>
+        </div>
+        <div class="arrow">→</div>
+      </div>
+      <div class="step">
+        <div class="num">STEP 3</div><h3>자동 채움</h3><span class="who tool">도구 · ingest</span>
+        <ul>
+          <li>좌표·시각 ← EXIF</li>
+          <li>OCR 텍스트 ← Vision</li>
+          <li>도시·국가 ← 지오코딩</li>
+          <li>eval_provider ← KR Kakao / non-KR MapKit</li>
+          <li>gt_confidence ← 기본값</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="cli"><span class="c"># 1차 입력 규격: 템플릿 ZIP</span><br>
+    dataset_slug.zip / dataset_slug / manifest.csv + photos /<br>
+    <span class="c"># 서버 검증: POST /api/validate-upload-package</span></div>
+    <div id="uploadStatus" class="note" style="margin-top:12px">ZIP을 선택하면 manifest 구조와 이미지 경로를 먼저 검증한다. 좌표·국가·도시는 사용자가 넣지 않고 ingest 단계에서 자동 추출/추정한다.</div>
+
+    <div class="flagrow">
+      <span class="flag">⚠ EXIF GPS 없음 → no_coord 플래그</span>
+      <span class="flag">⚠ GT 없음 → no_gt 플래그</span>
+      <span class="flag">비파괴·멱등 (빈 셀만 채움)</span>
+    </div>
+    <div class="note"><b>결측은 조용히 버리지 않는다</b> — 좌표/GT가 없으면 행을 버리는 대신 플래그로 표시해 개요·경고에 노출(원칙 4). 보강도 같은 절차, <code>--dataset</code>에 기존 key를 주면 됨.</div>
+
+    <h2>사람이 넣는 것 vs 도구가 채우는 것</h2>
+    <div class="panel"><div class="bars">
+      <div class="bar"><span class="lbl" style="color:var(--gold)">사람 · 필수</span><div class="track"><div class="fill" style="width:22%;background:var(--gold)"></div></div><span class="v">2</span></div>
+      <div class="bar"><span class="lbl" style="color:var(--green)">도구 · 자동</span><div class="track"><div class="fill" style="width:100%;background:var(--green)"></div></div><span class="v">9+</span></div>
+    </div><div class="note" style="margin-top:12px">사진 + GT 2개만 넣으면 → 좌표·시각·OCR·도시·국가·MapKit rank·매치근거·신뢰등급·dataset·photo 등 9개 이상이 자동. 확장 비용이 낮아야 데이터셋이 자유롭게 는다.</div></div>
+  </div>
+
+  <footer>mvp-eval-ui.html · 목업 · 개요=실수치 · 평가=예시(raw n=190 실측) · 추가=계약 가이드</footer>
+</div>
+
+<script>
+// ---------- tabs ----------
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll(".tabs button").forEach(x=>x.classList.toggle("on",x===b));
+  document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on", v.id==="v-"+b.dataset.t));
+});
+
+// ---------- eval (mock) ----------
+// ceiling = 검색(MapKit): GT가 top-N 후보에 존재 %.  apiB = 다른 검색 API(예시).
+// algos = 식별 알고리즘별 정확도(예측==GT) %. 각 막대 = 제출된 실행.
+// ceiling = 오목(diminishing returns): top-1~3에서 급상승, 뒤로 평평. 카드(r1/t3/t5/miss)는 ceiling과 일치.
+const DATA={
+  all:{raw:{n:190,r1:30,t3:49,t5:55,miss:129,ceiling:[16,22,26,29,32],apiB:[22,30,36,41,45],algos:[["최근접",16],["OCR+LLM",22],["FastVLM",28]]},
+       norm:{n:190,r1:48,t3:76,t5:86,miss:99,ceiling:[25,34,40,45,48],apiB:[32,44,52,58,62],algos:[["최근접",25],["OCR+LLM",36],["FastVLM",46]]},excl:"KR 28 · no_gt 4 · no_venue 6"},
+  linkedspaces:{raw:{n:190,r1:30,t3:49,t5:55,miss:129,ceiling:[16,22,26,29,32],apiB:[22,30,36,41,45],algos:[["최근접",16],["OCR+LLM",22],["FastVLM",28]]},
+       norm:{n:190,r1:48,t3:76,t5:86,miss:99,ceiling:[25,34,40,45,48],apiB:[32,44,52,58,62],algos:[["최근접",25],["OCR+LLM",36],["FastVLM",46]]},excl:"KR 28 · no_gt 4 · no_venue 6"},
+  "union-city":{raw:{n:20,r1:6,t3:9,t5:11,miss:9,ceiling:[30,40,47,53,57],apiB:[38,50,58,64,68],algos:[["최근접",30],["OCR+LLM",39],["FastVLM",47]]},
+       norm:{n:20,r1:9,t3:13,t5:14,miss:5,ceiling:[45,58,66,72,75],apiB:[52,66,74,80,84],algos:[["최근접",45],["OCR+LLM",58],["FastVLM",68]]},excl:"non_poi 6 · no_venue 2"},
+  vancouver:{raw:{n:11,r1:2,t3:4,t5:4,miss:7,ceiling:[18,26,32,36,37],apiB:[26,36,44,50,52],algos:[["최근접",18],["OCR+LLM",25],["FastVLM",31]]},
+       norm:{n:11,r1:4,t3:6,t5:7,miss:4,ceiling:[36,50,58,63,64],apiB:[44,58,66,72,74],algos:[["최근접",36],["OCR+LLM",48],["FastVLM",56]]},excl:"unresolved 8"},
+};
+const $=s=>document.querySelector(s);
+let scope="all",mode="raw";
+function render(){
+  const d=DATA[scope][mode],raw=DATA[scope].raw;
+  $("#meta").innerHTML=`실사용자 GT <b>n=${d.n}</b> · 제외: ${DATA[scope].excl} · 기준: <b>${mode==='raw'?'raw exact-match':'normalized 토큰셋'}</b>`;
+  const pct=x=>Math.round(100*x/d.n), set=(id,c)=>{$("#p-"+id).textContent=pct(c)+"%";$("#c-"+id).textContent=c+" / "+d.n;};
+  set("r1",d.r1);set("t3",d.t3);set("t5",d.t5);set("miss",d.miss);
+  const flip=$("#flip");
+  if(mode==="norm"){flip.classList.remove("hidden");flip.textContent=`raw→normalized 뒤집힘: MISS ${raw.miss} → ${d.miss} (가짜 MISS ${raw.miss-d.miss}개 매칭으로 회복)`;}
+  else flip.classList.add("hidden");
+  drawCurve(d.ceiling,d.apiB);drawBars(d.algos);
+}
+function drawCurve(ceil,apiB){
+  const W=580,H=260,pl=44,pr=16,pt=16,pb=32,xs=[1,2,3,5,10];
+  const x=i=>pl+(W-pl-pr)*(i/(xs.length-1)),y=v=>pt+(H-pt-pb)*(1-v/100);
+  let g="";
+  for(let v=0;v<=100;v+=25)g+=`<line x1="${pl}" y1="${y(v)}" x2="${W-pr}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"/><text x="${pl-8}" y="${y(v)+4}" text-anchor="end" fill="var(--ink3)" font-size="11" font-family="var(--mono)">${v}%</text>`;
+  xs.forEach((n,i)=>g+=`<text x="${x(i)}" y="${H-11}" text-anchor="middle" fill="var(--ink3)" font-size="11" font-family="var(--mono)">${n}</text>`);
+  const poly=(a,c,dash)=>`<polyline points="${a.map((v,i)=>`${x(i)},${y(v)}`).join(" ")}" fill="none" stroke="${c}" stroke-width="2.4"${dash?' stroke-dasharray="5 4" stroke-width="1.8"':''}/>`;
+  const dots=(a,c)=>a.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="${c}"/>`).join("");
+  let s=poly(apiB,"var(--ink3)",true);                                 // 다른 API(예시)
+  s+=poly(ceil,"var(--green)",false)+dots(ceil,"var(--green)");        // MapKit
+  ceil.forEach((v,i)=>s+=`<text x="${x(i)}" y="${y(v)-9}" text-anchor="middle" fill="var(--ink)" font-size="10.5" font-family="var(--mono)">${v}%</text>`);
+  $("#curve").innerHTML=g+s;
+}
+function drawBars(algos){
+  const W=580,H=250,pl=44,pr=16,pt=16,pb=42;
+  const y=v=>pt+(H-pt-pb)*(1-v/100), step=(W-pl-pr)/algos.length, bw=Math.min(70,step*0.5);
+  let g="";
+  for(let v=0;v<=100;v+=25)g+=`<line x1="${pl}" y1="${y(v)}" x2="${W-pr}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"/><text x="${pl-8}" y="${y(v)+4}" text-anchor="end" fill="var(--ink3)" font-size="11" font-family="var(--mono)">${v}%</text>`;
+  const cols=["var(--green)","var(--cyan)","var(--violet)","var(--gold)","var(--orange)"];
+  algos.forEach(([name,acc],i)=>{
+    const cx=pl+step*(i+0.5);
+    g+=`<rect x="${cx-bw/2}" y="${y(acc)}" width="${bw}" height="${y(0)-y(acc)}" rx="5" fill="${cols[i%cols.length]}"/>`;
+    g+=`<text x="${cx}" y="${y(acc)-7}" text-anchor="middle" fill="var(--ink)" font-size="12.5" font-weight="700" font-family="var(--mono)">${acc}%</text>`;
+    g+=`<text x="${cx}" y="${H-22}" text-anchor="middle" fill="var(--ink2)" font-size="11.5">${name}</text>`;
+  });
+  $("#bars").innerHTML=g;
+}
+// ---------- case analysis (real /api/records) ----------
+const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+let CASES=[],curOutcome='all',curCaseIdx=null;
+const OC_LABEL={correct:'정답',selection:'식별실패',retrieval:'검색실패',non_poi:'non_poi',deferred:'deferred',no_gt:'no_gt',other:'기타'};
+const OC_ORDER=['all','correct','selection','retrieval','non_poi','deferred','no_gt'];
+const normEq=(a,b)=>{a=(a||'').toLowerCase().trim();b=(b||'').toLowerCase().trim();return a&&b&&(a===b||a.includes(b)||b.includes(a));};
+async function loadCases(){
+  try{const r=await fetch('/api/records?dataset=linkedspaces',{cache:'no-store'});CASES=await r.json();}
+  catch(e){CASES=[];}
+  computeCoverage();renderChips();renderCaseList();renderParams();
+}
+// top-K별 GT 검색 커버리지 (실측: app_poi_rank ≤ K 비율). base = 베이스라인 있는 user GT 행.
+function computeCoverage(){
+  const base=CASES.filter(c=>c.outcome==='correct'||c.outcome==='selection'||c.outcome==='retrieval');
+  window.COVERAGE={}; const n=base.length; if(!n)return;
+  const within=k=>base.filter(c=>{if(!c.rank||c.rank==='MISS')return false;return k==='전체'?true:parseInt(c.rank)<=k;}).length;
+  [3,5,10,'전체'].forEach(k=>window.COVERAGE[k]=Math.round(100*within(k)/n));
+  window.COVERAGE.__n=n;
+}
+const outCount=o=>o==='all'?CASES.length:CASES.filter(c=>c.outcome===o).length;
+function renderChips(){
+  $("#chips").innerHTML=OC_ORDER.filter(o=>o==='all'||outCount(o)).map(o=>
+    `<span class="chip ${o===curOutcome?'on':''}" data-o="${o}">${o==='all'?'전체':OC_LABEL[o]}<span class="c">${outCount(o)}</span></span>`).join('');
+  $("#chips").querySelectorAll('.chip').forEach(el=>el.onclick=()=>{curOutcome=el.dataset.o;renderChips();renderCaseList();});
+}
+function renderCaseList(){
+  const list=CASES.map((c,i)=>[c,i]).filter(([c])=>curOutcome==='all'||c.outcome===curOutcome);
+  $("#caselist").innerHTML=list.slice(0,200).map(([c,i])=>
+    `<div class="ci ${i===curCaseIdx?'sel':''}" data-i="${i}"><img loading="lazy" src="${c.photo_url}" onerror="this.style.visibility='hidden'"><span class="g">${esc(c.gt||'(GT 없음)')}</span><span class="oc ${c.outcome}">${OC_LABEL[c.outcome]||c.outcome}</span></div>`).join('')
+    || '<div style="color:var(--ink3);font-size:12px;padding:10px">해당 케이스 없음</div>';
+  $("#caselist").querySelectorAll('.ci').forEach(el=>el.onclick=()=>showCase(+el.dataset.i));
+}
+function showCase(i){
+  curCaseIdx=i;const c=CASES[i];
+  const E={
+    correct:['rgba(95,211,123,.1)','앱이 최근접으로 고른 후보가 GT. 정답.'],
+    selection:['rgba(255,159,69,.1)',`GT는 후보 <b>rank ${esc(c.rank)}</b> — 앱은 최근접 '<b>${esc(c.baseline_pick)}</b>'을 골라 놓침. <b>후보엔 있으니 신호(OCR·VLM)로 고칠 수 있음.</b>`],
+    retrieval:['rgba(255,107,92,.1)',`GT가 250m 후보(${esc(c.n_wide)}개)에 <b>없음</b>. 알고리즘으론 못 고침 — 반경·API·no_venue 문제. <i>단, 이름표기 차이 가짜 MISS일 수 있어 정규화 매칭으로 재확인.</i>`],
+    non_poi:['rgba(118,131,184,.1)','POI 아님. 정답은 거절.'],
+    deferred:['rgba(118,131,184,.1)','베이스라인 미실행(한국 등).'],
+    no_gt:['rgba(118,131,184,.1)','GT 라벨 없음.'],
+  }[c.outcome]||['rgba(118,131,184,.1)',''];
+  const gtIn=(c.candidates||[]).some(cd=>normEq(cd.name,c.gt));
+  const cands=(c.candidates||[]).map(cd=>{
+    const isgt=normEq(cd.name,c.gt),ispick=normEq(cd.name,c.baseline_pick);
+    const tags=(isgt?'<span class="tg" style="background:rgba(95,211,123,.2);color:var(--green)">GT</span>':'')+(ispick?'<span class="tg" style="background:rgba(255,159,69,.2);color:var(--orange)">앱선택</span>':'');
+    return `<div class="cand ${isgt?'isgt':''} ${ispick?'ispick':''}"><span>${esc(cd.name)}</span><span><span style="color:var(--ink3);font-family:var(--mono);font-size:11px">${esc(cd.dist)}</span>${tags}</span></div>`;
+  }).join('');
+  $("#casedetail").innerHTML=`
+    ${c.photo_url?`<img src="${c.photo_url}" onerror="this.style.display='none'">`:''}
+    <div class="drow"><span class="lab">GT</span><span class="val gt">${esc(c.gt||'(없음)')}</span></div>
+    <div class="drow"><span class="lab">앱 예측</span><span class="val">${esc(c.baseline_pick||'—')} <span style="color:var(--ink3)">(최근접 · rank ${esc(c.rank)})</span></span></div>
+    <div class="expl" style="background:${E[0]}"><b>${OC_LABEL[c.outcome]}</b> — ${E[1]}</div>
+    <div class="drow"><span class="lab">후보 top3</span><span class="val" style="flex:1">${cands||'<span style="color:var(--ink3)">없음</span>'}${(c.rank&&c.rank!=='MISS'&&!gtIn)?`<div style="color:var(--ink3);font-size:11px;margin-top:2px">※ GT는 rank ${esc(c.rank)} — 상위 3 밖 (전체 ${esc(c.n_wide)}개 중)</div>`:''}</span></div>
+    <div class="drow"><span class="lab">OCR</span><span class="val" style="font-size:12px;color:${c.ocr_text?'var(--ink2)':'var(--ink3)'}">${esc(c.ocr_text||'(텍스트 없음)')}</span></div>
+    <div class="drow"><span class="lab">좌표</span><span class="val" style="font-family:var(--mono);font-size:12px">${esc(c.lat)}, ${esc(c.lon)}</span></div>
+    <div class="drow"><span class="lab">카테고리</span><span class="val">${esc(c.category)}</span></div>`;
+  renderCaseList();
+}
+$("#scope").onchange=e=>{scope=e.target.value;render();};
+document.querySelectorAll("#mode button").forEach(b=>b.onclick=()=>{mode=b.dataset.m;document.querySelectorAll("#mode button").forEach(x=>x.classList.toggle("on",x===b));render();});
+render();
+loadCases();
+
+// ---------- overview: row structure (라벨 컬럼 · 채움 · 입력벡터) — live /api/overview fill ----------
+const ROWSTRUCT=[
+  ['입력벡터','이미지','in','photo','원본 jpg'],
+  ['입력벡터','좌표 lat/lon','in','capture_lat','EXIF GPS'],
+  ['입력벡터','촬영 시각','in','timestamp','EXIF DateTimeOriginal'],
+  ['입력벡터','OCR 텍스트','in','caption_ondevice','Vision VNRecognizeText'],
+  ['입력벡터','VLM 설명','in','__none','FastVLM-0.5B (미추출)'],
+  ['입력벡터','주변 후보','in','app_nearby_top1','MapKit MKLocalPOI'],
+  ['입력벡터','역지오코딩','in','city','Apple CLGeocoder'],
+  ['입력벡터','카테고리','in','category','GT 라벨 ⚠'],
+  ['정답','gt_place_name','gt','gt_place_name','사용자 선택'],
+  ['정답','gt_confidence','gt','gt_confidence','라벨 등급'],
+  ['평가','app_poi_rank','bl','app_poi_rank','MapKit rank'],
+  ['평가','app_nearby_top1','bl','app_nearby_top1','MapKit 최근접'],
+  ['메타','dataset·photo·notes','mt','dataset','등록/파일'],
+];
+async function loadRowStruct(){
+  let fill={},total=280;
+  try{const d=await(await fetch('/api/overview',{cache:'no-store'})).json();fill=d.fill||{};total=d.total||280;}catch(e){}
+  const RC={in:['var(--blue)','입력벡터'],gt:['var(--gold)','정답'],bl:['var(--green)','베이스라인'],mt:['var(--ink3)','메타']};
+  $("#rowstruct").innerHTML=ROWSTRUCT.map(([g,name,role,col,method])=>{
+    const f=fill[col]||0,pct=Math.round(100*f/total),rr=RC[role];
+    const color=pct>=90?'var(--green)':(pct===0?'var(--ink3)':'var(--orange)');
+    return `<tr><td class="nm3">${esc(name)}</td>
+      <td class="rl" style="color:${rr[0]}">${rr[1]}</td>
+      <td><div class="fb2"><div class="mt2"><div class="mf2" style="width:${pct}%;background:${color}"></div></div><span class="mp2">${pct}%</span></div></td>
+      <td class="m3">${esc(method)}</td></tr>`;
+  }).join('');
+}
+loadRowStruct();
+
+// ---------- run workspace (mock) ----------
+const REG={"ocr-match":[1,2],"nearest-only":[1]};
+let runsList=[
+  {name:"ocr-match",v:2,script:"ocr_match.py",inp:"ocr_text, nearby_candidates(top5)",scope:"전체",r1:"22%",st:"ok"},
+  {name:"nearest-only",v:1,script:"nearest.py",inp:"nearby_candidates(top3)",scope:"전체",r1:"15%",st:"ok"},
+  {name:"fastvlm-name",v:1,script:"vlm_name.py",inp:"image",scope:"전체",r1:"—",st:"run2"},
+];
+const g=id=>document.getElementById(id);
+// 입력 파라미터 = 신호 + 추출 방법(provenance). methods[0]=현재, 그 외=대안(이후).
+const PARAMS=[
+  {k:"image", name:"이미지", methods:["원본 사진 (jpg)"], on:false},
+  {k:"lat,lon", name:"좌표", methods:["EXIF GPS"], on:true},
+  {k:"timestamp", name:"촬영 시각", methods:["EXIF DateTimeOriginal"], on:false},
+  {k:"ocr_text", name:"OCR 텍스트", methods:["Vision VNRecognizeTextRequest","Tesseract (이후)","Google Vision (이후)"], on:true},
+  {k:"vlm_caption", name:"VLM 설명", methods:["FastVLM-0.5B","LLaVA (이후)"], on:false},
+  {k:"nearby_candidates", name:"주변 후보", methods:["MapKit MKLocalPointsOfInterest","Google Places (이후)","Kakao Local (이후)"], on:true, topk:[3,5,10,"전체"]},
+  {k:"city,country,address", name:"역지오코딩", methods:["Apple CLGeocoder","Google Geocoding (이후)"], on:false},
+  {k:"category", name:"카테고리", methods:["GT 라벨"], on:false, warn:"⚠ GT유래·실사용불가"},
+];
+function methodOf(i){const s=document.querySelector(`.prow[data-pi="${i}"] select[data-mi]`);return s?s.value:PARAMS[i].methods[0];}
+function renderParams(){
+  g('params').innerHTML='<div class="plist">'+PARAMS.map((p,i)=>{
+    const method=p.methods.length>1
+      ? `<select data-mi="${i}">${p.methods.map((m,j)=>`<option${j===0?' selected':''}>${m}</option>`).join('')}</select>`
+      : `<span class="m">${p.methods[0]}</span>`;
+    const topk=p.topk?`<select class="topk" data-ti="${i}" title="후보 상위 몇 개를 함수에 넘길지 · 괄호는 그 안에 든 GT 비율(MapKit 실측 검색 상한)">${p.topk.map(nn=>{const cv=(window.COVERAGE&&window.COVERAGE[nn]!=null)?` · GT ${window.COVERAGE[nn]}%`:'';return `<option value="top ${nn}"${nn===5?' selected':''}>top ${nn}${cv}</option>`;}).join('')}</select>`:'';
+    return `<label class="prow" data-pi="${i}"><input type="checkbox" data-k="${p.k}"${p.on?' checked':''}>
+      <span class="nm">${p.name}${p.warn?` <span class="warn2">${p.warn}</span>`:''}</span>
+      <span class="pk">${p.k}</span><span class="mcell">${method}${topk}</span></label>`;
+  }).join('')+'</div>';
+  g('params').querySelectorAll('input,select').forEach(el=>el.onchange=updSig);
+  updSig();
+}
+const ACC={
+  'image':['img','case["photo_path"]'],
+  'lat,lon':['lat, lon','case["lat"], case["lon"]'],
+  'timestamp':['ts','case["timestamp"]'],
+  'ocr_text':['ocr','case["ocr_text"]'],
+  'vlm_caption':['vlm','case["vlm_caption"]'],
+  'nearby_candidates':['cands','case["nearby_candidates"]'],
+  'city,country,address':['geo','case["geocode"]'],
+  'category':['cat','case["category_hint"]'],
+};
+function updSig(){
+  const rows=[...document.querySelectorAll('.prow')].filter(r=>r.querySelector('input').checked);
+  const cfg=[],lines=[];
+  rows.forEach(r=>{
+    const i=+r.dataset.pi,p=PARAMS[i],tk=r.querySelector('.topk');
+    const a=ACC[p.k]||[p.k.split(',')[0],`case["${p.k}"]`];
+    lines.push(`    ${a[0]} = ${a[1]}`.padEnd(40)+`# ${p.name}`);
+    const method=methodOf(i)+(tk?` · ${tk.value}`:'');
+    cfg.push(`#   ${(p.k+':').padEnd(22)}${method}`);
+  });
+  const header=cfg.length?`# ── run config (드롭다운 선택 · 하네스가 이 설정으로 case 번들 생성) ──\n${cfg.join('\n')}\n`:'';
+  g('loadsnippet').textContent=`${header}def predict(case):\n${lines.join('\n')||'    pass'}\n    # TODO: 예측 로직\n    return { "prediction": ..., "reason": ... }`;
+}
+function updVer(){
+  const nm=g('tname').value.trim(), ex=REG[nm];
+  g('verstat').innerHTML = (ex&&ex.length)
+    ? `기존 존재: v${ex.join(' · v')} → 자동 저장 시 <span class="bg">v${Math.max(...ex)+1}</span> · 또는 저장 모드에서 특정 버전 덮어쓰기`
+    : `새 테스트 → <span class="bg">v1</span>`;
+}
+function renderRuns(){
+  g('runsbody').innerHTML=runsList.map(r=>
+    `<tr><td class="name">${r.name}</td><td><code>v${r.v}</code></td><td><code>${r.script||'—'}</code></td><td><code>${r.inp}</code></td><td>${r.scope}</td><td>${r.r1}</td><td><span class="stt ${r.st}">${r.st==='ok'?'완료':'실행중'}</span></td></tr>`).join('');
+}
+let scriptName='';
+g('scriptfile').onchange=e=>{
+  const f=e.target.files[0]; scriptName=f?f.name:'';
+  g('filelabel').textContent=f?`📎 ${f.name} 첨부됨`:'📎 predict 계약을 구현한 스크립트를 첨부 — 클릭 또는 드롭';
+  document.querySelector('.filedrop').classList.toggle('has',!!f);
+};
+const uploadZip=g('uploadZip');
+if(uploadZip){
+  uploadZip.onchange=async e=>{
+    const f=e.target.files[0];
+    const status=g('uploadStatus');
+    if(!f) return;
+    status.textContent=`검증 중: ${f.name}`;
+    try{
+      const res=await fetch('/api/validate-upload-package',{method:'POST',body:f,headers:{'Content-Type':'application/zip'}});
+      const data=await res.json();
+      const errs=(data.errors||[]).slice(0,5).map(x=>`${x.code||'error'}${x.row?` row ${x.row}`:''}: ${x.message}`).join(' / ');
+      status.textContent=data.ok
+        ? `검증 성공: ${data.row_count||0}개 행, ${data.image_count||0}개 사진. 다음 단계에서 EXIF·지역·provider를 자동 추출한다.`
+        : `검증 실패: ${errs||data.error||'업로드 패키지를 확인하세요.'}`;
+    }catch(err){ status.textContent=`검증 요청 실패: ${err.message}`; }
+  };
+}
+g('tname').oninput=updVer;
+g('runbtn').onclick=()=>{
+  const nm=g('tname').value.trim()||'untitled', sm=g('savemode').value, ex=REG[nm]||[];
+  const v = sm==='auto' ? (ex.length?Math.max(...ex)+1:1) : parseInt(sm.slice(1));
+  REG[nm]=[...new Set([...ex,v])];
+  const checked=[...document.querySelectorAll('.prow')].filter(r=>r.querySelector('input').checked);
+  const keys=checked.map(r=>{
+    const i=+r.dataset.pi,tk=r.querySelector('.topk'),ms=r.querySelector('select[data-mi]');
+    const parts=[ms?ms.value.split(' ')[0]:'',tk?tk.value.replace(/\s/g,''):''].filter(Boolean);
+    return PARAMS[i].k+(parts.length?`(${parts.join('·')})`:'');
+  }).join(', ');
+  const scope=g('rscope').value;
+  runsList=runsList.filter(r=>!(r.name===nm&&r.v===v));
+  runsList.unshift({name:nm,v,inp:keys,scope,script:scriptName,r1:"실행중",st:"run2"});
+  renderRuns();updVer();
+  g('runhint').textContent=`제출됨: ${nm} v${v}${scriptName?' · '+scriptName:' · (스크립트 미첨부)'} → eval set(${scope}) 실행 → 결과 탭 반영 (목업)`;
+};
+renderParams();updVer();renderRuns();
+</script>
+</body>
+</html>
