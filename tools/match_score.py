@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Provider-aware POI match-rate metrics for the MVP dashboard.
+"""Provider-aware POI candidate-retrieval metrics for the MVP dashboard.
 
 MVP policy:
 - South Korea rows are currently held out until Kakao Local canonical/candidate
   data is populated.
-- Non-Korea rows are evaluated against MapKit candidates.
+- Non-Korea candidate retrieval is evaluated against MapKit candidates.
 - The primary matching rule is exact string equality between the provider
   canonical name and provider candidate name.
 - provider_place_id is kept when present, but is nullable and never required.
+
+Important: this module measures whether the provider candidate list contains the
+human GT place and at what rank. It is not a visual/user-intent identification
+accuracy evaluator; selection accuracy requires submitted algorithm predictions.
 
 This module intentionally uses only the Python standard library so it runs in
 this workspace without pandas.
@@ -334,7 +338,7 @@ def evaluate(dataset: str = "all", mode: str = "exact", rows: Optional[List[Dict
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Provider-aware POI match-rate metrics")
+    ap = argparse.ArgumentParser(description="Provider-aware POI candidate-retrieval metrics")
     ap.add_argument("--dataset", default="all")
     ap.add_argument("--mode", default="exact", choices=["exact", "raw", "normalized"])
     ap.add_argument("--csv", default=CSV_PATH)

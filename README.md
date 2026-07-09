@@ -1,6 +1,6 @@
 # POI Evaluation Tool
 
-Local POI evaluation dashboard/prototype for measuring place retrieval and selection quality.
+Local POI evaluation dashboard/prototype for measuring POI candidate retrieval coverage and, later, algorithm selection accuracy.
 
 This repository is the **public/shareable evaluation-tool layer** split from the private `poi-test-data` workspace. It intentionally contains code, specs, templates, and reports, but not raw user data.
 
@@ -17,7 +17,7 @@ Excluded from this public split:
 Implemented MVP pieces:
 
 - `tools/match_score.py`
-  - stdlib-only provider-aware match-rate evaluator
+  - stdlib-only provider-aware candidate-retrieval evaluator
   - CLI: `python3 tools/match_score.py --json`
   - default policy: same-provider exact string equality between canonical GT name and candidate name
   - optional candidate JSONL loading
@@ -36,12 +36,13 @@ Implemented MVP pieces:
 ## MVP scoring policy
 
 - Korea rows are currently **held out** until Kakao Local canonical/candidate data is populated.
-- Non-Korea rows are evaluated against MapKit.
-- MVP matching is exact string equality within the same provider.
+- Non-Korea candidate retrieval is currently measured against MapKit; Korea is held out until Kakao Local data exists.
+- These MapKit/Kakao numbers are **candidate coverage/rank metrics**, not visual/user-intent identification accuracy.
+- MVP retrieval matching is exact string equality within the same provider.
 - `provider_place_id` is nullable/optional and is not required for MVP scoring.
-- Normalized matching is retained as a diagnostic/fallback view only; it does not replace the provider-specific exact-name criterion.
+- The public MVP UI reports the provider-specific exact-name candidate retrieval metric only; normalized/string-relaxed checks are not used as the displayed scoring policy.
 
-With the current private local dataset snapshot, the Korea holdout result is:
+With the current private local dataset snapshot, the Korea holdout candidate-retrieval result is:
 
 ```text
 all:          n=228 rank1=38 top3=59 top5=68 miss=143 KR-held-out=28 no-provider-data=10

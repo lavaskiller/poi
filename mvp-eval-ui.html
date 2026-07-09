@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MVP — POI 평가 UI 목업</title>
+<title>MVP — POI 평가 UI</title>
 <style>
   :root{
     --bg:#050A30; --bg2:#080E38; --card:#101744; --card2:#0c123a;
@@ -18,9 +18,9 @@
   .wrap{max-width:1060px;margin:0 auto;padding:30px 24px 80px}
   h1{font-size:24px;margin:0 0 4px;font-weight:700;letter-spacing:-.02em}
   .sub{color:var(--ink3);font-size:13px;font-family:var(--mono);margin:0 0 18px}
-  .mockbar{background:repeating-linear-gradient(45deg,rgba(245,196,81,.10),rgba(245,196,81,.10) 12px,rgba(245,196,81,.05) 12px,rgba(245,196,81,.05) 24px);
+  .noticebar{background:repeating-linear-gradient(45deg,rgba(245,196,81,.10),rgba(245,196,81,.10) 12px,rgba(245,196,81,.05) 12px,rgba(245,196,81,.05) 24px);
     border:1px solid rgba(245,196,81,.4);border-radius:10px;padding:10px 14px;font-size:12.5px;color:#f5d689;margin-bottom:20px}
-  .mockbar b{color:var(--gold)}
+  .noticebar b{color:var(--gold)}
   /* tabs */
   .tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);margin-bottom:24px}
   .tabs button{background:none;border:none;border-bottom:2px solid transparent;color:var(--ink3);padding:11px 16px;font-size:14px;cursor:pointer;font-family:var(--sans)}
@@ -173,7 +173,7 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="mockbar">🧪 <b>MVP UI</b> — 개요/케이스/평가 지표는 서버 API 실수치 반영 · 알고리즘 실행 탭은 아직 로컬 프로토타입입니다.</div>
+  <div class="noticebar">📊 <b>MVP UI</b> — 개요/케이스/후보검색 평가는 서버 API 실수치만 표시합니다. 알고리즘 제출 실행은 아직 비활성입니다.</div>
   <h1>POI 평가 도구</h1>
   <p class="sub">Bloggo · KS2-32 / KS2-34 — 데이터셋 분석 · 평가 자동화 · 확장</p>
 
@@ -187,42 +187,23 @@
   <!-- ================= OVERVIEW ================= -->
   <div class="view on" id="v-overview">
     <div class="kpis">
-      <div class="kpi"><div class="n">280</div><div class="l">총 행</div></div>
-      <div class="kpi"><div class="n">233</div><div class="l">실사용자 GT (지표 대상)</div></div>
-      <div class="kpi"><div class="n">268</div><div class="l">사진 있는 행</div></div>
-      <div class="kpi"><div class="n">8</div><div class="l">국가</div></div>
+      <div class="kpi"><div class="n" id="k-total">–</div><div class="l">총 행</div></div>
+      <div class="kpi"><div class="n" id="k-gt">–</div><div class="l">GT 라벨 있는 행</div></div>
+      <div class="kpi"><div class="n" id="k-photo">–</div><div class="l">사진 참조 있는 행</div></div>
+      <div class="kpi"><div class="n" id="k-country">–</div><div class="l">국가</div></div>
     </div>
     <div class="grid2" style="margin-top:16px">
       <div class="panel">
         <h2 style="margin-top:0">출처 (provenance)</h2>
-        <div class="srccard">
-          <div class="src"><span class="dot" style="background:var(--blue)"></span><span>linkedspaces <span class="prov">· owner 실사용자 · real-user-export</span></span><b>228</b></div>
-          <div class="src"><span class="dot" style="background:var(--cyan)"></span><span>union-city <span class="prov">· owner 우혁 · personal-blog</span></span><b>33</b></div>
-          <div class="src"><span class="dot" style="background:var(--violet)"></span><span>vancouver <span class="prov">· owner 인소 · personal-blog</span></span><b>19</b></div>
-        </div>
+        <div class="srccard" id="sourcebars"></div>
         <h2>신뢰등급 (채점 취급)</h2>
-        <div class="bars">
-          <div class="bar"><span class="lbl">user_selected</span><div class="track"><div class="fill" style="width:100%;background:var(--gold)"></div></div><span class="v">233</span></div>
-          <div class="bar"><span class="lbl">confident</span><div class="track"><div class="fill" style="width:14%;background:var(--green)"></div></div><span class="v">32</span></div>
-          <div class="bar"><span class="lbl">non_poi</span><div class="track"><div class="fill" style="width:3%;background:var(--ink3)"></div></div><span class="v">6</span></div>
-          <div class="bar"><span class="lbl">unresolved</span><div class="track"><div class="fill" style="width:4%;background:var(--red)"></div></div><span class="v">9</span></div>
-        </div>
+        <div class="bars" id="confidencebars"></div>
       </div>
       <div class="panel">
         <h2 style="margin-top:0">국가</h2>
-        <div class="bars">
-          <div class="bar"><span class="lbl">🇺🇸 United States</span><div class="track"><div class="fill" style="width:100%;background:var(--blue)"></div></div><span class="v">206</span></div>
-          <div class="bar"><span class="lbl">🇰🇷 South Korea</span><div class="track"><div class="fill" style="width:14%;background:var(--pink)"></div></div><span class="v">28</span></div>
-          <div class="bar"><span class="lbl">🇨🇦 Canada</span><div class="track"><div class="fill" style="width:12%;background:var(--cyan)"></div></div><span class="v">24</span></div>
-          <div class="bar"><span class="lbl">기타 (MX·ES·FR·NL·?)</span><div class="track"><div class="fill" style="width:10%;background:var(--violet)"></div></div><span class="v">22</span></div>
-        </div>
+        <div class="bars" id="countrybars"></div>
         <h2>신호 파이프라인</h2>
-        <div class="pipe">
-          <div class="pl"><span class="lbl">Vision OCR</span><div class="track"><div class="seg" style="width:96%;background:var(--green)"></div></div><span class="st done">완료</span></div>
-          <div class="pl"><span class="lbl">MapKit 베이스라인</span><div class="track"><div class="seg" style="width:86%;background:var(--green)"></div></div><span class="st done">완료</span></div>
-          <div class="pl"><span class="lbl">온디바이스 LLM</span><div class="track"><div class="seg" style="width:19%;background:var(--orange)"></div></div><span class="st run">진행중</span></div>
-          <div class="pl"><span class="lbl">FastVLM</span><div class="track"><div class="seg" style="width:4%;background:#333c66"></div></div><span class="st wait">대기</span></div>
-        </div>
+        <div class="pipe" id="pipelinebars"></div>
       </div>
     </div>
     <h2>한 행의 구조 — 라벨 컬럼 · 채움 · 입력벡터</h2>
@@ -240,7 +221,7 @@
     <h2 style="margin-top:6px">실행 설정</h2>
     <div class="panel">
       <div class="field"><span class="fl">테스트 이름</span>
-        <input type="text" id="tname" value="ocr-match" spellcheck="false">
+        <input type="text" id="tname" value="new-algorithm" spellcheck="false">
         <div class="ver" id="verstat"></div>
       </div>
       <div class="field"><span class="fl">저장 모드 · 스코프</span>
@@ -293,18 +274,18 @@
         <option value="union-city">union-city · 우혁</option>
         <option value="vancouver">vancouver · 인소</option>
       </select></div>
-      <div class="ctl">매칭 <span class="toggle" id="mode"><button data-m="raw" class="on">raw</button><button data-m="norm">normalized</button></span></div>
+      <div class="ctl">매칭 <b>provider exact name</b></div>
     </div>
     <div class="meta" id="meta"></div>
     <div class="cards">
-      <div class="rc r1"><div class="k">rank-1 · GT=최근접</div><div class="pct" id="p-r1">–</div><div class="cnt" id="c-r1"></div></div>
-      <div class="rc t3"><div class="k">top-3 · 상위 3 안</div><div class="pct" id="p-t3">–</div><div class="cnt" id="c-t3"></div></div>
-      <div class="rc t5"><div class="k">top-5 · 상위 5 안</div><div class="pct" id="p-t5">–</div><div class="cnt" id="c-t5"></div></div>
-      <div class="rc miss"><div class="k">MISS · 후보에 없음</div><div class="pct" id="p-miss">–</div><div class="cnt" id="c-miss"></div></div>
+      <div class="rc r1"><div class="k">후보 rank-1 · GT가 1위 후보</div><div class="pct" id="p-r1">–</div><div class="cnt" id="c-r1"></div></div>
+      <div class="rc t3"><div class="k">후보 top-3 · GT 포함</div><div class="pct" id="p-t3">–</div><div class="cnt" id="c-t3"></div></div>
+      <div class="rc t5"><div class="k">후보 top-5 · GT 포함</div><div class="pct" id="p-t5">–</div><div class="cnt" id="c-t5"></div></div>
+      <div class="rc miss"><div class="k">MISS · 후보 API에 GT 없음</div><div class="pct" id="p-miss">–</div><div class="cnt" id="c-miss"></div></div>
     </div>
     <div class="flip" id="flip"></div>
 
-    <h2>검색(retrieval) — top-N, 후보 API별</h2>
+    <h2>후보 검색(retrieval coverage) — top-N, 후보 API별</h2>
     <div class="panel"><div class="chartwrap">
       <svg id="curve" width="580" height="260" viewBox="0 0 580 260"></svg>
       <div class="legend">
@@ -313,22 +294,22 @@
         <div class="lg" style="margin-top:6px;color:var(--ink3);font-size:12px">y = GT가 top-N 후보에 존재<br>x = N (1·2·3·5·10)</div>
       </div>
     </div>
-    <div class="note"><b>검색만.</b> 후보 리스트에 답이 들어오나. 지금은 한국 row를 제외하고 한국 외 MapKit 기준으로 계산한다. 상한선 위 100%까지 = 어떤 알고리즘도 못 메우는 부분.</div></div>
+    <div class="note"><b>검색만.</b> 후보 API가 GT 장소를 후보 리스트에 포함했는지 보는 지표다. 지금은 한국 row를 제외하고 한국 외 후보 공급원은 MapKit이다. 이 값은 <b>식별 정확도</b>가 아니라 알고리즘이 선택할 수 있는 후보 상한/커버리지다.</div></div>
 
     <h2>식별(selection) 정확도 — 알고리즘별</h2>
     <div class="panel">
       <svg id="bars" width="580" height="250" viewBox="0 0 580 250"></svg>
-      <div class="note"><b>각 막대 = 제출된 알고리즘</b>(② 평가 실행). 예측==GT 비율. <b>x=알고리즘 · y=정확도%</b> — N의 함수가 아니라 알고리즘당 한 숫자. 후보를 어떻게 쓰든(또는 이미지 직접) 결과는 하나.</div>
+      <div class="note"><b>각 막대 = 제출된 알고리즘</b>(② 평가 실행). 예측==GT 비율. <b>x=알고리즘 · y=정확도%</b> — 후보 API 이름(MapKit/Kakao)이 들어오면 안 된다. 아직 실제 알고리즘 제출 결과가 없으므로 이 차트는 비워 둔다.</div>
     </div>
 
-    <h2>케이스 분석 — 성공 / 실패 <span style="color:var(--green);text-transform:none;letter-spacing:0"> · 실데이터 · baseline(MapKit 최근접)</span></h2>
+    <h2>케이스 분석 — 후보 검색 성공 / 실패 <span style="color:var(--green);text-transform:none;letter-spacing:0"> · 실데이터 · 후보 API rank</span></h2>
     <div class="panel">
       <div class="chips" id="chips"></div>
       <div class="caselayout">
         <div class="caselist" id="caselist"></div>
         <div class="cd" id="casedetail" style="color:var(--ink3)">왼쪽에서 케이스를 선택하세요.</div>
       </div>
-      <div class="note"><b>검색실패 vs 식별실패:</b> <span style="color:var(--red)">검색실패</span>=GT가 250m 후보에 아예 없음(알고리즘으론 못 고침). <span style="color:var(--orange)">식별실패</span>=GT가 후보엔 있는데 앱이 최근접만 골라 놓침(신호로 고칠 수 있음). 케이스를 열면 후보 리스트에서 GT·앱선택을 하이라이트.</div>
+      <div class="note"><b>후보검색 실패 vs rank&gt;1:</b> <span style="color:var(--red)">검색실패</span>=GT가 후보 API 결과에 아예 없음. <span style="color:var(--orange)">rank&gt;1</span>=GT가 후보에는 있지만 1위가 아님. 이는 아직 식별 알고리즘 정확도가 아니라 후보 검색/랭킹 상태다.</div>
     </div>
   </div>
 
@@ -383,271 +364,18 @@
     <div class="note"><b>결측은 조용히 버리지 않는다</b> — 좌표/GT가 없으면 행을 버리는 대신 플래그로 표시해 개요·경고에 노출(원칙 4). 보강도 같은 절차, <code>--dataset</code>에 기존 key를 주면 됨.</div>
 
     <h2>사람이 넣는 것 vs 도구가 채우는 것</h2>
-    <div class="panel"><div class="bars">
-      <div class="bar"><span class="lbl" style="color:var(--gold)">사람 · 필수</span><div class="track"><div class="fill" style="width:22%;background:var(--gold)"></div></div><span class="v">2</span></div>
-      <div class="bar"><span class="lbl" style="color:var(--green)">도구 · 자동</span><div class="track"><div class="fill" style="width:100%;background:var(--green)"></div></div><span class="v">9+</span></div>
-    </div><div class="note" style="margin-top:12px">사진 + GT 2개만 넣으면 → 좌표·시각·OCR·도시·국가·MapKit rank·매치근거·신뢰등급·dataset·photo 등 9개 이상이 자동. 확장 비용이 낮아야 데이터셋이 자유롭게 는다.</div></div>
+    <div class="panel">
+      <ul style="margin:0;color:var(--ink2);font-size:13px;line-height:1.8">
+        <li><b style="color:var(--gold)">사람 필수:</b> <code>photos/</code> 원본 사진 + <code>manifest.csv</code>의 <code>gt_input_raw</code></li>
+        <li><b style="color:var(--green)">도구 자동:</b> EXIF 좌표/시각, OCR, 도시·국가, eval_provider, 후보검색 rank, 플래그/신뢰등급 등</li>
+      </ul>
+      <div class="note" style="margin-top:12px">이 섹션은 절차 설명이며 평가 수치가 아니다. 실제 집계 수치는 /api/overview와 /api/matchrate에서만 채운다.</div>
+    </div>
   </div>
 
   <footer>mvp-eval-ui.html · MVP · /api/overview + /api/matchrate + /api/records</footer>
 </div>
 
-<script>
-// ---------- tabs ----------
-document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
-  document.querySelectorAll(".tabs button").forEach(x=>x.classList.toggle("on",x===b));
-  document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on", v.id==="v-"+b.dataset.t));
-});
-
-// ---------- eval (live /api/matchrate) ----------
-const $=s=>document.querySelector(s);
-let scope="all",mode="raw";
-async function render(){
-  const apiMode=mode==='raw'?'exact':'normalized';
-  let d;
-  try{d=await(await fetch(`/api/matchrate?dataset=${encodeURIComponent(scope)}&mode=${apiMode}`,{cache:'no-store'})).json();}
-  catch(e){d={n:0,rank1:0,top3:0,top5:0,miss:0,counts:{},by_provider:{},matching_policy:{}};}
-  const n=d.n||0, pct=x=>n?Math.round(100*x/n):0;
-  const excl=[]; if(d.excluded_korea_pending_kakao)excl.push(`KR 제외 ${d.excluded_korea_pending_kakao}`); if(d.excluded_non_poi)excl.push(`non_poi ${d.excluded_non_poi}`); if(d.excluded_no_gt)excl.push(`no_gt ${d.excluded_no_gt}`); if(d.no_provider_data)excl.push(`provider_data 없음 ${d.no_provider_data}`);
-  $("#meta").innerHTML=`평가 가능 GT <b>n=${n}</b> · 제외/대기: ${excl.join(' · ')||'-'} · 기준: <b>${mode==='raw'?'provider exact name':'normalized fallback/evidence'}</b> · 현재 KR 제외 / non-KR=MapKit`;
-  const set=(id,c)=>{$("#p-"+id).textContent=pct(c)+"%";$("#c-"+id).textContent=c+" / "+n;};
-  set("r1",d.rank1||0);set("t3",d.top3||0);set("t5",d.top5||0);set("miss",d.miss||0);
-  const flip=$("#flip");
-  if(mode==="norm"){flip.classList.remove("hidden");flip.textContent='normalized는 provider 기준을 대체하지 않는 fallback/evidence 보기입니다.';}
-  else flip.classList.add("hidden");
-  drawCurve([pct(d.rank1||0),pct(d.top3||0),pct(d.top3||0),pct(d.top5||0),pct(d.top5||0)],[]);
-  const bp=d.by_provider||{};
-  drawBars(Object.entries(bp).map(([name,v])=>[name, Math.round(100*(v.rank1_rate||0))]).concat([["baseline",pct(d.rank1||0)]]));
-}
-function drawCurve(ceil,apiB){
-  const W=580,H=260,pl=44,pr=16,pt=16,pb=32,xs=[1,2,3,5,10];
-  const x=i=>pl+(W-pl-pr)*(i/(xs.length-1)),y=v=>pt+(H-pt-pb)*(1-v/100);
-  let g="";
-  for(let v=0;v<=100;v+=25)g+=`<line x1="${pl}" y1="${y(v)}" x2="${W-pr}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"/><text x="${pl-8}" y="${y(v)+4}" text-anchor="end" fill="var(--ink3)" font-size="11" font-family="var(--mono)">${v}%</text>`;
-  xs.forEach((n,i)=>g+=`<text x="${x(i)}" y="${H-11}" text-anchor="middle" fill="var(--ink3)" font-size="11" font-family="var(--mono)">${n}</text>`);
-  const poly=(a,c,dash)=>`<polyline points="${a.map((v,i)=>`${x(i)},${y(v)}`).join(" ")}" fill="none" stroke="${c}" stroke-width="2.4"${dash?' stroke-dasharray="5 4" stroke-width="1.8"':''}/>`;
-  const dots=(a,c)=>a.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="${c}"/>`).join("");
-  let s=apiB&&apiB.length?poly(apiB,"var(--ink3)",true):"";             // optional comparison API
-  s+=poly(ceil,"var(--green)",false)+dots(ceil,"var(--green)");        // MapKit
-  ceil.forEach((v,i)=>s+=`<text x="${x(i)}" y="${y(v)-9}" text-anchor="middle" fill="var(--ink)" font-size="10.5" font-family="var(--mono)">${v}%</text>`);
-  $("#curve").innerHTML=g+s;
-}
-function drawBars(algos){
-  const W=580,H=250,pl=44,pr=16,pt=16,pb=42;
-  const y=v=>pt+(H-pt-pb)*(1-v/100), step=(W-pl-pr)/algos.length, bw=Math.min(70,step*0.5);
-  let g="";
-  for(let v=0;v<=100;v+=25)g+=`<line x1="${pl}" y1="${y(v)}" x2="${W-pr}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"/><text x="${pl-8}" y="${y(v)+4}" text-anchor="end" fill="var(--ink3)" font-size="11" font-family="var(--mono)">${v}%</text>`;
-  const cols=["var(--green)","var(--cyan)","var(--violet)","var(--gold)","var(--orange)"];
-  algos.forEach(([name,acc],i)=>{
-    const cx=pl+step*(i+0.5);
-    g+=`<rect x="${cx-bw/2}" y="${y(acc)}" width="${bw}" height="${y(0)-y(acc)}" rx="5" fill="${cols[i%cols.length]}"/>`;
-    g+=`<text x="${cx}" y="${y(acc)-7}" text-anchor="middle" fill="var(--ink)" font-size="12.5" font-weight="700" font-family="var(--mono)">${acc}%</text>`;
-    g+=`<text x="${cx}" y="${H-22}" text-anchor="middle" fill="var(--ink2)" font-size="11.5">${name}</text>`;
-  });
-  $("#bars").innerHTML=g;
-}
-// ---------- case analysis (real /api/records) ----------
-const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-let CASES=[],curOutcome='all',curCaseIdx=null;
-const OC_LABEL={correct:'정답',selection:'식별실패',retrieval:'검색실패',non_poi:'non_poi',deferred:'deferred',no_gt:'no_gt',other:'기타'};
-const OC_ORDER=['all','correct','selection','retrieval','non_poi','deferred','no_gt'];
-const normEq=(a,b)=>{a=(a||'').toLowerCase().trim();b=(b||'').toLowerCase().trim();return a&&b&&(a===b||a.includes(b)||b.includes(a));};
-async function loadCases(){
-  try{const r=await fetch('/api/records?dataset=linkedspaces',{cache:'no-store'});CASES=await r.json();}
-  catch(e){CASES=[];}
-  computeCoverage();renderChips();renderCaseList();renderParams();
-}
-// top-K별 GT 검색 커버리지 (실측: app_poi_rank ≤ K 비율). base = 베이스라인 있는 user GT 행.
-function computeCoverage(){
-  const base=CASES.filter(c=>c.outcome==='correct'||c.outcome==='selection'||c.outcome==='retrieval');
-  window.COVERAGE={}; const n=base.length; if(!n)return;
-  const within=k=>base.filter(c=>{if(!c.rank||c.rank==='MISS')return false;return k==='전체'?true:parseInt(c.rank)<=k;}).length;
-  [3,5,10,'전체'].forEach(k=>window.COVERAGE[k]=Math.round(100*within(k)/n));
-  window.COVERAGE.__n=n;
-}
-const outCount=o=>o==='all'?CASES.length:CASES.filter(c=>c.outcome===o).length;
-function renderChips(){
-  $("#chips").innerHTML=OC_ORDER.filter(o=>o==='all'||outCount(o)).map(o=>
-    `<span class="chip ${o===curOutcome?'on':''}" data-o="${o}">${o==='all'?'전체':OC_LABEL[o]}<span class="c">${outCount(o)}</span></span>`).join('');
-  $("#chips").querySelectorAll('.chip').forEach(el=>el.onclick=()=>{curOutcome=el.dataset.o;renderChips();renderCaseList();});
-}
-function renderCaseList(){
-  const list=CASES.map((c,i)=>[c,i]).filter(([c])=>curOutcome==='all'||c.outcome===curOutcome);
-  $("#caselist").innerHTML=list.slice(0,200).map(([c,i])=>
-    `<div class="ci ${i===curCaseIdx?'sel':''}" data-i="${i}"><img loading="lazy" src="${c.photo_url}" onerror="this.style.visibility='hidden'"><span class="g">${esc(c.gt||'(GT 없음)')}</span><span class="oc ${c.outcome}">${OC_LABEL[c.outcome]||c.outcome}</span></div>`).join('')
-    || '<div style="color:var(--ink3);font-size:12px;padding:10px">해당 케이스 없음</div>';
-  $("#caselist").querySelectorAll('.ci').forEach(el=>el.onclick=()=>showCase(+el.dataset.i));
-}
-function showCase(i){
-  curCaseIdx=i;const c=CASES[i];
-  const E={
-    correct:['rgba(95,211,123,.1)','앱이 최근접으로 고른 후보가 GT. 정답.'],
-    selection:['rgba(255,159,69,.1)',`GT는 후보 <b>rank ${esc(c.rank)}</b> — 앱은 최근접 '<b>${esc(c.baseline_pick)}</b>'을 골라 놓침. <b>후보엔 있으니 신호(OCR·VLM)로 고칠 수 있음.</b>`],
-    retrieval:['rgba(255,107,92,.1)',`GT가 250m 후보(${esc(c.n_wide)}개)에 <b>없음</b>. 알고리즘으론 못 고침 — 반경·API·no_venue 문제. <i>단, 이름표기 차이 가짜 MISS일 수 있어 정규화 매칭으로 재확인.</i>`],
-    non_poi:['rgba(118,131,184,.1)','POI 아님. 정답은 거절.'],
-    deferred:['rgba(118,131,184,.1)','베이스라인 미실행(한국 등).'],
-    no_gt:['rgba(118,131,184,.1)','GT 라벨 없음.'],
-  }[c.outcome]||['rgba(118,131,184,.1)',''];
-  const gtIn=(c.candidates||[]).some(cd=>normEq(cd.name,c.gt));
-  const cands=(c.candidates||[]).map(cd=>{
-    const isgt=normEq(cd.name,c.gt),ispick=normEq(cd.name,c.baseline_pick);
-    const tags=(isgt?'<span class="tg" style="background:rgba(95,211,123,.2);color:var(--green)">GT</span>':'')+(ispick?'<span class="tg" style="background:rgba(255,159,69,.2);color:var(--orange)">앱선택</span>':'');
-    return `<div class="cand ${isgt?'isgt':''} ${ispick?'ispick':''}"><span>${esc(cd.name)}</span><span><span style="color:var(--ink3);font-family:var(--mono);font-size:11px">${esc(cd.dist)}</span>${tags}</span></div>`;
-  }).join('');
-  $("#casedetail").innerHTML=`
-    ${c.photo_url?`<img src="${c.photo_url}" onerror="this.style.display='none'">`:''}
-    <div class="drow"><span class="lab">GT</span><span class="val gt">${esc(c.gt||'(없음)')}</span></div>
-    <div class="drow"><span class="lab">앱 예측</span><span class="val">${esc(c.baseline_pick||'—')} <span style="color:var(--ink3)">(최근접 · rank ${esc(c.rank)})</span></span></div>
-    <div class="expl" style="background:${E[0]}"><b>${OC_LABEL[c.outcome]}</b> — ${E[1]}</div>
-    <div class="drow"><span class="lab">후보 top3</span><span class="val" style="flex:1">${cands||'<span style="color:var(--ink3)">없음</span>'}${(c.rank&&c.rank!=='MISS'&&!gtIn)?`<div style="color:var(--ink3);font-size:11px;margin-top:2px">※ GT는 rank ${esc(c.rank)} — 상위 3 밖 (전체 ${esc(c.n_wide)}개 중)</div>`:''}</span></div>
-    <div class="drow"><span class="lab">OCR</span><span class="val" style="font-size:12px;color:${c.ocr_text?'var(--ink2)':'var(--ink3)'}">${esc(c.ocr_text||'(텍스트 없음)')}</span></div>
-    <div class="drow"><span class="lab">좌표</span><span class="val" style="font-family:var(--mono);font-size:12px">${esc(c.lat)}, ${esc(c.lon)}</span></div>
-    <div class="drow"><span class="lab">카테고리</span><span class="val">${esc(c.category)}</span></div>`;
-  renderCaseList();
-}
-$("#scope").onchange=e=>{scope=e.target.value;render();};
-document.querySelectorAll("#mode button").forEach(b=>b.onclick=()=>{mode=b.dataset.m;document.querySelectorAll("#mode button").forEach(x=>x.classList.toggle("on",x===b));render();});
-render();
-loadCases();
-
-// ---------- overview: row structure (라벨 컬럼 · 채움 · 입력벡터) — live /api/overview fill ----------
-const ROWSTRUCT=[
-  ['입력벡터','이미지','in','photo','원본 jpg'],
-  ['입력벡터','좌표 lat/lon','in','capture_lat','EXIF GPS'],
-  ['입력벡터','촬영 시각','in','timestamp','EXIF DateTimeOriginal'],
-  ['입력벡터','OCR 텍스트','in','caption_ondevice','Vision VNRecognizeText'],
-  ['입력벡터','VLM 설명','in','__none','FastVLM-0.5B (미추출)'],
-  ['입력벡터','주변 후보','in','app_nearby_top1','MapKit MKLocalPOI'],
-  ['입력벡터','역지오코딩','in','city','Apple CLGeocoder'],
-  ['입력벡터','카테고리','in','category','GT 라벨 ⚠'],
-  ['정답','gt_place_name','gt','gt_place_name','사용자 선택'],
-  ['정답','gt_confidence','gt','gt_confidence','라벨 등급'],
-  ['평가','app_poi_rank','bl','app_poi_rank','MapKit rank'],
-  ['평가','app_nearby_top1','bl','app_nearby_top1','MapKit 최근접'],
-  ['메타','dataset·photo·notes','mt','dataset','등록/파일'],
-];
-async function loadRowStruct(){
-  let fill={},total=280;
-  try{const d=await(await fetch('/api/overview',{cache:'no-store'})).json();fill=d.fill||{};total=d.total||280;}catch(e){}
-  const RC={in:['var(--blue)','입력벡터'],gt:['var(--gold)','정답'],bl:['var(--green)','베이스라인'],mt:['var(--ink3)','메타']};
-  $("#rowstruct").innerHTML=ROWSTRUCT.map(([g,name,role,col,method])=>{
-    const f=fill[col]||0,pct=Math.round(100*f/total),rr=RC[role];
-    const color=pct>=90?'var(--green)':(pct===0?'var(--ink3)':'var(--orange)');
-    return `<tr><td class="nm3">${esc(name)}</td>
-      <td class="rl" style="color:${rr[0]}">${rr[1]}</td>
-      <td><div class="fb2"><div class="mt2"><div class="mf2" style="width:${pct}%;background:${color}"></div></div><span class="mp2">${pct}%</span></div></td>
-      <td class="m3">${esc(method)}</td></tr>`;
-  }).join('');
-}
-loadRowStruct();
-
-// ---------- run workspace (mock) ----------
-const REG={"ocr-match":[1,2],"nearest-only":[1]};
-let runsList=[
-  {name:"ocr-match",v:2,script:"ocr_match.py",inp:"ocr_text, nearby_candidates(top5)",scope:"전체",r1:"22%",st:"ok"},
-  {name:"nearest-only",v:1,script:"nearest.py",inp:"nearby_candidates(top3)",scope:"전체",r1:"15%",st:"ok"},
-  {name:"fastvlm-name",v:1,script:"vlm_name.py",inp:"image",scope:"전체",r1:"—",st:"run2"},
-];
-const g=id=>document.getElementById(id);
-// 입력 파라미터 = 신호 + 추출 방법(provenance). methods[0]=현재, 그 외=대안(이후).
-const PARAMS=[
-  {k:"image", name:"이미지", methods:["원본 사진 (jpg)"], on:false},
-  {k:"lat,lon", name:"좌표", methods:["EXIF GPS"], on:true},
-  {k:"timestamp", name:"촬영 시각", methods:["EXIF DateTimeOriginal"], on:false},
-  {k:"ocr_text", name:"OCR 텍스트", methods:["Vision VNRecognizeTextRequest","Tesseract (이후)","Google Vision (이후)"], on:true},
-  {k:"vlm_caption", name:"VLM 설명", methods:["FastVLM-0.5B","LLaVA (이후)"], on:false},
-  {k:"nearby_candidates", name:"주변 후보", methods:["MapKit MKLocalPointsOfInterest","Google Places (이후)","Kakao Local (이후)"], on:true, topk:[3,5,10,"전체"]},
-  {k:"city,country,address", name:"역지오코딩", methods:["Apple CLGeocoder","Google Geocoding (이후)"], on:false},
-  {k:"category", name:"카테고리", methods:["GT 라벨"], on:false, warn:"⚠ GT유래·실사용불가"},
-];
-function methodOf(i){const s=document.querySelector(`.prow[data-pi="${i}"] select[data-mi]`);return s?s.value:PARAMS[i].methods[0];}
-function renderParams(){
-  g('params').innerHTML='<div class="plist">'+PARAMS.map((p,i)=>{
-    const method=p.methods.length>1
-      ? `<select data-mi="${i}">${p.methods.map((m,j)=>`<option${j===0?' selected':''}>${m}</option>`).join('')}</select>`
-      : `<span class="m">${p.methods[0]}</span>`;
-    const topk=p.topk?`<select class="topk" data-ti="${i}" title="후보 상위 몇 개를 함수에 넘길지 · 괄호는 그 안에 든 GT 비율(MapKit 실측 검색 상한)">${p.topk.map(nn=>{const cv=(window.COVERAGE&&window.COVERAGE[nn]!=null)?` · GT ${window.COVERAGE[nn]}%`:'';return `<option value="top ${nn}"${nn===5?' selected':''}>top ${nn}${cv}</option>`;}).join('')}</select>`:'';
-    return `<label class="prow" data-pi="${i}"><input type="checkbox" data-k="${p.k}"${p.on?' checked':''}>
-      <span class="nm">${p.name}${p.warn?` <span class="warn2">${p.warn}</span>`:''}</span>
-      <span class="pk">${p.k}</span><span class="mcell">${method}${topk}</span></label>`;
-  }).join('')+'</div>';
-  g('params').querySelectorAll('input,select').forEach(el=>el.onchange=updSig);
-  updSig();
-}
-const ACC={
-  'image':['img','case["photo_path"]'],
-  'lat,lon':['lat, lon','case["lat"], case["lon"]'],
-  'timestamp':['ts','case["timestamp"]'],
-  'ocr_text':['ocr','case["ocr_text"]'],
-  'vlm_caption':['vlm','case["vlm_caption"]'],
-  'nearby_candidates':['cands','case["nearby_candidates"]'],
-  'city,country,address':['geo','case["geocode"]'],
-  'category':['cat','case["category_hint"]'],
-};
-function updSig(){
-  const rows=[...document.querySelectorAll('.prow')].filter(r=>r.querySelector('input').checked);
-  const cfg=[],lines=[];
-  rows.forEach(r=>{
-    const i=+r.dataset.pi,p=PARAMS[i],tk=r.querySelector('.topk');
-    const a=ACC[p.k]||[p.k.split(',')[0],`case["${p.k}"]`];
-    lines.push(`    ${a[0]} = ${a[1]}`.padEnd(40)+`# ${p.name}`);
-    const method=methodOf(i)+(tk?` · ${tk.value}`:'');
-    cfg.push(`#   ${(p.k+':').padEnd(22)}${method}`);
-  });
-  const header=cfg.length?`# ── run config (드롭다운 선택 · 하네스가 이 설정으로 case 번들 생성) ──\n${cfg.join('\n')}\n`:'';
-  g('loadsnippet').textContent=`${header}def predict(case):\n${lines.join('\n')||'    pass'}\n    # TODO: 예측 로직\n    return { "prediction": ..., "reason": ... }`;
-}
-function updVer(){
-  const nm=g('tname').value.trim(), ex=REG[nm];
-  g('verstat').innerHTML = (ex&&ex.length)
-    ? `기존 존재: v${ex.join(' · v')} → 자동 저장 시 <span class="bg">v${Math.max(...ex)+1}</span> · 또는 저장 모드에서 특정 버전 덮어쓰기`
-    : `새 테스트 → <span class="bg">v1</span>`;
-}
-function renderRuns(){
-  g('runsbody').innerHTML=runsList.map(r=>
-    `<tr><td class="name">${r.name}</td><td><code>v${r.v}</code></td><td><code>${r.script||'—'}</code></td><td><code>${r.inp}</code></td><td>${r.scope}</td><td>${r.r1}</td><td><span class="stt ${r.st}">${r.st==='ok'?'완료':'실행중'}</span></td></tr>`).join('');
-}
-let scriptName='';
-g('scriptfile').onchange=e=>{
-  const f=e.target.files[0]; scriptName=f?f.name:'';
-  g('filelabel').textContent=f?`📎 ${f.name} 첨부됨`:'📎 predict 계약을 구현한 스크립트를 첨부 — 클릭 또는 드롭';
-  document.querySelector('.filedrop').classList.toggle('has',!!f);
-};
-const uploadZip=g('uploadZip');
-if(uploadZip){
-  uploadZip.onchange=async e=>{
-    const f=e.target.files[0];
-    const status=g('uploadStatus');
-    if(!f) return;
-    status.textContent=`검증 중: ${f.name}`;
-    try{
-      const res=await fetch('/api/validate-upload-package',{method:'POST',body:f,headers:{'Content-Type':'application/zip'}});
-      const data=await res.json();
-      const errs=(data.errors||[]).slice(0,5).map(x=>`${x.code||'error'}${x.row?` row ${x.row}`:''}: ${x.message}`).join(' / ');
-      status.textContent=data.ok
-        ? `검증 성공: ${data.row_count||0}개 행, ${data.image_count||0}개 사진. 다음 단계에서 EXIF·지역·provider를 자동 추출한다.`
-        : `검증 실패: ${errs||data.error||'업로드 패키지를 확인하세요.'}`;
-    }catch(err){ status.textContent=`검증 요청 실패: ${err.message}`; }
-  };
-}
-g('tname').oninput=updVer;
-g('runbtn').onclick=()=>{
-  const nm=g('tname').value.trim()||'untitled', sm=g('savemode').value, ex=REG[nm]||[];
-  const v = sm==='auto' ? (ex.length?Math.max(...ex)+1:1) : parseInt(sm.slice(1));
-  REG[nm]=[...new Set([...ex,v])];
-  const checked=[...document.querySelectorAll('.prow')].filter(r=>r.querySelector('input').checked);
-  const keys=checked.map(r=>{
-    const i=+r.dataset.pi,tk=r.querySelector('.topk'),ms=r.querySelector('select[data-mi]');
-    const parts=[ms?ms.value.split(' ')[0]:'',tk?tk.value.replace(/\s/g,''):''].filter(Boolean);
-    return PARAMS[i].k+(parts.length?`(${parts.join('·')})`:'');
-  }).join(', ');
-  const scope=g('rscope').value;
-  runsList=runsList.filter(r=>!(r.name===nm&&r.v===v));
-  runsList.unshift({name:nm,v,inp:keys,scope,script:scriptName,r1:"실행중",st:"run2"});
-  renderRuns();updVer();
-  g('runhint').textContent=`제출됨: ${nm} v${v}${scriptName?' · '+scriptName:' · (스크립트 미첨부)'} → eval set(${scope}) 실행 → 결과 탭 반영 (목업)`;
-};
-renderParams();updVer();renderRuns();
-</script>
+<script src="mvp-eval-ui.js"></script>
 </body>
 </html>
