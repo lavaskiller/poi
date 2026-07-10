@@ -18,26 +18,25 @@ async function render(){
   const set=(id,c)=>{$("#p-"+id).textContent=pct(c)+"%";$("#c-"+id).textContent=c+" / "+n;};
   set("r1",d.rank1||0);set("t3",d.top3||0);set("t5",d.top5||0);set("miss",d.miss||0);
   $("#flip").classList.add("hidden");
-  drawCurve([pct(d.rank1||0),pct(d.top3||0),pct(d.top3||0),pct(d.top5||0),pct(d.top5||0)],[]);
-  drawBars([]);
+  // Only the N the API actually measures: rank-1 (=top-1), top-3, top-5. No interpolation.
+  drawCurve([[1,pct(d.rank1||0)],[3,pct(d.top3||0)],[5,pct(d.top5||0)]]);
 }
-function drawCurve(ceil,apiB){
-  const W=580,H=260,pl=44,pr=16,pt=16,pb=32,xs=[1,2,3,5,10];
+function drawCurve(points){
+  const W=580,H=260,pl=44,pr=16,pt=16,pb=32,xs=[1,3,5];
   const x=i=>pl+(W-pl-pr)*(i/(xs.length-1)),y=v=>pt+(H-pt-pb)*(1-v/100);
   let g="";
   for(let v=0;v<=100;v+=25)g+=`<line x1="${pl}" y1="${y(v)}" x2="${W-pr}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"/><text x="${pl-8}" y="${y(v)+4}" text-anchor="end" fill="var(--ink3)" font-size="11" font-family="var(--mono)">${v}%</text>`;
   xs.forEach((n,i)=>g+=`<text x="${x(i)}" y="${H-11}" text-anchor="middle" fill="var(--ink3)" font-size="11" font-family="var(--mono)">${n}</text>`);
-  const poly=(a,c,dash)=>`<polyline points="${a.map((v,i)=>`${x(i)},${y(v)}`).join(" ")}" fill="none" stroke="${c}" stroke-width="2.4"${dash?' stroke-dasharray="5 4" stroke-width="1.8"':''}/>`;
-  const dots=(a,c)=>a.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="${c}"/>`).join("");
-  let s=apiB&&apiB.length?poly(apiB,"var(--ink3)",true):"";             // optional comparison API
-  s+=poly(ceil,"var(--green)",false)+dots(ceil,"var(--green)");        // MapKit
-  ceil.forEach((v,i)=>s+=`<text x="${x(i)}" y="${y(v)-9}" text-anchor="middle" fill="var(--ink)" font-size="10.5" font-family="var(--mono)">${v}%</text>`);
-  $("#curve").innerHTML=g+s;
+  const vals=points.map(p=>p[1]);
+  const poly=`<polyline points="${vals.map((v,i)=>`${x(i)},${y(v)}`).join(" ")}" fill="none" stroke="var(--green)" stroke-width="2.4"/>`;
+  const dots=vals.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="var(--green)"/>`).join("");
+  const labs=vals.map((v,i)=>`<text x="${x(i)}" y="${y(v)-9}" text-anchor="middle" fill="var(--ink)" font-size="10.5" font-family="var(--mono)">${v}%</text>`).join("");
+  $("#curve").innerHTML=g+poly+dots+labs;
 }
 function drawBars(algos){
   const W=580,H=250,pl=44,pr=16,pt=16,pb=42;
   if(!algos.length){
-    $("#bars").innerHTML=`<text x="${W/2}" y="${H/2-8}" text-anchor="middle" fill="var(--ink2)" font-size="13" font-family="var(--mono)">아직 실제 식별 알고리즘 결과 없음</text><text x="${W/2}" y="${H/2+16}" text-anchor="middle" fill="var(--ink3)" font-size="11.5">MapKit/Kakao는 후보 공급원이며 식별 정확도 막대가 아니다</text>`;
+    $("#bars").innerHTML=`<text x="${W/2}" y="${H/2-8}" text-anchor="middle" fill="var(--ink2)" font-size="13" font-family="var(--mono)">제출된 알고리즘 없음 — ② 평가 실행에서 predict() 제출</text><text x="${W/2}" y="${H/2+16}" text-anchor="middle" fill="var(--ink3)" font-size="11.5">MapKit/Kakao는 후보 공급원이며 식별 정확도 막대가 아니다</text>`;
     return;
   }
   const y=v=>pt+(H-pt-pb)*(1-v/100), step=(W-pl-pr)/algos.length, bw=Math.min(70,step*0.5);
@@ -228,11 +227,16 @@ function renderRuns(){
   g('runsbody').innerHTML=runsList.length ? runsList.map(r=>
     `<tr><td class="name">${r.name}</td><td><code>v${r.v}</code></td><td><code>${r.script||'—'}</code></td><td><code>${r.inp}</code></td><td>${r.scope}</td><td>${r.r1}</td><td><span class="stt ${r.st}">${r.st}</span></td></tr>`).join('') : '<tr><td colspan="7" style="color:var(--ink3);font-size:12px">아직 제출된 알고리즘 실행 결과가 없습니다. 후보검색 평가는 ③ 탭의 실제 GT/MapKit rank만 표시합니다.</td></tr>';
 }
-let scriptName='';
+let scriptName='',scriptText='',scriptLang='python';
+const LANG_BY_EXT={py:'python',c:'c',cpp:'cpp',rs:'rust',js:'node',sh:'sh'};
 g('scriptfile').onchange=e=>{
-  const f=e.target.files[0]; scriptName=f?f.name:'';
+  const f=e.target.files[0]; scriptName=f?f.name:''; scriptText='';
   g('filelabel').textContent=f?`📎 ${f.name} 첨부됨`:'📎 predict 계약을 구현한 스크립트를 첨부 — 클릭 또는 드롭';
   document.querySelector('.filedrop').classList.toggle('has',!!f);
+  if(f){
+    scriptLang=LANG_BY_EXT[(f.name.split('.').pop()||'').toLowerCase()]||'python';
+    const rd=new FileReader(); rd.onload=()=>{scriptText=rd.result||'';}; rd.readAsText(f);
+  }
 };
 const uploadZip=g('uploadZip');
 if(uploadZip){
@@ -252,7 +256,43 @@ if(uploadZip){
   };
 }
 g('tname').oninput=updVer;
-g('runbtn').onclick=()=>{
-  g('runhint').textContent='알고리즘 제출/실행 하네스는 아직 구현 전이라 실행 결과를 만들지 않습니다. 현재 화면은 실제 GT와 provider 후보검색 rank만 평가합니다.';
+// selected input-parameter keys (checked rows) → sent to the run harness
+function selectedParams(){
+  return [...document.querySelectorAll('.prow')]
+    .filter(r=>r.querySelector('input').checked)
+    .map(r=>PARAMS[+r.dataset.pi].k);
+}
+g('runbtn').onclick=async()=>{
+  if(!scriptText){ g('runhint').textContent='먼저 predict() 스크립트를 첨부하세요.'; return; }
+  const name=(g('tname').value||'').trim()||'algorithm';
+  const scope=g('rscope').value, save=g('savemode').value;
+  const body={name,scope,mode:'exact',save_mode:save,lang:scriptLang,params:selectedParams(),script_text:scriptText};
+  g('runbtn').disabled=true; g('runhint').textContent=`실행 중: ${name} (${scope}) …`;
+  try{
+    const res=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const data=await res.json();
+    if(data.ok){
+      const m=data.metrics||{};
+      g('runhint').textContent=`완료: ${data.name} v${data.version} · 식별 정확도 ${m.accuracy_pct}% (${m.correct}/${m.n_eligible}, 무응답 ${m.abstained}, 오류 ${m.errored})`;
+      await loadRuns();
+    }else{
+      g('runhint').textContent=`실패: ${data.error||'실행 오류'}`;
+    }
+  }catch(err){ g('runhint').textContent=`요청 실패: ${err.message}`; }
+  finally{ g('runbtn').disabled=false; }
 };
-renderParams();updVer();renderRuns();
+// live runs from /api/runs → 최근 실행 표 + 식별 정확도 막대(알고리즘별, 이름당 최신 버전)
+async function loadRuns(){
+  let runs=[];
+  try{ runs=(await (await fetch('/api/runs',{cache:'no-store'})).json()).runs||[]; }catch(e){}
+  Object.keys(REG).forEach(k=>delete REG[k]);
+  runs.forEach(r=>{ (REG[r.name]=REG[r.name]||[]).push(r.version); });
+  Object.values(REG).forEach(a=>a.sort((x,y)=>x-y));
+  runsList=runs.map(r=>({name:r.name,v:r.version,script:r.lang,inp:(r.params||[]).length+'개',scope:r.scope,r1:r.accuracy_pct+'%',st:'ok'}));
+  renderRuns();updVer();
+  // one bar per algorithm name, latest version wins
+  const latest={};
+  runs.forEach(r=>{ if(!latest[r.name]||r.version>latest[r.name].version) latest[r.name]=r; });
+  drawBars(Object.values(latest).sort((a,b)=>b.accuracy_pct-a.accuracy_pct).map(r=>[`${r.name} v${r.version}`,r.accuracy_pct]));
+}
+renderParams();updVer();loadRuns();

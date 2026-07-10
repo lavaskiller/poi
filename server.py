@@ -1,22 +1,32 @@
 import http.server, socketserver, functools, json, csv, os, sys, tempfile
 from collections import Counter
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "tools"))
+REPO_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(REPO_DIR, "tools"))
 from validate_upload_package import validate_zip, ValidationError
 from match_score import (
     evaluate as evaluate_matchrate,
     load_candidates as load_match_candidates,
     read_rows as read_match_rows,
 )
+from run_algorithm import run_submission, list_runs, RunError
 
-DIRECTORY = "/Users/massis/Desktop/fastblog/poi-test-data"
-PORT = 8420
+# Data root. Defaults to the repo itself so a fresh clone + unzipped dataset
+# (eval_set_reconciled.csv, generated/, photos/ … — all gitignored) works with
+# no edits. Point POI_DATA_DIR at a separate workspace (e.g. the private
+# poi-test-data dir) to read data from there instead.
+DIRECTORY = os.environ.get("POI_DATA_DIR") or REPO_DIR
+PORT = int(os.environ.get("POI_PORT", "8420"))
 CSV_PATH = os.path.join(DIRECTORY, "eval_set_reconciled.csv")
-CONFIG_PATH = os.path.join(DIRECTORY, "dashboard_config.json")
+# Config is part of the tool: prefer a copy shipped alongside the data, else the
+# tracked repo copy, so the server still boots before any dataset is dropped in.
+_data_cfg = os.path.join(DIRECTORY, "dashboard_config.json")
+CONFIG_PATH = _data_cfg if os.path.exists(_data_cfg) else os.path.join(REPO_DIR, "dashboard_config.json")
 MATCH_CANDIDATE_PATHS = [
     os.path.join(DIRECTORY, "generated", "mapkit_candidates.jsonl"),
     os.path.join(DIRECTORY, "generated", "kakao_local_candidates.jsonl"),
 ]
+RUNS_DIR = os.path.join(DIRECTORY, "generated", "runs")
 
 
 def load_config():
@@ -319,7 +329,25 @@ def build_matchrate(dataset_filter="all", mode="exact"):
     )
 
 
+# Static requests under these prefixes are dataset files served from DIRECTORY;
+# everything else (the UI, templates) is tool code served from the repo.
+DATA_PREFIXES = ("linkedspaces-photos", "photos", "union-city-trip", "generated")
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
+    def translate_path(self, path):
+        # Base resolves under self.directory (the repo). When data lives in a
+        # separate POI_DATA_DIR, remap only dataset prefixes there so the tool
+        # always serves its own UI, not a stale copy in the data folder.
+        resolved = super().translate_path(path)
+        if DIRECTORY == REPO_DIR:
+            return resolved
+        rel = os.path.relpath(resolved, REPO_DIR)
+        first = rel.replace(os.sep, "/").split("/", 1)[0]
+        if first in DATA_PREFIXES:
+            return os.path.join(DIRECTORY, rel)
+        return resolved
+
     def _send_json(self, payload_obj, code=200):
         payload = json.dumps(payload_obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -331,6 +359,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         route = self.path.split("?")[0]
+        if route == "/":
+            self.send_response(302)
+            self.send_header("Location", "/mvp-eval-ui.html")
+            self.end_headers()
+            return
+        if route == "/api/runs":
+            try:
+                self._send_json({"runs": list_runs(RUNS_DIR)})
+            except Exception as e:
+                self._send_json({"error": str(e)}, code=500)
+            return
         if route == "/api/records":
             from urllib.parse import urlparse, parse_qs
             q = parse_qs(urlparse(self.path).query)
@@ -358,28 +397,32 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
-    def do_POST(self):
-        route = self.path.split("?")[0]
-        if route != "/api/validate-upload-package":
-            self.send_error(404)
-            return
-
+    def _read_body(self, max_bytes):
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             self._send_json({"ok": False, "error": "invalid Content-Length"}, code=400)
-            return
-
+            return None
         if content_length <= 0:
-            self._send_json({"ok": False, "error": "empty upload"}, code=400)
-            return
-
-        max_bytes = 500 * 1024 * 1024
+            self._send_json({"ok": False, "error": "empty request body"}, code=400)
+            return None
         if content_length > max_bytes:
-            self._send_json({"ok": False, "error": "upload package is too large", "max_bytes": max_bytes}, code=413)
+            self._send_json({"ok": False, "error": "request body is too large", "max_bytes": max_bytes}, code=413)
+            return None
+        return self.rfile.read(content_length)
+
+    def do_POST(self):
+        route = self.path.split("?")[0]
+        if route == "/api/run":
+            self._handle_run()
+            return
+        if route != "/api/validate-upload-package":
+            self.send_error(404)
             return
 
-        upload = self.rfile.read(content_length)
+        upload = self._read_body(500 * 1024 * 1024)
+        if upload is None:
+            return
         tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
@@ -395,11 +438,43 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if tmp_path and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 
+    def _handle_run(self):
+        body = self._read_body(20 * 1024 * 1024)
+        if body is None:
+            return
+        try:
+            req = json.loads(body.decode("utf-8"))
+        except Exception as e:
+            self._send_json({"ok": False, "error": f"invalid JSON body: {e}"}, code=400)
+            return
+        try:
+            result = run_submission(
+                name=(req.get("name") or "").strip(),
+                script_text=req.get("script_text") or "",
+                lang=(req.get("lang") or "python").strip(),
+                dataset=(req.get("scope") or "all").strip(),
+                mode=(req.get("mode") or "exact").strip(),
+                params=req.get("params") or [],
+                save_mode=(req.get("save_mode") or "auto").strip(),
+                csv_path=CSV_PATH,
+                config_path=CONFIG_PATH,
+                candidate_paths=MATCH_CANDIDATE_PATHS,
+                runs_dir=RUNS_DIR,
+            )
+            self._send_json({"ok": True, **result})
+        except RunError as e:
+            self._send_json({"ok": False, "error": str(e)}, code=422)
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)}, code=500)
+
 
 if __name__ == "__main__":
-    os.chdir(DIRECTORY)
-    handler = functools.partial(Handler, directory=DIRECTORY)
+    # Serve tool code (UI/templates) from the repo; dataset files are remapped
+    # to DIRECTORY by Handler.translate_path.
+    os.chdir(REPO_DIR)
+    handler = functools.partial(Handler, directory=REPO_DIR)
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("127.0.0.1", PORT), handler) as httpd:
-        print(f"serving {DIRECTORY} at http://127.0.0.1:{PORT}  (+ /api/overview live, config-driven)")
+        where = REPO_DIR if DIRECTORY == REPO_DIR else f"{REPO_DIR} (UI) + {DIRECTORY} (data)"
+        print(f"serving {where} at http://127.0.0.1:{PORT}  — open /mvp-eval-ui.html")
         httpd.serve_forever()

@@ -28,9 +28,13 @@ from collections import Counter, defaultdict
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-CSV_PATH = os.path.join(ROOT, "eval_set_reconciled.csv")
-CONFIG_PATH = os.path.join(ROOT, "dashboard_config.json")
-CANDIDATE_DIR = os.path.join(ROOT, "generated")
+# Honor POI_DATA_DIR so the CLI reaches a split-out data workspace, matching
+# server.py. Falls back to the repo dir when unset (code+data colocated).
+DATA_ROOT = os.environ.get("POI_DATA_DIR") or ROOT
+CSV_PATH = os.path.join(DATA_ROOT, "eval_set_reconciled.csv")
+_data_cfg = os.path.join(DATA_ROOT, "dashboard_config.json")
+CONFIG_PATH = _data_cfg if os.path.exists(_data_cfg) else os.path.join(ROOT, "dashboard_config.json")
+CANDIDATE_DIR = os.path.join(DATA_ROOT, "generated")
 DEFAULT_CANDIDATE_FILES = [
     os.path.join(CANDIDATE_DIR, "mapkit_candidates.jsonl"),
     os.path.join(CANDIDATE_DIR, "kakao_local_candidates.jsonl"),

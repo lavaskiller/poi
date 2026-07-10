@@ -16,3 +16,5 @@ __pycache__/
 *.pyc
 .ssh/
 generated/
+# machine-specific local launch/preview config (absolute paths)
+.claude/

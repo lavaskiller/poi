@@ -173,7 +173,7 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="noticebar">📊 <b>MVP UI</b> — 개요/케이스/후보검색 평가는 서버 API 실수치만 표시합니다. 알고리즘 제출 실행은 아직 비활성입니다.</div>
+  <div class="noticebar">📊 <b>MVP UI</b> — 모든 수치는 서버 API 실측입니다. 개요·후보검색·케이스는 실데이터, ② 평가 실행에서 <b>predict() 스크립트를 제출하면 eval set 전체에 실행 → 식별 정확도</b>가 ③에 실측 막대로 뜹니다.</div>
   <h1>POI 평가 도구</h1>
   <p class="sub">Bloggo · KS2-32 / KS2-34 — 데이터셋 분석 · 평가 자동화 · 확장</p>
 
@@ -231,7 +231,7 @@
           <option value="v2">v2 덮어쓰기</option>
         </select>
         &nbsp;
-        <select id="rscope"><option>전체</option><option>linkedspaces</option><option>union-city</option><option>vancouver</option></select>
+        <select id="rscope"><option value="all">전체</option><option value="linkedspaces">linkedspaces</option><option value="union-city">union-city</option><option value="vancouver">vancouver</option></select>
       </div>
     </div>
 
@@ -289,9 +289,8 @@
     <div class="panel"><div class="chartwrap">
       <svg id="curve" width="580" height="260" viewBox="0 0 580 260"></svg>
       <div class="legend">
-        <div class="lg"><span class="sw" style="background:var(--green)"></span>MapKit <span class="soon">현재</span></div>
-        <div class="lg"><span class="sw" style="background:var(--ink3);height:0;border-top:2px dashed var(--ink3)"></span>Google Places <span class="soon">예시 · 이후</span></div>
-        <div class="lg" style="margin-top:6px;color:var(--ink3);font-size:12px">y = GT가 top-N 후보에 존재<br>x = N (1·2·3·5·10)</div>
+        <div class="lg"><span class="sw" style="background:var(--green)"></span>MapKit <span class="soon">현재 후보 공급원</span></div>
+        <div class="lg" style="margin-top:6px;color:var(--ink3);font-size:12px">y = GT가 top-N 후보에 존재<br>x = N (1·3·5, API 실측치)</div>
       </div>
     </div>
     <div class="note"><b>검색만.</b> 후보 API가 GT 장소를 후보 리스트에 포함했는지 보는 지표다. 지금은 한국 row를 제외하고 한국 외 후보 공급원은 MapKit이다. 이 값은 <b>식별 정확도</b>가 아니라 알고리즘이 선택할 수 있는 후보 상한/커버리지다.</div></div>
@@ -299,7 +298,7 @@
     <h2>식별(selection) 정확도 — 알고리즘별</h2>
     <div class="panel">
       <svg id="bars" width="580" height="250" viewBox="0 0 580 250"></svg>
-      <div class="note"><b>각 막대 = 제출된 알고리즘</b>(② 평가 실행). 예측==GT 비율. <b>x=알고리즘 · y=정확도%</b> — 후보 API 이름(MapKit/Kakao)이 들어오면 안 된다. 아직 실제 알고리즘 제출 결과가 없으므로 이 차트는 비워 둔다.</div>
+      <div class="note"><b>각 막대 = 제출된 알고리즘</b>(② 평가 실행). 예측==GT 비율(식별 정확도, exact). <b>x=알고리즘 · y=정확도%</b> — 후보 API 이름(MapKit/Kakao)은 후보 공급원이지 알고리즘이 아니다. 제출이 없으면 비어 있고, 제출하면 이름당 최신 버전이 실측 막대로 뜬다.</div>
     </div>
 
     <h2>케이스 분석 — 후보 검색 성공 / 실패 <span style="color:var(--green);text-transform:none;letter-spacing:0"> · 실데이터 · 후보 API rank</span></h2>

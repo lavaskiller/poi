@@ -4,6 +4,74 @@ Local POI evaluation dashboard/prototype for measuring POI candidate retrieval c
 
 This repository is the **public/shareable evaluation-tool layer** split from the private `poi-test-data` workspace. It intentionally contains code, specs, templates, and reports, but not raw user data.
 
+## Quick start
+
+The code is portable — no paths to edit. Clone, drop the dataset in, run:
+
+```bash
+git clone git@github.com:lavaskiller/poi.git
+cd poi
+
+# The dataset is delivered separately as a ZIP. Unzip it INTO the repo folder.
+# Its files (all git-ignored) land next to server.py:
+#   eval_set_reconciled.csv
+#   dashboard_config.json           (optional; repo already ships one)
+#   generated/mapkit_candidates.jsonl
+#   linkedspaces-photos/  photos/  union-city-trip/   (images)
+#   *.tsv                           (probe outputs)
+unzip poi-dataset.zip -d .
+
+python3 server.py           # no args, stdlib only
+# → open http://127.0.0.1:8420/   (redirects to /mvp-eval-ui.html)
+```
+
+`server.py` boots even with **no dataset**: the UI loads and the data views stay
+empty (the client tolerates the missing-CSV API error) until you add the ZIP. So
+you can clone and run first, then drop the dataset in.
+
+### Keeping data outside the repo (optional)
+
+By default the server reads the dataset from its own folder. To keep data in a
+separate workspace instead of unzipping into the repo, point it there:
+
+```bash
+POI_DATA_DIR=/path/to/poi-test-data python3 server.py   # data root
+POI_PORT=9000 python3 server.py                          # override port (default 8420)
+```
+
+The UI is always served from this repo; only dataset files (photos, CSV,
+`generated/`) are read from `POI_DATA_DIR`, so you never get a stale UI.
+
+## Submitting an algorithm (② 평가 실행 → ③ 식별 정확도)
+
+The dashboard runs a submitted algorithm over the whole eval set and scores it.
+A submission is a Python file defining one function:
+
+```python
+def predict(case) -> str:      # return the predicted place name, or "" to abstain
+    # `case` exposes only the input signals you tick in the UI, e.g.:
+    #   case["nearby_candidates"] -> [{"name","rank","distance_m"}, ...]  (nearest first)
+    #   case["ocr_text"], case["lat"], case["lon"], case["geocode"], case["category_hint"], ...
+    # `case` never contains the ground-truth answer.
+    cands = case.get("nearby_candidates") or []
+    return cands[0]["name"] if cands else ""
+```
+
+- Attach it in **② 평가 실행**, pick a scope, and press ▶ 실행.
+- The harness scores `prediction == GT` with the same provider-exact policy as
+  candidate retrieval (**identification accuracy**, distinct from retrieval
+  coverage). Korea rows / non_poi / no-GT rows are held out automatically.
+- Results persist to `generated/runs/<name>__v<k>.json` (name-based
+  auto-versioning) and appear as a real bar in **③ 식별 정확도 — 알고리즘별**.
+- A worked example ships in [`examples/baseline_nearest.py`](examples/baseline_nearest.py)
+  (predict the nearest candidate — the floor every real algorithm should beat).
+
+CLI equivalent, no server needed:
+
+```bash
+python3 tools/run_algorithm.py examples/baseline_nearest.py --name baseline --params nearby_candidates
+```
+
 Excluded from this public split:
 
 - raw CSV/TSV datasets
@@ -23,13 +91,18 @@ Implemented MVP pieces:
   - optional candidate JSONL loading
   - legacy MapKit `app_poi_rank` support for the current private reconciled CSV
   - `ls_nearby_results.tsv` → candidate JSONL converter for local generated artifacts
-- `server.py`
-  - `GET /api/matchrate?dataset=all&mode=exact`
-  - `GET /api/matchrate?dataset=linkedspaces&mode=exact`
-  - `GET /api/matchrate?dataset=all&mode=normalized`
-- `mvp-eval-ui.html`
-  - evaluation cards now read `/api/matchrate` instead of static mock values
-  - normalized mode is shown only as fallback/evidence, not as the primary provider policy
+- `server.py` (stdlib http.server, portable — data root via `POI_DATA_DIR`)
+  - `GET /api/overview` · `GET /api/records` — live dataset structure/cases
+  - `GET /api/matchrate?dataset=all&mode=exact|normalized` — candidate retrieval
+  - `POST /api/run` · `GET /api/runs` — submit/score/list algorithm runs
+  - `POST /api/validate-upload-package` — validate a dataset ZIP
+- `tools/run_algorithm.py`
+  - runs a submitted `predict(case)` over the eval set in an isolated subprocess
+  - scores identification accuracy (prediction == GT, provider-exact); Korea /
+    non_poi / no-GT held out; persists versioned runs to `generated/runs/`
+- `mvp-eval-ui.html` / `mvp-eval-ui.js`
+  - every number reads a server API — overview/retrieval/cases and the algorithm
+    submission → identification-accuracy chart are all live, no mock values
 - `tools/validate_upload_package.py`
   - validates user-filled dataset ZIP packages before ingest
 
@@ -59,8 +132,8 @@ This repo was split from an active prototype workspace, not built as a greenfiel
 
 Known sources of messiness:
 
-- `mvp-eval-ui.html` is still a single-file prototype containing HTML, CSS, and JavaScript together.
-- `server.py` is a local dashboard server and still assumes local data files exist outside the public repo.
+- `mvp-eval-ui.html` is still a single-file prototype containing HTML and CSS together (JS is split into `mvp-eval-ui.js`).
+- `server.py` is a local single-user dashboard server; `POST /api/run` executes the submitted script in a subprocess (fine for local use, not a hardened multi-tenant sandbox).
 - Specs/reviews/plans were written across iterations, so some older docs may describe pre-MVP gaps unless noted by newer reports.
 - Generated/private data is excluded, so some commands only work in the private workspace unless equivalent local data is supplied.
 
