@@ -87,13 +87,16 @@ def main() -> int:
     ap.add_argument("--no-run", action="store_true", help="skip swift probe; reuse --probe-out")
     ap.add_argument("--probe-in", default=None)
     ap.add_argument("--probe-out", default=None)
+    ap.add_argument("--dataset", default=None)
+    ap.add_argument("--only-empty", action="store_true")
     args = ap.parse_args()
 
     data_dir = os.path.dirname(os.path.abspath(args.csv))
     probe_in = args.probe_in or os.path.join(data_dir, "gt_mapkit_classify_input.tsv")
     probe_out = args.probe_out or os.path.join(data_dir, "gt_mapkit_classify_output.tsv")
     fetch = make_fetch(data_dir, args.no_run, probe_in, probe_out)
-    common.run_classification(common.MAPKIT, fetch, args.csv, dry_run=args.dry_run)
+    common.run_classification(common.MAPKIT, fetch, args.csv, dry_run=args.dry_run,
+                              dataset=args.dataset, only_empty=args.only_empty)
     return 0
 
 

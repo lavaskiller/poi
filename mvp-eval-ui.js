@@ -301,3 +301,104 @@ async function loadRuns(){
   drawBars(Object.values(latest).sort((a,b)=>b.accuracy_pct-a.accuracy_pct).map(r=>[`${r.name} v${r.version}`,r.accuracy_pct]));
 }
 renderParams();updVer();loadRuns();
+
+// ================= ④ dataset management + jobs + ① live progress =================
+const gid=id=>document.getElementById(id);
+let _dsData=null, _jobTimer=null, _watchJob=null, _pollBusy=false;
+// step -> ① 신호 파이프라인 row label to annotate while running
+const STEP_PIPELINE={ocr:'Vision OCR', mapkit_nearby:'MapKit 베이스라인', gt_mapkit:'MapKit 정규명(GT)'};
+
+async function loadDatasets(){
+  let d; try{ d=await(await fetch('/api/datasets',{cache:'no-store'})).json(); }catch(e){ return; }
+  _dsData=d;
+  const sig=d.signals_meta||{};
+  gid('dsTable').innerHTML=(d.datasets||[]).map(ds=>{
+    const bars=Object.values(ds.signals||{}).map(s=>{
+      const dis=s.status&&s.status!=='ok';
+      const col=dis?'#333c66':(s.pct>=90?'var(--green)':(s.pct===0?'var(--ink3)':'var(--orange)'));
+      return `<div class="fb2" title="${esc(s.label)} ${s.fill}/${ds.count}${dis?' · '+esc(s.status):''}"><span class="mp2" style="width:96px;text-align:left;color:var(--ink3)">${esc(s.label)}</span><div class="mt2"><div class="mf2" style="width:${s.pct}%;background:${col}"></div></div><span class="mp2">${dis?'—':s.pct+'%'}</span></div>`;
+    }).join('');
+    return `<tr><td class="nm3">${esc(ds.key)}${ds.known?'':' <span style="color:var(--orange)" title="config sources 없음">⚠</span>'}<div style="color:var(--ink3);font-size:11px">${esc(ds.label||'')}</div></td><td class="m3">${ds.count}</td><td><div style="display:flex;flex-direction:column;gap:4px">${bars}</div></td><td><button class="btn" data-del="${esc(ds.key)}" style="border-color:rgba(255,107,92,.45);background:rgba(255,107,92,.10);color:#ffb3aa">삭제</button></td></tr>`;
+  }).join('')||'<tr><td colspan="4" style="color:var(--ink3)">데이터셋 없음</td></tr>';
+  gid('rerunDataset').innerHTML=(d.datasets||[]).map(ds=>`<option value="${esc(ds.key)}">${esc(ds.key)}</option>`).join('');
+  gid('rerunStep').innerHTML=Object.entries(sig).map(([name,s])=>{
+    const dis=s.status&&s.status!=='ok';
+    return `<option value="${esc(s.step||name)}"${dis?' disabled':''}>${esc(s.label)}${dis?' · '+esc(s.status):''}</option>`;
+  }).join('');
+  gid('dsTable').querySelectorAll('button[data-del]').forEach(b=>b.onclick=()=>deleteDataset(b.dataset.del));
+}
+
+async function deleteDataset(key){
+  const ds=(_dsData&&_dsData.datasets||[]).find(x=>x.key===key)||{count:'?'};
+  if(!confirm(`데이터셋 "${key}" (${ds.count}행) 삭제?\n\nCSV에서 행 제거(백업 자동 생성). 마지막 1개면 거부.\n사진 파일·config 항목은 그대로 유지됩니다.`)) return;
+  try{
+    const res=await fetch(`/api/jobs?step=delete_dataset&dataset=${encodeURIComponent(key)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delete_photos:false,remove_config_source:false})});
+    const d=await res.json();
+    if(!d.ok){ alert('삭제 실패: '+(res.status===409?'다른 작업 실행중':(d.error||res.status))); return; }
+    watchJob(d.job_id);
+  }catch(e){ alert('삭제 요청 실패: '+e.message); }
+}
+
+async function doRerun(){
+  const step=gid('rerunStep').value, dataset=gid('rerunDataset').value;
+  const onlyEmpty=gid('rerunOnlyEmpty').checked?1:0, hint=gid('rerunHint'); hint.textContent='';
+  if(!step){ hint.textContent='단계를 선택하세요'; return; }
+  try{
+    const res=await fetch(`/api/jobs?step=${encodeURIComponent(step)}&dataset=${encodeURIComponent(dataset)}&only_empty=${onlyEmpty}`,{method:'POST'});
+    const d=await res.json();
+    if(!d.ok){ hint.textContent=res.status===409?'다른 작업 실행중':(res.status===501?'미구현 단계':(d.error||'실패')); if(res.status===409) pollJobs(); return; }
+    hint.textContent=`시작됨 (${d.job_id})`; watchJob(d.job_id);
+  }catch(e){ hint.textContent='요청 실패: '+e.message; }
+}
+
+function watchJob(id){ _watchJob=id; startJobPolling(); }
+
+function fmtResult(r){
+  if(!r) return '';
+  if(r.step==='delete_dataset') return `삭제 ${r.removed_rows}행 · backup`;
+  const p=[]; if(r.filled!=null)p.push(`채움 ${r.filled}/${r.targets!=null?r.targets:'?'}`);
+  if(r.counts)p.push(Object.entries(r.counts).map(([k,v])=>`${k}:${v}`).join(' '));
+  return p.join(' · ')||(r.ok?'ok':'');
+}
+
+async function pollJobs(){
+  let d; try{ d=await(await fetch('/api/jobs',{cache:'no-store'})).json(); }catch(e){ return null; }
+  const active=(d.jobs||[]).find(j=>j.job_id===d.active);
+  const ab=gid('jobActive');
+  if(ab){ if(active){ const pr=active.progress; ab.innerHTML=`<span style="color:var(--orange)">● 실행중</span> ${esc(active.step)}${active.params&&active.params.dataset?' · '+esc(active.params.dataset):''} · ${active.elapsed_s||0}s${pr?` · ${pr.done}/${pr.total}`:''}`; } else ab.textContent='실행 중인 작업 없음.'; }
+  const jl=gid('jobList');
+  if(jl){
+    const jobs=(d.jobs||[]).slice().sort((a,b)=>(b.started||0)-(a.started||0)).slice(0,8);
+    jl.innerHTML=jobs.map(j=>{
+      const sc=j.status==='done'?'stt ok':(j.status==='error'?'stt':'stt run2');
+      const est=j.status==='error'?'background:rgba(255,107,92,.15);color:var(--red)':'';
+      return `<tr><td class="name">${esc(j.step)}</td><td>${esc((j.params&&j.params.dataset)||'전체')}${j.params&&j.params.only_empty?' · 빈행':''}</td><td><span class="${sc}" style="${est}">${esc(j.status)}</span></td><td class="m3">${j.elapsed_s!=null?j.elapsed_s+'s':''}</td><td style="font-family:var(--mono);font-size:11px;color:var(--ink2)">${esc(fmtResult(j.result)||j.error||'')}</td></tr>`;
+    }).join('');
+  }
+  if(_watchJob){ const wj=(d.jobs||[]).find(j=>j.job_id===_watchJob); const lg=gid('jobLog'); if(wj&&lg){ lg.style.display='block'; lg.textContent=(wj.log_tail||[]).join('\n'); } }
+  return d;
+}
+
+async function pollTick(){
+  if(_pollBusy) return; _pollBusy=true;
+  try{
+    const d=await pollJobs();
+    if(d&&d.active){ await loadOverviewSummary(); annotatePipeline((d.jobs||[]).find(j=>j.job_id===d.active)); }
+    else{ stopJobPolling(); await loadOverviewSummary(); await loadDatasets(); _watchJob=null; }
+  } finally { _pollBusy=false; }
+}
+function startJobPolling(){ if(_jobTimer) return; pollTick(); _jobTimer=setInterval(pollTick,1500); }
+function stopJobPolling(){ if(_jobTimer){ clearInterval(_jobTimer); _jobTimer=null; } }
+
+function annotatePipeline(job){
+  if(!job) return; const lbl=STEP_PIPELINE[job.step]; if(!lbl) return;
+  const pr=job.progress, badge=` · 실행중${pr?` ${pr.done}/${pr.total}`:''} ${job.elapsed_s||0}s`;
+  document.querySelectorAll('#pipelinebars .pl').forEach(pl=>{
+    const l=pl.querySelector('.lbl');
+    if(l&&l.textContent.trim()===lbl){ const st=pl.querySelector('.st'); if(st){ st.textContent='진행중'+badge; st.style.color='var(--orange)'; } const seg=pl.querySelector('.seg'); if(seg) seg.style.background='var(--orange)'; }
+  });
+}
+
+const _rerunBtn=gid('rerunBtn'); if(_rerunBtn) _rerunBtn.addEventListener('click',doRerun);
+loadDatasets();
+pollJobs().then(d=>{ if(d&&d.active) startJobPolling(); });

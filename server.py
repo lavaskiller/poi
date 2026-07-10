@@ -13,6 +13,7 @@ from match_score import (
     gt_for_provider,
 )
 from run_algorithm import run_submission, list_runs, RunError
+from gt_classify_common import read_csv as gc_read_csv, write_csv as gc_write_csv, backup_csv as gc_backup_csv
 
 # Data root. Defaults to the repo itself so a fresh clone + unzipped dataset
 # (eval_set_reconciled.csv, generated/, photos/ … — all gitignored) works with
@@ -32,49 +33,102 @@ MATCH_CANDIDATE_PATHS = [
 RUNS_DIR = os.path.join(DIRECTORY, "generated", "runs")
 
 # ---------------------------------------------------------------------------
-# GT name-classification background jobs.
-# Each job runs tools/gt_classify_{provider}.py as a subprocess in a daemon
-# thread, so the single-threaded HTTP server keeps serving while it runs
-# (minutes for MapKit). Both jobs rewrite eval_set_reconciled.csv, so only ONE
-# runs at a time — a second request while one is active returns 409.
+# Background job registry. Every CSV-mutating operation (GT classify, signal
+# re-run, dataset delete) runs as a single-slot job: only ONE runs at a time
+# (they all rewrite eval_set_reconciled.csv) — a 2nd request returns 409.
+# Subprocess steps run tools/<script> in a daemon thread; builtin steps run a
+# Python function in-thread. Worker stdout is logged; the last `RESULT {json}`
+# line becomes job.result and `PROGRESS {json}` lines feed live progress.
 # ---------------------------------------------------------------------------
-GT_JOBS_DIR = os.path.join(DIRECTORY, "generated", "gt_jobs")
-GT_CLASSIFY_SCRIPTS = {
-    "mapkit": os.path.join(REPO_DIR, "tools", "gt_classify_mapkit.py"),
-    "kakao": os.path.join(REPO_DIR, "tools", "gt_classify_kakao.py"),
+JOBS_DIR = os.path.join(DIRECTORY, "generated", "jobs")
+
+# step -> how to run it. Executable mapping (repo paths) lives here; UI labels
+# and enabled/disabled state come from dashboard_config.json "signals".
+STEP_REGISTRY = {
+    "gt_mapkit":      {"script": os.path.join(REPO_DIR, "tools", "gt_classify_mapkit.py")},
+    "gt_kakao":       {"script": os.path.join(REPO_DIR, "tools", "gt_classify_kakao.py")},
+    "ocr":            {"script": os.path.join(REPO_DIR, "tools", "rerun_ocr.py")},
+    "mapkit_nearby":  {"script": os.path.join(REPO_DIR, "tools", "rerun_mapkit_nearby.py")},
+    "delete_dataset": {"builtin": "delete_dataset"},
+    # backends not built yet — registered so the UI can grey them; server 501s.
+    "exif":           {"disabled": "미구현"},
+    "geocode":        {"disabled": "미구현"},
+    "vlm_caption":    {"disabled": "미구현"},
 }
-_gt_jobs = {}                     # job_id -> job dict
-_gt_lock = threading.Lock()
-_gt_active = {"id": None}         # id of the currently-running job (only one allowed)
+
+_jobs = {}                      # job_id -> job dict
+_job_lock = threading.Lock()
+_active = {"id": None}          # id of the currently-running job (only one allowed)
 
 
-def _gt_public(job):
+def _tail_log(path, n=25):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read().splitlines()[-n:]
+    except Exception:
+        return []
+
+
+def _read_progress(log_path):
+    """Last `PROGRESS {json}` line written by a worker, or None."""
+    if not log_path or not os.path.exists(log_path):
+        return None
+    try:
+        last = None
+        with open(log_path, encoding="utf-8", errors="replace") as f:
+            for ln in f:
+                if ln.startswith("PROGRESS "):
+                    last = ln
+        return json.loads(last[len("PROGRESS "):]) if last else None
+    except Exception:
+        return None
+
+
+def _job_public(job):
     out = dict(job)
     started, finished = job.get("started"), job.get("finished")
     out["elapsed_s"] = round((finished or time.time()) - started, 1) if started else None
+    out["progress"] = _read_progress(job.get("log_path"))
     return out
 
 
-def _gt_run_job(job_id, provider):
-    job = _gt_jobs[job_id]
-    log_path = os.path.join(GT_JOBS_DIR, f"{job_id}.log")
+def _job_argv(step, params):
+    argv = [sys.executable, STEP_REGISTRY[step]["script"]]
+    ds = (params or {}).get("dataset")
+    if ds:
+        argv += ["--dataset", ds]
+    if (params or {}).get("only_empty"):
+        argv += ["--only-empty"]
+    return argv
+
+
+def _run_job(job_id):
+    job = _jobs[job_id]
+    step = job["step"]
+    log_path = os.path.join(JOBS_DIR, f"{job_id}.log")
+    job["log_path"] = log_path
     try:
-        os.makedirs(GT_JOBS_DIR, exist_ok=True)
+        os.makedirs(JOBS_DIR, exist_ok=True)
+        spec = STEP_REGISTRY[step]
+        if spec.get("builtin"):
+            with open(log_path, "w", encoding="utf-8") as log:
+                result = _run_builtin(spec["builtin"], job["params"], log)
+            rc = 0 if (result or {}).get("ok") else 1
+            job.update(status=("done" if rc == 0 else "error"), returncode=rc,
+                       finished=time.time(), result=result, log_tail=_tail_log(log_path))
+            return
         env = dict(os.environ)
         env["POI_DATA_DIR"] = DIRECTORY
         with open(log_path, "w", encoding="utf-8") as log:
             proc = subprocess.run(
-                [sys.executable, GT_CLASSIFY_SCRIPTS[provider]],
+                _job_argv(step, job["params"]),
                 cwd=REPO_DIR, env=env, stdout=log, stderr=subprocess.STDOUT,
-                # Detach from the HTTP handler: no inherited client socket / stdin,
-                # its own session, so a minutes-long child never holds the caller's
-                # connection open.
+                # Detach: no inherited client socket / stdin, own session, so a
+                # minutes-long child never holds the caller's connection open.
                 stdin=subprocess.DEVNULL, close_fds=True, start_new_session=True)
-        rc = proc.returncode
-        result, tail = None, []
         with open(log_path, encoding="utf-8", errors="replace") as f:
             lines = f.read().splitlines()
-        tail = lines[-25:]
+        result = None
         for ln in reversed(lines):
             if ln.startswith("RESULT "):
                 try:
@@ -82,41 +136,119 @@ def _gt_run_job(job_id, provider):
                 except Exception:
                     result = None
                 break
-        job.update(status=("done" if rc == 0 else "error"), returncode=rc,
-                   finished=time.time(), result=result, log_tail=tail, log_path=log_path)
+        job.update(status=("done" if proc.returncode == 0 else "error"),
+                   returncode=proc.returncode, finished=time.time(),
+                   result=result, log_tail=lines[-25:])
     except Exception as e:
-        job.update(status="error", finished=time.time(), error=str(e), log_path=log_path)
+        job.update(status="error", finished=time.time(), error=str(e))
     finally:
-        with _gt_lock:
-            if _gt_active["id"] == job_id:
-                _gt_active["id"] = None
+        with _job_lock:
+            if _active["id"] == job_id:
+                _active["id"] = None
 
 
-def gt_reserve(provider):
-    """Reserve a job slot. Returns (job_id, None) or (None, error_message).
+def reserve(step, params):
+    """Reserve the single job slot. Returns (job_id, None) or (None, (code, msg)).
 
-    Does NOT start the worker yet — the caller sends the HTTP response first,
-    then calls gt_launch, so the client's connection is never inherited by the
-    subprocess fork.
+    Does NOT start the worker — the caller sends the HTTP response first, then
+    calls launch(), so the client's connection is never inherited by the fork.
     """
-    if provider not in GT_CLASSIFY_SCRIPTS:
-        return None, f"unknown provider {provider!r} (use 'mapkit' or 'kakao')"
-    with _gt_lock:
-        if _gt_active["id"] is not None:
-            return None, f"a classify job is already running ({_gt_active['id']})"
+    spec = STEP_REGISTRY.get(step)
+    if spec is None:
+        return None, ("unknown_step", f"unknown step {step!r}")
+    if spec.get("disabled"):
+        return None, ("disabled", f"step {step!r} {spec['disabled']}")
+    with _job_lock:
+        if _active["id"] is not None:
+            return None, ("busy", f"a job is already running ({_active['id']})")
         job_id = uuid.uuid4().hex[:12]
-        _gt_active["id"] = job_id
-        _gt_jobs[job_id] = {
-            "job_id": job_id, "provider": provider, "status": "running",
-            "started": time.time(), "finished": None, "returncode": None,
-            "result": None, "error": None, "log_tail": [],
+        _active["id"] = job_id
+        _jobs[job_id] = {
+            "job_id": job_id, "step": step, "params": params or {},
+            "status": "running", "started": time.time(), "finished": None,
+            "returncode": None, "result": None, "error": None,
+            "log_tail": [], "log_path": None,
         }
     return job_id, None
 
 
-def gt_launch(job_id):
-    provider = _gt_jobs[job_id]["provider"]
-    threading.Thread(target=_gt_run_job, args=(job_id, provider), daemon=True).start()
+def launch(job_id):
+    threading.Thread(target=_run_job, args=(job_id,), daemon=True).start()
+
+
+def _photo_dir_for(dataset):
+    src = (load_config().get("sources") or {}).get(dataset) or {}
+    if src.get("photo_dir"):
+        return src["photo_dir"]
+    return {"linkedspaces": "linkedspaces-photos", "vancouver": "photos",
+            "union-city": "union-city-trip"}.get(dataset)
+
+
+def _run_builtin(name, params, log):
+    if name == "delete_dataset":
+        return _delete_dataset(params, log)
+    return {"ok": False, "error": f"unknown builtin {name!r}"}
+
+
+def _delete_dataset(params, log):
+    dataset = (params.get("dataset") or "").strip()
+    if not dataset:
+        return {"ok": False, "error": "no dataset given"}
+    fieldnames, rows = gc_read_csv(CSV_PATH)
+    present = sorted({(r.get("dataset") or "").strip() for r in rows if (r.get("dataset") or "").strip()})
+    if dataset not in present:
+        return {"ok": False, "error": f"unknown dataset {dataset!r}", "datasets": present}
+    if len(present) <= 1:
+        return {"ok": False, "error": "cannot delete the only dataset"}
+    removed = [r for r in rows if (r.get("dataset") or "").strip() == dataset]
+    kept = [r for r in rows if (r.get("dataset") or "").strip() != dataset]
+    backup = gc_backup_csv(CSV_PATH)
+    print(f"backup: {backup}", file=log)
+    gc_write_csv(CSV_PATH, fieldnames, kept)
+    print(f"removed {len(removed)} rows for dataset {dataset}", file=log)
+
+    photos_deleted = photos_missing = 0
+    if params.get("delete_photos"):
+        pdir = _photo_dir_for(dataset)
+        if pdir:
+            base = os.path.realpath(os.path.join(DIRECTORY, pdir))
+            for r in removed:
+                ph = (r.get("photo") or "").strip()
+                if not ph:
+                    continue
+                p = os.path.realpath(os.path.join(base, ph))
+                if not (p == base or p.startswith(base + os.sep)):
+                    continue  # never escape the dataset's own photo dir
+                if os.path.isfile(p):
+                    os.remove(p)
+                    photos_deleted += 1
+                else:
+                    photos_missing += 1
+            print(f"photos deleted={photos_deleted} missing={photos_missing}", file=log)
+
+    config_source_removed = False
+    if params.get("remove_config_source"):
+        try:
+            with open(CONFIG_PATH, encoding="utf-8") as f:
+                cfg = json.load(f)
+            if dataset in (cfg.get("sources") or {}):
+                bak = f"{CONFIG_PATH}.bak-{time.strftime('%Y%m%d-%H%M%S')}"
+                with open(bak, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, ensure_ascii=False, indent=2)
+                del cfg["sources"][dataset]
+                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, ensure_ascii=False, indent=2)
+                config_source_removed = True
+                print(f"removed sources[{dataset}] from {CONFIG_PATH} (backup {bak})", file=log)
+        except Exception as e:
+            print(f"config source removal failed: {e}", file=log)
+
+    result = {"ok": True, "step": "delete_dataset", "dataset": dataset,
+              "removed_rows": len(removed), "backup": backup,
+              "photos_deleted": photos_deleted, "photos_missing": photos_missing,
+              "config_source_removed": config_source_removed}
+    print("RESULT " + json.dumps(result, ensure_ascii=False), file=log)
+    return result
 
 
 def load_config():
@@ -336,6 +468,44 @@ def build_overview():
     }
 
 
+def build_datasets():
+    """One entry per dataset for tab ④: label, count, per-signal fill, photo dir.
+
+    The set of signals reported is driven by config `signals` so it stays in
+    sync with the re-run step dropdown; a signal maps to one or more CSV columns
+    and is measured on its representative (first) column.
+    """
+    cfg = load_config()
+    signals = cfg.get("signals") or {}
+    sources = cfg.get("sources") or {}
+    with open(CSV_PATH, encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    by = {}
+    for r in rows:
+        ds = (r.get("dataset") or "").strip()
+        if ds:
+            by.setdefault(ds, []).append(r)
+
+    out = []
+    for ds, drows in by.items():
+        total = len(drows)
+        sig = {}
+        for name, meta in signals.items():
+            scols = meta.get("cols") or ([meta["col"]] if meta.get("col") else [])
+            rep = scols[0] if scols else None
+            fill = sum(1 for r in drows if rep and (r.get(rep) or "").strip()) if rep else 0
+            sig[name] = {"label": meta.get("label", name), "col": rep, "cols": scols,
+                         "fill": fill, "empty": total - fill,
+                         "pct": round(100 * fill / total) if total else 0,
+                         "step": meta.get("step"), "status": meta.get("status", "ok")}
+        src = sources.get(ds) or {}
+        out.append({"key": ds, "label": src.get("label", ""), "count": total,
+                    "known": ds in sources, "config_source": ds in sources,
+                    "photo_dir": _photo_dir_for(ds), "signals": sig})
+    out.sort(key=lambda d: -d["count"])
+    return {"datasets": out, "signals_meta": signals}
+
+
 def _photo_url(dataset, photo):
     if dataset == "linkedspaces":
         return "/linkedspaces-photos/" + photo
@@ -511,19 +681,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self._send_json({"error": str(e)}, code=500)
             return
-        if route == "/api/gt/classify/status":
+        if route == "/api/datasets":
+            try:
+                self._send_json(build_datasets())
+            except Exception as e:
+                self._send_json({"error": str(e)}, code=500)
+            return
+        if route in ("/api/jobs/status", "/api/gt/classify/status"):
             from urllib.parse import urlparse, parse_qs
             q = parse_qs(urlparse(self.path).query)
             job_id = (q.get("job_id", [""])[0]).strip()
-            job = _gt_jobs.get(job_id)
+            job = _jobs.get(job_id)
             if not job:
                 self._send_json({"ok": False, "error": "unknown job_id"}, code=404)
                 return
-            self._send_json({"ok": True, **_gt_public(job)})
+            self._send_json({"ok": True, **_job_public(job)})
             return
-        if route == "/api/gt/classify":
-            self._send_json({"ok": True, "active": _gt_active["id"],
-                             "jobs": [_gt_public(j) for j in _gt_jobs.values()]})
+        if route in ("/api/jobs", "/api/gt/classify"):
+            self._send_json({"ok": True, "active": _active["id"],
+                             "steps": {s: (v.get("disabled") or "ok") for s, v in STEP_REGISTRY.items()},
+                             "jobs": [_job_public(j) for j in _jobs.values()]})
             return
         super().do_GET()
 
@@ -546,8 +723,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if route == "/api/run":
             self._handle_run()
             return
+        if route == "/api/jobs":
+            self._handle_job_start()
+            return
         if route == "/api/gt/classify":
-            self._handle_gt_classify()
+            self._handle_gt_classify_shim()
             return
         if route != "/api/validate-upload-package":
             self.send_error(404)
@@ -571,37 +751,71 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if tmp_path and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 
-    def _handle_gt_classify(self):
+    _JOB_ERR_CODE = {"busy": 409, "disabled": 501, "unknown_step": 400}
+
+    def _start_job(self, step, params, extra_resp=None):
+        """reserve → respond+flush → launch. Shared by generic + shim handlers."""
+        job_id, err = reserve(step, params)
+        if err:
+            self._send_json({"ok": False, "error": err[1], "step": step},
+                            code=self._JOB_ERR_CODE.get(err[0], 400))
+            return
+        resp = {"ok": True, "job_id": job_id, "step": step, "status": "running",
+                "status_url": f"/api/jobs/status?job_id={job_id}"}
+        resp.update(extra_resp or {})
+        # Respond and flush BEFORE forking the worker, so the caller's connection
+        # is fully served and never held open by the (minutes-long) subprocess.
+        self._send_json(resp)
+        try:
+            self.wfile.flush()
+        except Exception:
+            pass
+        launch(job_id)
+
+    def _handle_job_start(self):
         from urllib.parse import urlparse, parse_qs
         q = parse_qs(urlparse(self.path).query)
-        provider = (q.get("provider", [""])[0]).strip()
-        # Provider may also arrive in a JSON body; drain any body regardless.
+        step = (q.get("step", [""])[0]).strip()
+        params = {
+            "dataset": (q.get("dataset", [""])[0]).strip() or None,
+            "only_empty": (q.get("only_empty", ["0"])[0]).strip() in ("1", "true", "yes"),
+        }
+        # Optional JSON body may carry step and extra params (delete flags).
         try:
             cl = int(self.headers.get("Content-Length", "0") or 0)
         except ValueError:
             cl = 0
         if cl > 0:
-            body = self.rfile.read(cl)
-            if not provider:
-                try:
-                    provider = (json.loads(body.decode("utf-8")).get("provider") or "").strip()
-                except Exception:
-                    pass
-        job_id, err = gt_reserve(provider)
-        if err:
-            code = 409 if "already running" in err else 400
-            self._send_json({"ok": False, "error": err}, code=code)
-            return
-        # Respond and flush BEFORE forking the worker, so the caller's connection
-        # is fully served and never held open by the (minutes-long) subprocess.
-        self._send_json({"ok": True, "job_id": job_id, "provider": provider,
-                         "status": "running",
-                         "status_url": f"/api/gt/classify/status?job_id={job_id}"})
+            try:
+                b = json.loads(self.rfile.read(cl).decode("utf-8"))
+                if not step:
+                    step = (b.get("step") or "").strip()
+                for k in ("dataset", "only_empty", "delete_photos", "remove_config_source"):
+                    if k in b:
+                        params[k] = b[k]
+            except Exception:
+                pass
+        self._start_job(step, params)
+
+    def _handle_gt_classify_shim(self):
+        # Back-compat: /api/gt/classify?provider=mapkit → step=gt_mapkit.
+        from urllib.parse import urlparse, parse_qs
+        q = parse_qs(urlparse(self.path).query)
+        provider = (q.get("provider", [""])[0]).strip()
         try:
-            self.wfile.flush()
-        except Exception:
-            pass
-        gt_launch(job_id)
+            cl = int(self.headers.get("Content-Length", "0") or 0)
+        except ValueError:
+            cl = 0
+        if cl > 0 and not provider:
+            try:
+                provider = (json.loads(self.rfile.read(cl).decode("utf-8")).get("provider") or "").strip()
+            except Exception:
+                pass
+        step = {"mapkit": "gt_mapkit", "kakao": "gt_kakao"}.get(provider)
+        if not step:
+            self._send_json({"ok": False, "error": f"unknown provider {provider!r} (use 'mapkit' or 'kakao')"}, code=400)
+            return
+        self._start_job(step, {}, extra_resp={"provider": provider})
 
     def _handle_run(self):
         body = self._read_body(20 * 1024 * 1024)

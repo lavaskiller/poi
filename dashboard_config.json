@@ -5,9 +5,20 @@
 
   "_sources_note": "데이터셋 = 1급 개념. 새 데이터셋은 여기 한 항목 등록 + 사진/GT 제공 → 나머지 컬럼은 ingest가 자동 채움. owner/source_type은 provenance(누구 블로그/실사용자)와 기본 신뢰등급을 정함.",
   "sources": {
-    "linkedspaces": { "label": "실사용자 방문",   "color": "blue",   "owner": "실사용자", "source_type": "real-user-export", "default_confidence": "user_selected", "desc": "실사용자들의 실제 장소 방문 기록 (In Seo export, KS2-10)." },
-    "union-city":   { "label": "우혁 개인블로그",  "color": "cyan",   "owner": "우혁",    "source_type": "personal-blog",    "default_confidence": "confirmed_user", "desc": "우혁의 Union City 여행 블로그." },
-    "vancouver":    { "label": "인소 개인블로그",  "color": "violet", "owner": "인소",    "source_type": "personal-blog",    "default_confidence": "confirmed_user", "desc": "인소의 Vancouver 여행 블로그." }
+    "linkedspaces": { "label": "실사용자 방문",   "color": "blue",   "owner": "실사용자", "source_type": "real-user-export", "default_confidence": "user_selected", "photo_dir": "linkedspaces-photos", "desc": "실사용자들의 실제 장소 방문 기록 (In Seo export, KS2-10)." },
+    "union-city":   { "label": "우혁 개인블로그",  "color": "cyan",   "owner": "우혁",    "source_type": "personal-blog",    "default_confidence": "confirmed_user", "photo_dir": "union-city-trip", "desc": "우혁의 Union City 여행 블로그." },
+    "vancouver":    { "label": "인소 개인블로그",  "color": "violet", "owner": "인소",    "source_type": "personal-blog",    "default_confidence": "confirmed_user", "photo_dir": "photos", "desc": "인소의 Vancouver 여행 블로그." }
+  },
+
+  "_signals_note": "자동 채움 신호 레지스트리. tab ④의 재실행 단계 드롭다운과 /api/datasets 신호 채움을 구동. step은 STEP_REGISTRY(server.py)의 실행 매핑과 연결. status:미구현이면 UI 회색·서버 501.",
+  "signals": {
+    "exif":          { "label": "EXIF 좌표/시각",   "cols": ["capture_lat", "capture_lon", "timestamp"], "step": "exif", "status": "미구현" },
+    "ocr":           { "label": "OCR 텍스트",       "cols": ["caption_ondevice"], "step": "ocr" },
+    "geocode":       { "label": "역지오코딩",       "cols": ["city", "country", "address"], "step": "geocode", "status": "미구현" },
+    "mapkit_nearby": { "label": "MapKit 주변후보",  "cols": ["app_poi_rank", "app_nearby_top1", "app_nearby_n_wide", "app_poi_dist_m"], "step": "mapkit_nearby" },
+    "gt_mapkit":     { "label": "MapKit 정규명(GT)", "cols": ["gt_mapkit"], "step": "gt_mapkit" },
+    "gt_kakao":      { "label": "Kakao 정규명(GT)",  "cols": ["gt_kakao"], "step": "gt_kakao" },
+    "vlm_caption":   { "label": "VLM 캡션",         "cols": ["vlm_caption"], "step": "vlm_caption", "status": "미구현" }
   },
 
   "_confidence_note": "신뢰등급은 '채점 시 이 행을 어떻게 다루나'가 달라질 때만 존재. raw gt_confidence(CSV)는 그대로 두고 confidence_rollup으로 4개 캐노니컬 등급에 묶음. 라벨 출처(사용자 구두확인/OCR/추론)는 신뢰등급 아니라 메타데이터라 tiers에서 뺌.",

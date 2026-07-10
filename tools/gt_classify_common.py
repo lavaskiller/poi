@@ -84,9 +84,11 @@ def classify_input(input_name: str, candidates: List[str],
 
 
 def classify_rows(rows: List[Dict[str, str]], cfg: dict, pcfg: ProviderCfg,
-                  cand_by_rid: Dict[str, List[str]]) -> Dict[str, int]:
+                  cand_by_rid: Dict[str, List[str]], in_scope=None) -> Dict[str, int]:
     stats: Counter = Counter()
     for idx, row in enumerate(rows):
+        if in_scope is not None and not in_scope(idx, row):
+            continue  # leave out-of-scope cells untouched (dataset/only_empty scoping)
         if ms.provider_for_row(row, cfg) != pcfg.owns:
             row[pcfg.column] = pcfg.other_marker
             stats["other_marker"] += 1
@@ -132,19 +134,32 @@ def backup_csv(path: str) -> str:
 
 
 def run_classification(pcfg: ProviderCfg, fetch: FetchFn, csv_path: str,
-                       dry_run: bool = False, emit_result: bool = True) -> Dict:
+                       dry_run: bool = False, emit_result: bool = True,
+                       dataset: Optional[str] = None, only_empty: bool = False) -> Dict:
     """Full driver: read CSV, fetch candidates for owned rows, classify, write.
 
     ``fetch`` is the provider-specific candidate source: it takes the target rows
     and returns ``{str(row_index): [candidate names]}``.
+
+    ``dataset``/``only_empty`` scope the run: only rows in ``dataset`` (all if
+    None) and — when ``only_empty`` — only rows whose provider GT cell is still
+    empty are (re)classified; every other cell is left exactly as-is.
     """
     cfg = ms.load_config()
     fieldnames, rows = read_csv(csv_path)
     if pcfg.column not in fieldnames:
         raise SystemExit(f"CSV has no {pcfg.column} column")
 
-    targets = probe_targets(rows, cfg, pcfg)
-    print(f"[{pcfg.owns}] probe targets: {len(targets)} / total_rows={len(rows)}")
+    def in_scope(_idx, row):
+        if dataset and (row.get("dataset") or "").strip() != dataset:
+            return False
+        if only_empty and (row.get(pcfg.column) or "").strip():
+            return False
+        return True
+
+    targets = [(i, r) for (i, r) in probe_targets(rows, cfg, pcfg) if in_scope(i, r)]
+    scope_note = (f" dataset={dataset}" if dataset else "") + (" only_empty" if only_empty else "")
+    print(f"[{pcfg.owns}] probe targets: {len(targets)} / total_rows={len(rows)}{scope_note}")
     if dry_run:
         result = {"ok": True, "provider": pcfg.owns, "dry_run": True, "targets": len(targets)}
         if emit_result:
@@ -157,7 +172,7 @@ def run_classification(pcfg: ProviderCfg, fetch: FetchFn, csv_path: str,
     backup = backup_csv(csv_path)
     print(f"[{pcfg.owns}] backup: {backup}")
 
-    stats = classify_rows(rows, cfg, pcfg, cand_by_rid)
+    stats = classify_rows(rows, cfg, pcfg, cand_by_rid, in_scope)
     write_csv(csv_path, fieldnames, rows)
     print(f"[{pcfg.owns}] wrote {csv_path}")
     print(f"  {pcfg.other_marker}={stats.get('other_marker', 0)} "

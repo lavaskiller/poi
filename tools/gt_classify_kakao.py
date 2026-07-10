@@ -113,14 +113,18 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Classify gt_kakao (NON_KR / verbatim / SIM_KAKAO / NON_KAKAO)")
     ap.add_argument("--csv", default=ms.CSV_PATH)
     ap.add_argument("--dry-run", action="store_true", help="count targets only; no key/API needed")
+    ap.add_argument("--dataset", default=None)
+    ap.add_argument("--only-empty", action="store_true")
     args = ap.parse_args()
 
     if args.dry_run:
-        common.run_classification(common.KAKAO, lambda t: {}, args.csv, dry_run=True)
+        common.run_classification(common.KAKAO, lambda t: {}, args.csv, dry_run=True,
+                                  dataset=args.dataset, only_empty=args.only_empty)
         return 0
 
     fetch = make_fetch(_api_key())
-    common.run_classification(common.KAKAO, fetch, args.csv, dry_run=False)
+    common.run_classification(common.KAKAO, fetch, args.csv, dry_run=False,
+                              dataset=args.dataset, only_empty=args.only_empty)
     return 0
 
 
