@@ -355,11 +355,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return os.path.join(DIRECTORY, rel)
         return resolved
 
+    def end_headers(self):
+        # Live dashboard: never let the browser serve a stale UI or API response.
+        # Dataset files (photos) stay cacheable — large and rarely changing.
+        p = self.path.split("?")[0]
+        if p == "/" or p.startswith("/api/") or p.endswith((".html", ".js", ".css")):
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def _send_json(self, payload_obj, code=200):
         payload = json.dumps(payload_obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
