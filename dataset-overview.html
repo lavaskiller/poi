@@ -293,9 +293,11 @@ function render(d){
   $('#samples').innerHTML = d.sources.filter(s=>d.samples[s.key]).map(s=>{
     const r=d.samples[s.key];
     const label = s.known ? s.label : '⚠ config 없음';
-    const gt = r.gt_place_name ? `<span class="val gt">${esc(r.gt_place_name)}</span>` : `<span class="val" style="color:var(--ink3)">(비어있음)</span>`;
+    const gtval = r.gt_mapkit || r.gt_kakao || r.input_place_name;
+    const gt = gtval ? `<span class="val gt">${esc(gtval)}</span>` : `<span class="val" style="color:var(--ink3)">(비어있음)</span>`;
     const rows = [
-      ['gt_place', gt],
+      ['input', `<span class="val">${esc(r.input_place_name||'')}</span>`],
+      ['gt', gt],
       ['conf', `<span class="val">${esc(r.gt_confidence)}</span>`],
       ['category', `<span class="val">${esc(r.category)}</span>`],
       ['coord', `<span class="val">${(+r.capture_lat).toFixed(4)}, ${(+r.capture_lon).toFixed(4)}</span>`],

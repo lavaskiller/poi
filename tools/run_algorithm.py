@@ -94,8 +94,8 @@ def build_cases(rows, cfg, candidates, dataset: str, params: List[str]) -> List[
         ds = (row.get("dataset") or "").strip()
         if dataset != "all" and ds != dataset:
             continue
-        gt = (row.get("gt_place_name") or "").strip()
         provider = ms.provider_for_row(row, cfg)
+        gt = ms.gt_for_provider(row, provider)
         tier = ms.confidence_tier(row, cfg)
         # eligibility mirrors match_score.evaluate
         if provider == "kakao_local" or tier == "non_poi" or not gt:

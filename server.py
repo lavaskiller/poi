@@ -8,6 +8,8 @@ from match_score import (
     evaluate as evaluate_matchrate,
     load_candidates as load_match_candidates,
     read_rows as read_match_rows,
+    provider_for_row,
+    gt_for_provider,
 )
 from run_algorithm import run_submission, list_runs, RunError
 
@@ -152,7 +154,7 @@ def build_overview():
         d = r.get("dataset")
         if d and d not in samples:
             samples[d] = {k: (r.get(k) or "") for k in
-                          ("gt_place_name", "gt_confidence", "category",
+                          ("input_place_name", "gt_mapkit", "gt_kakao", "gt_confidence", "category",
                            "capture_lat", "capture_lon", "city", "country", "photo", "photo_url")}
 
     # ---- pipeline: labels from config, counts from real files/columns ----
@@ -224,7 +226,7 @@ def build_overview():
         "category_total_kinds": len(cat_counts),
         "fill": fill,
         "photo_present": fill.get("photo", 0),
-        "gt_present": fill.get("gt_place_name", 0),
+        "gt_present": fill.get("input_place_name", 0),
         "schema": schema,
         "samples": samples,
         "pipeline": pipeline,
@@ -267,8 +269,12 @@ def build_records(dataset_filter):
                 if len(c) >= 9 and c[0]:
                     cand[c[0]] = {"n": c[4], "rank": c[5], "dist": c[6], "top3": _parse_candidates(c[8])}
 
+    def eff_gt(r):
+        # provider-canonical GT (gt_mapkit/gt_kakao), falling back to input_place_name
+        return gt_for_provider(r, provider_for_row(r, cfg))
+
     def outcome(r):
-        gt = (r.get("gt_place_name") or "").strip()
+        gt = eff_gt(r)
         conf = roll.get((r.get("gt_confidence") or "").strip(), "")
         rk = (r.get("app_poi_rank") or "").strip()
         if conf == "non_poi":
@@ -296,7 +302,8 @@ def build_records(dataset_filter):
         ocr = (r.get("caption_ondevice") or "").strip()
         recs.append({
             "dataset": ds, "photo": photo, "photo_url": _photo_url(ds, photo),
-            "gt": (r.get("gt_place_name") or "").strip(),
+            "gt": eff_gt(r),
+            "input_place_name": (r.get("input_place_name") or "").strip(),
             "gt_confidence": (r.get("gt_confidence") or "").strip(),
             "category": (r.get("category") or "").strip(),
             "lat": (r.get("capture_lat") or "").strip()[:9],

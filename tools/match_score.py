@@ -68,6 +68,22 @@ def provider_for_row(row: Dict[str, str], cfg: Dict[str, Any]) -> str:
     return "kakao_local" if canonical_country(row, cfg) in KR_NAMES else "mapkit"
 
 
+def input_place_name(row: Dict[str, str]) -> str:
+    return (row.get("input_place_name") or "").strip()
+
+
+def gt_for_provider(row: Dict[str, str], provider: str) -> str:
+    """Provider-canonical ground-truth name used for scoring.
+
+    GT is split per provider: ``gt_mapkit`` for MapKit rows, ``gt_kakao`` for
+    Kakao rows, populated by the provider name-resolution job. Until that job
+    fills them, fall back to the raw ``input_place_name`` so existing metrics
+    keep working.
+    """
+    col = "gt_kakao" if provider == "kakao_local" else "gt_mapkit"
+    return (row.get(col) or "").strip() or input_place_name(row)
+
+
 def confidence_tier(row: Dict[str, str], cfg: Dict[str, Any]) -> str:
     raw = (row.get("gt_confidence") or "").strip()
     return (cfg.get("confidence_rollup") or {}).get(raw, raw)
@@ -204,9 +220,9 @@ def evaluate(dataset: str = "all", mode: str = "exact", rows: Optional[List[Dict
         if dataset != "all" and ds != dataset:
             continue
         counts["rows"] += 1
-        gt = (row.get("gt_place_name") or "").strip()
         tier = confidence_tier(row, cfg)
         provider = provider_for_row(row, cfg)
+        gt = gt_for_provider(row, provider)
         country = canonical_country(row, cfg)
         photo = (row.get("photo") or "").strip()
 

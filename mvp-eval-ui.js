@@ -134,32 +134,22 @@ async function loadOverviewSummary(){
     by('pipelinebars').innerHTML=(d.pipeline||[]).map(x=>{const p=total?Math.round(100*(x.merged||x.extracted||0)/total):0;const st=x.status==='done'?'완료':(x.status==='run'?'진행중':'대기');const col=x.status==='done'?'var(--green)':(x.status==='run'?'var(--orange)':'#333c66');return `<div class="pl"><span class="lbl">${esc(x.label)}</span><div class="track"><div class="seg" style="width:${p}%;background:${col}"></div></div><span class="st ${x.status}">${st}</span></div>`}).join('');
   }catch(e){ console.warn('overview load failed',e); }
 }
-const ROWSTRUCT=[
-  ['입력벡터','이미지','in','photo','원본 jpg'],
-  ['입력벡터','좌표 lat/lon','in','capture_lat','EXIF GPS'],
-  ['입력벡터','촬영 시각','in','timestamp','EXIF DateTimeOriginal'],
-  ['입력벡터','OCR 텍스트','in','caption_ondevice','Vision VNRecognizeText'],
-  ['입력벡터','VLM 설명','in','__none','FastVLM-0.5B (미추출)'],
-  ['입력벡터','주변 후보','in','app_nearby_top1','MapKit MKLocalPOI'],
-  ['입력벡터','역지오코딩','in','city','Apple CLGeocoder'],
-  ['입력벡터','카테고리','in','category','GT 라벨 ⚠'],
-  ['정답','gt_place_name','gt','gt_place_name','사용자 선택'],
-  ['정답','gt_confidence','gt','gt_confidence','라벨 등급'],
-  ['평가','app_poi_rank','bl','app_poi_rank','MapKit rank'],
-  ['평가','app_nearby_top1','bl','app_nearby_top1','MapKit 최근접'],
-  ['메타','dataset·photo·notes','mt','dataset','등록/파일'],
-];
+// Row structure is rendered live from /api/overview `schema` (config-driven).
+// No hardcoded column list — schema_groups / CSV changes reflect on reload
+// without editing JS. `desc` carries intentional markup (matches dataset-overview.html).
 async function loadRowStruct(){
-  let fill={},total=0;
-  try{const d=await(await fetch('/api/overview',{cache:'no-store'})).json();fill=d.fill||{};total=Number(d.total||0);}catch(e){}
-  const RC={in:['var(--blue)','입력벡터'],gt:['var(--gold)','정답'],bl:['var(--green)','베이스라인'],mt:['var(--ink3)','메타']};
-  $("#rowstruct").innerHTML=ROWSTRUCT.map(([g,name,role,col,method])=>{
-    const f=fill[col]||0,pct=total?Math.round(100*f/total):0,rr=RC[role];
+  let d={};
+  try{d=await(await fetch('/api/overview',{cache:'no-store'})).json();}catch(e){}
+  const schema=d.schema||[],total=Number(d.total||0);
+  const RC={in:'var(--blue)',gt:'var(--gold)',bl:'var(--green)',mt:'var(--ink3)'};
+  $("#rowstruct").innerHTML=schema.map(s=>{
+    const f=Number(s.fill||0),pct=total?Math.round(100*f/total):0;
     const color=pct>=90?'var(--green)':(pct===0?'var(--ink3)':'var(--orange)');
-    return `<tr><td class="nm3">${esc(name)}</td>
-      <td class="rl" style="color:${rr[0]}">${rr[1]}</td>
+    const rcolor=RC[s.role_key]||'var(--ink3)';
+    return `<tr><td class="nm3">${esc(s.group)}</td>
+      <td class="rl" style="color:${rcolor}">${esc(s.role_label||s.role_key||'')}</td>
       <td><div class="fb2"><div class="mt2"><div class="mf2" style="width:${pct}%;background:${color}"></div></div><span class="mp2">${pct}%</span></div></td>
-      <td class="m3">${esc(method)}</td></tr>`;
+      <td class="m3">${s.desc||''}</td></tr>`;
   }).join('');
 }
 loadOverviewSummary();

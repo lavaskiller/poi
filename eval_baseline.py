@@ -44,7 +44,7 @@ with open(CSV, newline="") as f:
 # Candidate universe = distinct GT places.
 candidates = {}
 for r in rows:
-    candidates[r["gt_place_name"]] = (parse_coord(r["gt_place_coord"]), r["category"])
+    candidates[r["input_place_name"]] = (parse_coord(r["gt_place_coord"]), r["category"])
 cand_list = [(name, coord, cat) for name, (coord, cat) in candidates.items()]
 
 print(f"Eval set: {len(rows)} photos | candidate POIs: {len(cand_list)}")
@@ -64,7 +64,7 @@ def run(use_category):
     for r in rows:
         cap = (float(r["capture_lat"]), float(r["capture_lon"]))
         pred, raw = predict(cap[0], cap[1], use_category)
-        gt = r["gt_place_name"]
+        gt = r["input_place_name"]
         if pred == gt:
             hits += 1
         else:
@@ -86,7 +86,7 @@ by_place = {}
 for r in rows:
     cap = (float(r["capture_lat"]), float(r["capture_lon"]))
     pred, _ = predict(cap[0], cap[1], True)
-    gt = r["gt_place_name"]
+    gt = r["input_place_name"]
     d = by_place.setdefault(gt, [0, 0])
     d[1] += 1
     if pred == gt:

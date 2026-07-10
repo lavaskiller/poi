@@ -63,7 +63,7 @@ for label,data in runs:
         if cls(r)!="non_poi": continue
         st,j=data.get(ph,("missing",None))
         if st=="ok" and grade("non_poi","",j)=="HALLUCINATION":
-            hs.append((ph, r["gt_place_name"], j.get("placeName","")))
+            hs.append((ph, r["input_place_name"], j.get("placeName","")))
     if hs:
         print(f"\n[{label}] {len(hs)} hallucinations:")
         for ph,gt,pred in hs[:20]:
