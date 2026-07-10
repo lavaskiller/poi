@@ -1,4 +1,5 @@
 import http.server, socketserver, functools, json, csv, os, sys, tempfile
+import threading, subprocess, uuid, time
 from collections import Counter
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +30,93 @@ MATCH_CANDIDATE_PATHS = [
     os.path.join(DIRECTORY, "generated", "kakao_local_candidates.jsonl"),
 ]
 RUNS_DIR = os.path.join(DIRECTORY, "generated", "runs")
+
+# ---------------------------------------------------------------------------
+# GT name-classification background jobs.
+# Each job runs tools/gt_classify_{provider}.py as a subprocess in a daemon
+# thread, so the single-threaded HTTP server keeps serving while it runs
+# (minutes for MapKit). Both jobs rewrite eval_set_reconciled.csv, so only ONE
+# runs at a time — a second request while one is active returns 409.
+# ---------------------------------------------------------------------------
+GT_JOBS_DIR = os.path.join(DIRECTORY, "generated", "gt_jobs")
+GT_CLASSIFY_SCRIPTS = {
+    "mapkit": os.path.join(REPO_DIR, "tools", "gt_classify_mapkit.py"),
+    "kakao": os.path.join(REPO_DIR, "tools", "gt_classify_kakao.py"),
+}
+_gt_jobs = {}                     # job_id -> job dict
+_gt_lock = threading.Lock()
+_gt_active = {"id": None}         # id of the currently-running job (only one allowed)
+
+
+def _gt_public(job):
+    out = dict(job)
+    started, finished = job.get("started"), job.get("finished")
+    out["elapsed_s"] = round((finished or time.time()) - started, 1) if started else None
+    return out
+
+
+def _gt_run_job(job_id, provider):
+    job = _gt_jobs[job_id]
+    log_path = os.path.join(GT_JOBS_DIR, f"{job_id}.log")
+    try:
+        os.makedirs(GT_JOBS_DIR, exist_ok=True)
+        env = dict(os.environ)
+        env["POI_DATA_DIR"] = DIRECTORY
+        with open(log_path, "w", encoding="utf-8") as log:
+            proc = subprocess.run(
+                [sys.executable, GT_CLASSIFY_SCRIPTS[provider]],
+                cwd=REPO_DIR, env=env, stdout=log, stderr=subprocess.STDOUT,
+                # Detach from the HTTP handler: no inherited client socket / stdin,
+                # its own session, so a minutes-long child never holds the caller's
+                # connection open.
+                stdin=subprocess.DEVNULL, close_fds=True, start_new_session=True)
+        rc = proc.returncode
+        result, tail = None, []
+        with open(log_path, encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+        tail = lines[-25:]
+        for ln in reversed(lines):
+            if ln.startswith("RESULT "):
+                try:
+                    result = json.loads(ln[len("RESULT "):])
+                except Exception:
+                    result = None
+                break
+        job.update(status=("done" if rc == 0 else "error"), returncode=rc,
+                   finished=time.time(), result=result, log_tail=tail, log_path=log_path)
+    except Exception as e:
+        job.update(status="error", finished=time.time(), error=str(e), log_path=log_path)
+    finally:
+        with _gt_lock:
+            if _gt_active["id"] == job_id:
+                _gt_active["id"] = None
+
+
+def gt_reserve(provider):
+    """Reserve a job slot. Returns (job_id, None) or (None, error_message).
+
+    Does NOT start the worker yet — the caller sends the HTTP response first,
+    then calls gt_launch, so the client's connection is never inherited by the
+    subprocess fork.
+    """
+    if provider not in GT_CLASSIFY_SCRIPTS:
+        return None, f"unknown provider {provider!r} (use 'mapkit' or 'kakao')"
+    with _gt_lock:
+        if _gt_active["id"] is not None:
+            return None, f"a classify job is already running ({_gt_active['id']})"
+        job_id = uuid.uuid4().hex[:12]
+        _gt_active["id"] = job_id
+        _gt_jobs[job_id] = {
+            "job_id": job_id, "provider": provider, "status": "running",
+            "started": time.time(), "finished": None, "returncode": None,
+            "result": None, "error": None, "log_tail": [],
+        }
+    return job_id, None
+
+
+def gt_launch(job_id):
+    provider = _gt_jobs[job_id]["provider"]
+    threading.Thread(target=_gt_run_job, args=(job_id, provider), daemon=True).start()
 
 
 def load_config():
@@ -423,6 +511,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self._send_json({"error": str(e)}, code=500)
             return
+        if route == "/api/gt/classify/status":
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            job_id = (q.get("job_id", [""])[0]).strip()
+            job = _gt_jobs.get(job_id)
+            if not job:
+                self._send_json({"ok": False, "error": "unknown job_id"}, code=404)
+                return
+            self._send_json({"ok": True, **_gt_public(job)})
+            return
+        if route == "/api/gt/classify":
+            self._send_json({"ok": True, "active": _gt_active["id"],
+                             "jobs": [_gt_public(j) for j in _gt_jobs.values()]})
+            return
         super().do_GET()
 
     def _read_body(self, max_bytes):
@@ -443,6 +545,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         route = self.path.split("?")[0]
         if route == "/api/run":
             self._handle_run()
+            return
+        if route == "/api/gt/classify":
+            self._handle_gt_classify()
             return
         if route != "/api/validate-upload-package":
             self.send_error(404)
@@ -465,6 +570,38 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
+
+    def _handle_gt_classify(self):
+        from urllib.parse import urlparse, parse_qs
+        q = parse_qs(urlparse(self.path).query)
+        provider = (q.get("provider", [""])[0]).strip()
+        # Provider may also arrive in a JSON body; drain any body regardless.
+        try:
+            cl = int(self.headers.get("Content-Length", "0") or 0)
+        except ValueError:
+            cl = 0
+        if cl > 0:
+            body = self.rfile.read(cl)
+            if not provider:
+                try:
+                    provider = (json.loads(body.decode("utf-8")).get("provider") or "").strip()
+                except Exception:
+                    pass
+        job_id, err = gt_reserve(provider)
+        if err:
+            code = 409 if "already running" in err else 400
+            self._send_json({"ok": False, "error": err}, code=code)
+            return
+        # Respond and flush BEFORE forking the worker, so the caller's connection
+        # is fully served and never held open by the (minutes-long) subprocess.
+        self._send_json({"ok": True, "job_id": job_id, "provider": provider,
+                         "status": "running",
+                         "status_url": f"/api/gt/classify/status?job_id={job_id}"})
+        try:
+            self.wfile.flush()
+        except Exception:
+            pass
+        gt_launch(job_id)
 
     def _handle_run(self):
         body = self._read_body(20 * 1024 * 1024)
