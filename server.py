@@ -125,8 +125,19 @@ def build_overview():
     # ---- categories (pure data) ----
     cat_counts = Counter((r.get("category") or "").strip() for r in rows if (r.get("category") or "").strip())
 
-    # ---- per-column fill ----
+    # ---- per-column fill (all rows + per-dataset, for the source dropdown) ----
     fill = {c: nonempty(rows, c) for c in cols}
+    ds_keys = [k for k, _ in src_counts.most_common() if k]
+    total_by_dataset = {ds: 0 for ds in ds_keys}
+    fill_by_dataset = {ds: {c: 0 for c in cols} for ds in ds_keys}
+    for r in rows:
+        ds = (r.get("dataset") or "").strip()
+        if ds not in total_by_dataset:
+            continue
+        total_by_dataset[ds] += 1
+        for c in cols:
+            if (r.get(c) or "").strip():
+                fill_by_dataset[ds][c] += 1
 
     # ---- schema: driven by REAL columns. Config supplies grouping/role/desc.
     #      Any real column not covered by a config group is surfaced, not dropped. ----
@@ -225,6 +236,9 @@ def build_overview():
         "categories": cat_counts.most_common(12),
         "category_total_kinds": len(cat_counts),
         "fill": fill,
+        "datasets": ds_keys,
+        "total_by_dataset": total_by_dataset,
+        "fill_by_dataset": fill_by_dataset,
         "photo_present": fill.get("photo", 0),
         "gt_present": fill.get("input_place_name", 0),
         "schema": schema,

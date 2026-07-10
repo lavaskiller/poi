@@ -135,15 +135,30 @@ async function loadOverviewSummary(){
   }catch(e){ console.warn('overview load failed',e); }
 }
 // Row structure is rendered live from /api/overview `schema` (config-driven).
-// No hardcoded column list — schema_groups / CSV changes reflect on reload
-// without editing JS. `desc` carries intentional markup (matches dataset-overview.html).
+// No hardcoded column list — schema_groups / CSV changes reflect on reload.
+// The 출처(dataset) dropdown recomputes 채움% from per-dataset fills.
+let _rowstruct=null;
 async function loadRowStruct(){
-  let d={};
-  try{d=await(await fetch('/api/overview',{cache:'no-store'})).json();}catch(e){}
-  const schema=d.schema||[],total=Number(d.total||0);
+  try{_rowstruct=await(await fetch('/api/overview',{cache:'no-store'})).json();}catch(e){_rowstruct={};}
+  const sel=$("#rowstruct-src");
+  if(sel && !sel.dataset.init){
+    const dss=_rowstruct.datasets||[];
+    sel.innerHTML='<option value="__all">전체</option>'+dss.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
+    sel.dataset.init='1';
+    sel.addEventListener('change',renderRowStruct);
+  }
+  renderRowStruct();
+}
+function renderRowStruct(){
+  const d=_rowstruct||{},schema=d.schema||[];
+  const sel=$("#rowstruct-src"),src=sel?sel.value:'__all',isAll=src==='__all';
+  const total=isAll?Number(d.total||0):Number((d.total_by_dataset||{})[src]||0);
+  const fbd=isAll?null:((d.fill_by_dataset||{})[src]||{});
   const RC={in:'var(--blue)',gt:'var(--gold)',bl:'var(--green)',mt:'var(--ink3)'};
   $("#rowstruct").innerHTML=schema.map(s=>{
-    const f=Number(s.fill||0),pct=total?Math.round(100*f/total):0;
+    const rep=(s.cols&&s.cols[0])||'';
+    const f=isAll?Number(s.fill||0):Number(fbd[rep]||0);
+    const pct=total?Math.round(100*f/total):0;
     const color=pct>=90?'var(--green)':(pct===0?'var(--ink3)':'var(--orange)');
     const rcolor=RC[s.role_key]||'var(--ink3)';
     return `<tr><td class="nm3">${esc(s.group)}</td>

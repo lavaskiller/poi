@@ -208,6 +208,10 @@
     </div>
     <h2>한 행의 구조 — 라벨 컬럼 · 채움 · 입력벡터</h2>
     <div class="panel">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+        <span style="font-size:12px;font-family:var(--mono);color:var(--ink3)">출처별 채움</span>
+        <select id="rowstruct-src"></select>
+      </div>
       <table class="rst"><thead><tr><th>필드</th><th>역할</th><th>채움</th><th>추출 방법</th></tr></thead><tbody id="rowstruct"></tbody></table>
       <div class="note" style="margin-top:14px"><b>입력벡터</b> = ② 평가 실행에서 함수가 받을 수 있는 신호 — 각 행이 실제로 들고 있는 것. <b>채움이 낮으면 그 신호를 쓰는 알고리즘의 상한도 낮음</b> (예: VLM 설명 0% = 아직 못 씀, OCR 44% = 절반만 텍스트 존재).</div>
     </div>
