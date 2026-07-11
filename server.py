@@ -49,6 +49,7 @@ STEP_REGISTRY = {
     "gt_kakao":       {"script": os.path.join(REPO_DIR, "tools", "gt_classify_kakao.py")},
     "ocr":            {"script": os.path.join(REPO_DIR, "tools", "rerun_ocr.py")},
     "mapkit_nearby":  {"script": os.path.join(REPO_DIR, "tools", "rerun_mapkit_nearby.py")},
+    "ingest":         {"script": os.path.join(REPO_DIR, "tools", "ingest_dataset.py")},
     "delete_dataset": {"builtin": "delete_dataset"},
     # backends not built yet — registered so the UI can grey them; server 501s.
     "exif":           {"disabled": "미구현"},
@@ -94,10 +95,12 @@ def _job_public(job):
 
 def _job_argv(step, params):
     argv = [sys.executable, STEP_REGISTRY[step]["script"]]
-    ds = (params or {}).get("dataset")
-    if ds:
-        argv += ["--dataset", ds]
-    if (params or {}).get("only_empty"):
+    p = params or {}
+    if p.get("zip_path"):
+        argv += ["--zip", p["zip_path"]]
+    if p.get("dataset"):
+        argv += ["--dataset", p["dataset"]]
+    if p.get("only_empty"):
         argv += ["--only-empty"]
     return argv
 
@@ -182,6 +185,14 @@ def _photo_dir_for(dataset):
         return src["photo_dir"]
     return {"linkedspaces": "linkedspaces-photos", "vancouver": "photos",
             "union-city": "union-city-trip"}.get(dataset)
+
+
+def _config_photo_dirs():
+    """photo_dir values from config sources, so uploaded datasets' photos serve."""
+    try:
+        return {s.get("photo_dir") for s in (load_config().get("sources") or {}).values() if s.get("photo_dir")}
+    except Exception:
+        return set()
 
 
 def _run_builtin(name, params, log):
@@ -623,7 +634,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return resolved
         rel = os.path.relpath(resolved, REPO_DIR)
         first = rel.replace(os.sep, "/").split("/", 1)[0]
-        if first in DATA_PREFIXES:
+        if first in DATA_PREFIXES or first in _config_photo_dirs():
             return os.path.join(DIRECTORY, rel)
         return resolved
 
@@ -726,6 +737,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if route == "/api/jobs":
             self._handle_job_start()
             return
+        if route == "/api/ingest":
+            self._handle_ingest()
+            return
         if route == "/api/gt/classify":
             self._handle_gt_classify_shim()
             return
@@ -796,6 +810,27 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             except Exception:
                 pass
         self._start_job(step, params)
+
+    def _handle_ingest(self):
+        # Save the uploaded ZIP, then run ingest as a tracked job (append rows +
+        # copy photos + register source). The job is mutually exclusive with all
+        # other CSV-mutating jobs via the single lock.
+        from urllib.parse import urlparse, parse_qs
+        upload = self._read_body(500 * 1024 * 1024)
+        if upload is None:
+            return
+        try:
+            up_dir = os.path.join(DIRECTORY, "generated", "uploads")
+            os.makedirs(up_dir, exist_ok=True)
+            zip_path = os.path.join(up_dir, f"{uuid.uuid4().hex[:12]}.zip")
+            with open(zip_path, "wb") as f:
+                f.write(upload)
+        except Exception as e:
+            self._send_json({"ok": False, "error": f"could not save upload: {e}"}, code=500)
+            return
+        q = parse_qs(urlparse(self.path).query)
+        dataset = (q.get("dataset", [""])[0]).strip() or None
+        self._start_job("ingest", {"zip_path": zip_path, "dataset": dataset})
 
     def _handle_gt_classify_shim(self):
         # Back-compat: /api/gt/classify?provider=mapkit → step=gt_mapkit.

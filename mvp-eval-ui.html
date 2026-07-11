@@ -346,13 +346,14 @@
       <pre id="jobLog" class="loadsnippet" style="display:none;margin-top:10px;max-height:180px;overflow:auto"></pre>
     </div>
 
-    <h2>새 데이터셋 추가 <span style="color:var(--ink3);text-transform:none;letter-spacing:0">— ZIP 업로드 (ingest 자동 채움: 준비중)</span></h2>
+    <h2>새 데이터셋 추가 <span style="color:var(--ink3);text-transform:none;letter-spacing:0">— ZIP 업로드 → ingest 잡 (작업 로그에 추적)</span></h2>
     <div class="panel">
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a class="btn" href="templates/poi-dataset-upload-template.zip" download>템플릿 ZIP 다운로드</a>
         <label class="btn" style="cursor:pointer">ZIP 검증<input id="uploadZip" type="file" accept=".zip,application/zip" style="display:none"></label>
+        <label class="btn" style="cursor:pointer;border-color:rgba(95,211,123,.5);background:rgba(95,211,123,.12);color:var(--green)">＋ 데이터셋 추가 (ingest)<input id="ingestZip" type="file" accept=".zip,application/zip" style="display:none"></label>
       </div>
-      <div id="uploadStatus" class="note" style="margin-top:12px">ZIP을 선택하면 manifest 구조·이미지 경로를 검증한다. <b>검증까지만 자동</b> — 검증된 패키지를 CSV에 append하는 ingest(EXIF·provider 자동 채움)는 다음 단계.</div>
+      <div id="uploadStatus" class="note" style="margin-top:12px">ZIP을 <b>검증</b>하거나 <b>추가(ingest)</b>한다. 추가는 <b>잡</b>으로 실행돼 사진 복사·행 append·source 등록이 위 <b>작업(잡) 패널</b>과 <b>① 개요</b>에 진행/로그로 뜬다. 좌표(EXIF)·OCR·MapKit·GT는 비어 시작 → <b>단계 재실행</b>으로 채운다.</div>
     </div>
   </div>
 

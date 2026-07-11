@@ -400,5 +400,17 @@ function annotatePipeline(job){
 }
 
 const _rerunBtn=gid('rerunBtn'); if(_rerunBtn) _rerunBtn.addEventListener('click',doRerun);
+const _ingestZip=gid('ingestZip');
+if(_ingestZip) _ingestZip.onchange=async e=>{
+  const f=e.target.files[0]; if(!f) return; const st=gid('uploadStatus');
+  st.textContent=`추가 중 (ingest): ${f.name} … 업로드`;
+  try{
+    const res=await fetch('/api/ingest',{method:'POST',body:f,headers:{'Content-Type':'application/zip'}});
+    const d=await res.json();
+    if(!d.ok){ st.textContent='추가 실패: '+(res.status===409?'다른 작업 실행중':(d.error||res.status)); if(res.status===409) pollJobs(); }
+    else { st.textContent=`ingest 잡 시작됨 (${d.job_id}) — 작업 패널·① 개요에서 진행 확인`; watchJob(d.job_id); }
+  }catch(err){ st.textContent='추가 요청 실패: '+err.message; }
+  e.target.value='';
+};
 loadDatasets();
 pollJobs().then(d=>{ if(d&&d.active) startJobPolling(); });
