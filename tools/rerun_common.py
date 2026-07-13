@@ -66,7 +66,7 @@ def merge_cell(row, col, value, only_empty) -> bool:
 
 def run_swift(swift_file: str, input_tsv: str, out_tsv: str) -> None:
     with open(out_tsv, "w", encoding="utf-8") as out:
-        proc = subprocess.run(["swift", os.path.join(_ROOT, swift_file), input_tsv],
+        proc = subprocess.run(["swift", os.path.join(_ROOT, "tools", "swift", swift_file), input_tsv],
                               stdout=out, stderr=subprocess.PIPE, text=True)
     if proc.stderr.strip():
         sys.stderr.write(proc.stderr)

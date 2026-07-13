@@ -28,7 +28,7 @@ sys.path.insert(0, _HERE)
 import match_score as ms  # noqa: E402
 import gt_classify_common as common  # noqa: E402
 
-SWIFT_PROBE = os.path.join(_ROOT, "gt_mapkit_classify.swift")
+SWIFT_PROBE = os.path.join(_ROOT, "tools", "swift", "gt_mapkit_classify.swift")
 CAND_SEP = " ||| "
 
 

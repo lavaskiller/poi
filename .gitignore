@@ -1,4 +1,5 @@
 # Local/generated/private-heavy POI artifacts
+poi-data/
 *.csv
 *.tsv
 *.backup-*.csv
