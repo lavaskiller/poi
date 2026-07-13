@@ -1,5 +1,5 @@
 import http.server, socketserver, functools, json, csv, os, sys, tempfile
-import threading, subprocess, uuid, time, math
+import threading, subprocess, uuid, time, math, shutil
 from collections import Counter
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -318,13 +318,38 @@ def _delete_dataset(params, log):
         return {"ok": False, "error": "cannot delete the only dataset"}
     removed = [r for r in rows if (r.get("dataset") or "").strip() == dataset]
     kept = [r for r in rows if (r.get("dataset") or "").strip() != dataset]
+
+    # A server-managed upload owns both its dedicated photo directory and its
+    # generated config entry. Treat them as one unit so deleting an upload
+    # really frees its slug for a later re-upload. Never apply this broader
+    # cleanup to curated sources: their photo directories can be shared.
+    full_upload_cleanup = bool(params.get("delete_photos") and params.get("remove_config_source"))
+    upload_photo_dir = None
+    if full_upload_cleanup:
+        cfg = load_config()
+        source = (cfg.get("sources") or {}).get(dataset) or {}
+        photo_dir = source.get("photo_dir") or ""
+        candidate = os.path.realpath(os.path.join(DIRECTORY, photo_dir))
+        expected_dir = f"{dataset}-photos"
+        if source.get("source_type") != "upload" or photo_dir != expected_dir:
+            return {"ok": False, "error": "full cleanup is allowed only for server-managed uploads"}
+        if not (candidate.startswith(os.path.realpath(DIRECTORY) + os.sep) and
+                os.path.basename(candidate) == expected_dir and not os.path.islink(candidate)):
+            return {"ok": False, "error": "unsafe upload photo directory"}
+        upload_photo_dir = candidate
+
     backup = gc_backup_csv(CSV_PATH)
     print(f"backup: {backup}", file=log)
     gc_write_csv(CSV_PATH, fieldnames, kept)
     print(f"removed {len(removed)} rows for dataset {dataset}", file=log)
 
     photos_deleted = photos_missing = 0
-    if params.get("delete_photos"):
+    if upload_photo_dir:
+        if os.path.isdir(upload_photo_dir):
+            photos_deleted = sum(len(files) for _, _, files in os.walk(upload_photo_dir))
+            shutil.rmtree(upload_photo_dir)
+        print(f"removed upload photo directory ({photos_deleted} files): {upload_photo_dir}", file=log)
+    elif params.get("delete_photos"):
         pdir = _photo_dir_for(dataset)
         if pdir:
             base = os.path.realpath(os.path.join(DIRECTORY, pdir))
@@ -368,7 +393,8 @@ def _delete_dataset(params, log):
     result = {"ok": True, "step": "delete_dataset", "dataset": dataset,
               "removed_rows": len(removed), "backup": backup,
               "photos_deleted": photos_deleted, "photos_missing": photos_missing,
-              "config_source_removed": config_source_removed}
+              "config_source_removed": config_source_removed,
+              "upload_photo_directory_removed": bool(upload_photo_dir)}
     print("RESULT " + json.dumps(result, ensure_ascii=False), file=log)
     return result
 
@@ -680,6 +706,7 @@ def build_datasets():
         src = sources.get(ds) or {}
         out.append({"key": ds, "label": src.get("label", ""), "count": total,
                     "known": ds in sources, "config_source": ds in sources,
+                    "source_type": src.get("source_type", ""),
                     "photo_dir": _photo_dir_for(ds), "signals": sig})
     out.sort(key=lambda d: -d["count"])
     return {"datasets": out, "signals_meta": signals}

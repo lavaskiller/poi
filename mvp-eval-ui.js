@@ -475,9 +475,13 @@ async function loadDatasets(){
 
 async function deleteDataset(key){
   const ds=(_dsData&&_dsData.datasets||[]).find(x=>x.key===key)||{count:'?'};
-  if(!confirm(`데이터셋 "${key}" (${ds.count}행) 삭제?\n\nCSV에서 행 제거(백업 자동 생성). 마지막 1개면 거부.\n사진 파일·config 항목은 그대로 유지됩니다.`)) return;
+  const fullCleanup=ds.source_type==='upload';
+  const detail=fullCleanup
+    ? 'CSV 행과 업로드한 사진 파일, 업로드 config 항목을 모두 제거합니다. 동일 이름으로 다시 업로드할 수 있습니다.'
+    : 'CSV에서 행만 제거합니다(백업 자동 생성). 기존 사진 파일과 config 항목은 공유 자산일 수 있어 유지합니다.';
+  if(!confirm(`데이터셋 "${key}" (${ds.count}행) 삭제?\n\n${detail}\n\n이 작업은 되돌릴 수 없습니다.`)) return;
   try{
-    const res=await fetch(`/api/jobs?step=delete_dataset&dataset=${encodeURIComponent(key)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delete_photos:false,remove_config_source:false})});
+    const res=await fetch(`/api/jobs?step=delete_dataset&dataset=${encodeURIComponent(key)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delete_photos:fullCleanup,remove_config_source:fullCleanup})});
     const d=await res.json();
     if(!d.ok){ alert('삭제 실패: '+(res.status===409?'다른 작업 실행중':(d.error||res.status))); return; }
     watchJob(d.job_id);
