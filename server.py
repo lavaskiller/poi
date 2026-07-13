@@ -95,11 +95,28 @@ def _read_progress(log_path):
         return None
 
 
+def _read_warnings(log_path):
+    """Structured warnings emitted by a job, including ones found mid-pipeline."""
+    if not log_path or not os.path.exists(log_path):
+        return []
+    warnings = []
+    try:
+        with open(log_path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.startswith("WARNING "):
+                    try: warnings.append(json.loads(line[8:]))
+                    except json.JSONDecodeError: pass
+    except Exception:
+        pass
+    return warnings
+
+
 def _job_public(job):
     out = dict(job)
     started, finished = job.get("started"), job.get("finished")
     out["elapsed_s"] = round((finished or time.time()) - started, 1) if started else None
     out["progress"] = _read_progress(job.get("log_path"))
+    out["warnings"] = _read_warnings(job.get("log_path"))
     return out
 
 
@@ -239,6 +256,7 @@ def _post_ingest_pipeline(params, log):
         return {"ok": False, "error": "pipeline requires dataset"}
     stages = [{"step": "geocode", "status": "skipped",
                "reason": "no CLGeocoder worker is implemented"}]
+    warnings = []
     sequence = ["exif", "ocr", "mapkit_nearby", "gt_mapkit"]
     if os.environ.get("KAKAO_REST_API_KEY", "").strip():
         sequence.append("gt_kakao")
@@ -265,10 +283,25 @@ def _post_ingest_pipeline(params, log):
             status, reason = "skipped", result.get("skip_reason") or "no eligible rows"
         stages.append({"step": step, "status": status, "reason": reason,
                        "returncode": proc.returncode, "result": result})
+        if step == "exif" and result:
+            targets, no_gps = result.get("targets", 0), result.get("no_gps", 0)
+            if targets and no_gps:
+                warning = {"code": "exif_gps_missing", "dataset": dataset,
+                           "count": no_gps, "targets": targets,
+                           "message": f"원본 사진 {no_gps}/{targets}장에 EXIF GPS 좌표가 없습니다. 좌표 기반 단계는 실행 대상이 없습니다."}
+                warnings.append(warning)
+                print("WARNING " + json.dumps(warning, ensure_ascii=False), file=log, flush=True)
+            no_timestamp = result.get("no_timestamp", 0)
+            if targets and no_timestamp:
+                warning = {"code": "exif_timestamp_missing", "dataset": dataset,
+                           "count": no_timestamp, "targets": targets,
+                           "message": f"원본 사진 {no_timestamp}/{targets}장에 EXIF 촬영시각이 없습니다."}
+                warnings.append(warning)
+                print("WARNING " + json.dumps(warning, ensure_ascii=False), file=log, flush=True)
         print("PROGRESS " + json.dumps({"done": pos, "total": len(sequence), "step": step}), file=log, flush=True)
     errors = [s["step"] for s in stages if s["status"] == "error"]
     outcome = {"ok": True, "step": "pipeline", "dataset": dataset, "stages": stages,
-               "partial": bool(errors), "errors": errors}
+               "warnings": warnings, "partial": bool(errors), "errors": errors}
     print("RESULT " + json.dumps(outcome, ensure_ascii=False), file=log)
     return outcome
 

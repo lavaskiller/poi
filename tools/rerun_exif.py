@@ -64,19 +64,26 @@ def main() -> int:
         for rec in csv.DictReader(f, delimiter="\t"):
             values[rec.get("rid", "")] = rec
 
-    backup, filled, no_metadata = rc.backup_csv(rc.ms.CSV_PATH), 0, 0
+    backup, filled, no_metadata, no_gps, no_timestamp = rc.backup_csv(rc.ms.CSV_PATH), 0, 0, 0, 0
     for i, (row, _path) in enumerate(resolved, 1):
         rec = values.get(str(i - 1), {})
+        has_gps = bool(rec.get("capture_lat") and rec.get("capture_lon"))
+        has_timestamp = bool(rec.get("timestamp"))
         changed = any(rc.merge_cell(row, col, rec.get(col, ""), args.only_empty) for col in COLS)
         if changed:
             filled += 1
-        elif not (rec.get("capture_lat") or rec.get("capture_lon") or rec.get("timestamp")):
+        if not has_gps:
+            no_gps += 1
+        if not has_timestamp:
+            no_timestamp += 1
+        if not (has_gps or has_timestamp):
             no_metadata += 1
         if i % 10 == 0 or i == len(resolved):
             rc.progress(i, len(resolved))
     rc.write_csv(rc.ms.CSV_PATH, fieldnames, rows)
     rc.emit_result({"ok": True, "step": "exif", "dataset": args.dataset,
                     "only_empty": args.only_empty, "targets": len(resolved), "filled": filled,
+                    "no_gps": no_gps, "no_timestamp": no_timestamp,
                     "no_metadata": no_metadata, "skipped_no_photo": skipped_no_photo,
                     "backup": backup})
     return 0

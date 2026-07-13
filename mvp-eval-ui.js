@@ -438,6 +438,7 @@ renderParams();updVer();loadRuns();
 // ================= ④ dataset management + jobs + ① live progress =================
 const gid=id=>document.getElementById(id);
 let _dsData=null, _jobTimer=null, _watchJob=null, _pollBusy=false;
+const _shownWarnings=new Set();
 // step -> ① 신호 파이프라인 row label to annotate while running
 const STEP_PIPELINE={ocr:'Vision OCR', mapkit_nearby:'MapKit 베이스라인', gt_mapkit:'MapKit 정규명(GT)'};
 
@@ -520,6 +521,14 @@ async function pollJobs(){
     }).join('');
   }
   if(_watchJob){ const wj=(d.jobs||[]).find(j=>j.job_id===_watchJob); const lg=gid('jobLog'); if(wj&&lg){ lg.style.display='block'; lg.textContent=(wj.log_tail||[]).join('\n'); } }
+  (d.jobs||[]).forEach(j=>(j.warnings||[]).forEach(w=>{
+    const key=`${j.job_id}:${w.code}`; if(_shownWarnings.has(key)) return;
+    _shownWarnings.add(key);
+    if(w.code==='exif_gps_missing' || w.code==='exif_timestamp_missing'){
+      const st=gid('uploadStatus'); if(st) st.textContent=`⚠ ${w.message}`;
+      alert(`업로드 경고\n\n${w.message}`);
+    }
+  }));
   return d;
 }
 
