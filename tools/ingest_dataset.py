@@ -6,9 +6,9 @@ Runs as a background job (tracked in the job panel). Given an upload package
 photos into the dataset's photo dir under POI_DATA_DIR, appends one CSV row per
 manifest row (dataset=slug, photo=basename, input_place_name=gt_input_raw,
 notes, gt_confidence=source default), and registers the source in
-dashboard_config.json if new. Auto-extractable signals (coords via EXIF, OCR,
-geocode, MapKit, GT) start empty — fill them afterward with the re-run jobs
-(EXIF/geocode are 미구현; see PROGRESS/RESULT + row flags).
+dashboard_config.json if new. A successful server-managed ingest then starts
+its EXIF/OCR/MapKit/GT post-processing pipeline (fill-empty-only). Geocoding is
+reported as skipped until a real CLGeocoder worker is implemented.
 
 Usage:
   POI_DATA_DIR=/path python3 tools/ingest_dataset.py --zip /path/to/pkg.zip [--dataset slug]
