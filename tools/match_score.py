@@ -28,9 +28,13 @@ from collections import Counter, defaultdict
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-# Honor POI_DATA_DIR so the CLI reaches a split-out data workspace, matching
-# server.py. Falls back to the repo dir when unset (code+data colocated).
-DATA_ROOT = os.environ.get("POI_DATA_DIR") or ROOT
+# Match server.py's data-root selection so direct tool invocations and the web
+# UI operate on the same local store. Keep the repository-root fallback only
+# for legacy checkouts that still colocate code and data.
+_REPO_DATA_DIR = os.path.join(ROOT, "poi-data")
+DATA_ROOT = os.environ.get("POI_DATA_DIR") or (
+    _REPO_DATA_DIR if os.path.isfile(os.path.join(_REPO_DATA_DIR, "eval_set_reconciled.csv")) else ROOT
+)
 CSV_PATH = os.path.join(DATA_ROOT, "eval_set_reconciled.csv")
 _data_cfg = os.path.join(DATA_ROOT, "dashboard_config.json")
 CONFIG_PATH = _data_cfg if os.path.exists(_data_cfg) else os.path.join(ROOT, "dashboard_config.json")
@@ -51,6 +55,11 @@ def load_config(path: str = CONFIG_PATH) -> Dict[str, Any]:
 
 
 def read_rows(path: str = CSV_PATH) -> List[Dict[str, str]]:
+    # A fresh installation has no eval CSV until the first dataset is ingested.
+    # Treat that as an empty collection; callers can render an honest empty state
+    # instead of turning normal first-run state into HTTP 500.
+    if not os.path.isfile(path):
+        return []
     with open(path, encoding="utf-8", newline="") as f:
         return list(csv.DictReader(f))
 

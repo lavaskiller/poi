@@ -15,17 +15,26 @@ from match_score import (
 from run_algorithm import run_submission, list_runs, RunError
 from gt_classify_common import read_csv as gc_read_csv, write_csv as gc_write_csv, backup_csv as gc_backup_csv
 
-# Data root. Defaults to the repo itself so a fresh clone + unzipped dataset
-# (eval_set_reconciled.csv, generated/, photos/ … — all gitignored) works with
-# no edits. Point POI_DATA_DIR at a separate workspace (e.g. the private
-# poi-test-data dir) to read data from there instead.
-DIRECTORY = os.environ.get("POI_DATA_DIR") or REPO_DIR
+# Data root. POI_DATA_DIR is the explicit override. For an ordinary checkout,
+# prefer a repository-local poi-data bundle when it contains the reconciled CSV;
+# otherwise retain the legacy repository-root layout.
+_repo_data_dir = os.path.join(REPO_DIR, "poi-data")
+DIRECTORY = os.environ.get("POI_DATA_DIR") or (
+    _repo_data_dir if os.path.isfile(os.path.join(_repo_data_dir, "eval_set_reconciled.csv")) else REPO_DIR
+)
 PORT = int(os.environ.get("POI_PORT", "8420"))
 CSV_PATH = os.path.join(DIRECTORY, "eval_set_reconciled.csv")
 # Config is part of the tool: prefer a copy shipped alongside the data, else the
 # tracked repo copy, so the server still boots before any dataset is dropped in.
-_data_cfg = os.path.join(DIRECTORY, "dashboard_config.json")
-CONFIG_PATH = _data_cfg if os.path.exists(_data_cfg) else os.path.join(REPO_DIR, "dashboard_config.json")
+DATA_CONFIG_PATH = os.path.join(DIRECTORY, "dashboard_config.json")
+REPO_CONFIG_PATH = os.path.join(REPO_DIR, "dashboard_config.json")
+# Reads may fall back to the tracked template so a fresh store can boot. Writes
+# must always target DATA_CONFIG_PATH; repository configuration is read-only.
+
+
+def config_read_path():
+    """Current effective config; ingestion may create the data copy at runtime."""
+    return DATA_CONFIG_PATH if os.path.exists(DATA_CONFIG_PATH) else REPO_CONFIG_PATH
 MATCH_CANDIDATE_PATHS = [
     os.path.join(DIRECTORY, "generated", "mapkit_candidates.jsonl"),
     os.path.join(DIRECTORY, "generated", "kakao_local_candidates.jsonl"),
@@ -145,6 +154,17 @@ def _run_job(job_id):
     except Exception as e:
         job.update(status="error", finished=time.time(), error=str(e))
     finally:
+        # Ingest archives are transient worker inputs, not retained dataset
+        # artifacts. Remove them after either success or failure.
+        if step == "ingest":
+            zip_path = (job.get("params") or {}).get("zip_path")
+            if zip_path:
+                try:
+                    os.unlink(zip_path)
+                except FileNotFoundError:
+                    pass
+                except OSError as e:
+                    job["cleanup_error"] = f"could not remove upload archive: {e}"
         with _job_lock:
             if _active["id"] == job_id:
                 _active["id"] = None
@@ -240,17 +260,23 @@ def _delete_dataset(params, log):
     config_source_removed = False
     if params.get("remove_config_source"):
         try:
-            with open(CONFIG_PATH, encoding="utf-8") as f:
+            with open(config_read_path(), encoding="utf-8") as f:
                 cfg = json.load(f)
             if dataset in (cfg.get("sources") or {}):
-                bak = f"{CONFIG_PATH}.bak-{time.strftime('%Y%m%d-%H%M%S')}"
-                with open(bak, "w", encoding="utf-8") as f:
-                    json.dump(cfg, f, ensure_ascii=False, indent=2)
+                os.makedirs(DIRECTORY, exist_ok=True)
+                bak = None
+                if os.path.exists(DATA_CONFIG_PATH):
+                    bak = f"{DATA_CONFIG_PATH}.bak-{time.strftime('%Y%m%d-%H%M%S')}"
+                    with open(bak, "w", encoding="utf-8") as f:
+                        json.dump(cfg, f, ensure_ascii=False, indent=2)
                 del cfg["sources"][dataset]
-                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                tmp = f"{DATA_CONFIG_PATH}.tmp-{os.getpid()}"
+                with open(tmp, "w", encoding="utf-8") as f:
                     json.dump(cfg, f, ensure_ascii=False, indent=2)
+                    f.write("\n")
+                os.replace(tmp, DATA_CONFIG_PATH)
                 config_source_removed = True
-                print(f"removed sources[{dataset}] from {CONFIG_PATH} (backup {bak})", file=log)
+                print(f"removed sources[{dataset}] from {DATA_CONFIG_PATH} (backup {bak or 'none'})", file=log)
         except Exception as e:
             print(f"config source removal failed: {e}", file=log)
 
@@ -263,12 +289,21 @@ def _delete_dataset(params, log):
 
 
 def load_config():
-    with open(CONFIG_PATH, encoding="utf-8") as f:
+    with open(config_read_path(), encoding="utf-8") as f:
         return json.load(f)
 
 
 def nonempty(rows, col):
     return sum(1 for r in rows if (r.get(col) or "").strip())
+
+
+def read_eval_csv():
+    """Return (columns, rows), including the valid first-run/no-data state."""
+    if not os.path.isfile(CSV_PATH):
+        return [], []
+    with open(CSV_PATH, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        return list(reader.fieldnames or []), list(reader)
 
 
 def tsv_counts(path, textcol=1):
@@ -297,10 +332,8 @@ def tsv_datarows(path):
 
 def build_overview():
     cfg = load_config()
-    with open(CSV_PATH, encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
+    cols, rows = read_eval_csv()
     n = len(rows)
-    cols = list(rows[0].keys()) if rows else []
     warnings = []
 
     # ---- helpers driven by config ----
@@ -458,6 +491,8 @@ def build_overview():
 
     return {
         "generated_from": "eval_set_reconciled.csv + dashboard_config.json (live)",
+        "data_state": "ready" if n else "empty",
+        "csv_present": os.path.isfile(CSV_PATH),
         "total": n,
         "n_columns": len(cols),
         "palette": cfg["palette"],
@@ -489,8 +524,7 @@ def build_datasets():
     cfg = load_config()
     signals = cfg.get("signals") or {}
     sources = cfg.get("sources") or {}
-    with open(CSV_PATH, encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
+    _, rows = read_eval_csv()
     by = {}
     for r in rows:
         ds = (r.get("dataset") or "").strip()
@@ -518,11 +552,24 @@ def build_datasets():
 
 
 def _photo_url(dataset, photo):
-    if dataset == "linkedspaces":
-        return "/linkedspaces-photos/" + photo
-    if dataset == "vancouver":
-        return "/photos/" + photo
-    return ""  # union-city photos not served locally
+    """Return a safely encoded URL for an existing photo below the data root."""
+    if not photo:
+        return ""
+    photo_dir = _photo_dir_for(dataset)
+    if not photo_dir:
+        return ""
+    from urllib.parse import quote
+    root = os.path.realpath(DIRECTORY)
+    base = os.path.realpath(os.path.join(root, photo_dir))
+    target = os.path.realpath(os.path.join(base, photo))
+    if not base.startswith(root + os.sep) or not target.startswith(base + os.sep):
+        return ""
+    if not os.path.isdir(base) or not os.path.isfile(target):
+        return ""
+    rel_dir = os.path.relpath(base, root).replace(os.sep, "/")
+    rel_photo = os.path.relpath(target, base).replace(os.sep, "/")
+    encoded = [quote(part, safe="") for part in (rel_dir + "/" + rel_photo).split("/")]
+    return "/" + "/".join(encoded)
 
 
 def _parse_candidates(top3):
@@ -539,8 +586,7 @@ def _parse_candidates(top3):
 def build_records(dataset_filter):
     cfg = load_config()
     roll = cfg["confidence_rollup"]
-    with open(CSV_PATH, encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
+    _, rows = read_eval_csv()
     # candidate lists from the MapKit probe
     cand = {}
     p = os.path.join(DIRECTORY, "ls_nearby_results.tsv")
@@ -633,8 +679,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if DIRECTORY == REPO_DIR:
             return resolved
         rel = os.path.relpath(resolved, REPO_DIR)
-        first = rel.replace(os.sep, "/").split("/", 1)[0]
-        if first in DATA_PREFIXES or first in _config_photo_dirs():
+        rel_url = rel.replace(os.sep, "/")
+        allowed = set(DATA_PREFIXES) | _config_photo_dirs()
+        if any(rel_url == prefix or rel_url.startswith(prefix.rstrip("/") + "/")
+               for prefix in allowed):
             return os.path.join(DIRECTORY, rel)
         return resolved
 
@@ -773,7 +821,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_json({"ok": False, "error": err[1], "step": step},
                             code=self._JOB_ERR_CODE.get(err[0], 400))
-            return
+            return False
         resp = {"ok": True, "job_id": job_id, "step": step, "status": "running",
                 "status_url": f"/api/jobs/status?job_id={job_id}"}
         resp.update(extra_resp or {})
@@ -785,6 +833,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception:
             pass
         launch(job_id)
+        return True
 
     def _handle_job_start(self):
         from urllib.parse import urlparse, parse_qs
@@ -812,25 +861,39 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self._start_job(step, params)
 
     def _handle_ingest(self):
-        # Save the uploaded ZIP, then run ingest as a tracked job (append rows +
-        # copy photos + register source). The job is mutually exclusive with all
-        # other CSV-mutating jobs via the single lock.
+        # Save the uploaded ZIP as a non-public temporary input, then run ingest
+        # as a tracked job (append rows + copy photos + register source). The job
+        # removes the archive after success or failure and is mutually exclusive
+        # with all other CSV-mutating jobs via the single lock.
         from urllib.parse import urlparse, parse_qs
         upload = self._read_body(500 * 1024 * 1024)
         if upload is None:
             return
+        zip_path = None
         try:
-            up_dir = os.path.join(DIRECTORY, "generated", "uploads")
-            os.makedirs(up_dir, exist_ok=True)
-            zip_path = os.path.join(up_dir, f"{uuid.uuid4().hex[:12]}.zip")
-            with open(zip_path, "wb") as f:
-                f.write(upload)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+                tmp.write(upload)
+                zip_path = tmp.name
         except Exception as e:
+            if zip_path:
+                try:
+                    os.unlink(zip_path)
+                except OSError:
+                    pass
             self._send_json({"ok": False, "error": f"could not save upload: {e}"}, code=500)
             return
         q = parse_qs(urlparse(self.path).query)
         dataset = (q.get("dataset", [""])[0]).strip() or None
-        self._start_job("ingest", {"zip_path": zip_path, "dataset": dataset})
+        if not self._start_job("ingest", {"zip_path": zip_path, "dataset": dataset}):
+            try:
+                os.unlink(zip_path)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                # The request already reports the reservation failure. A failed
+                # cleanup is intentionally not hidden, but cannot safely trigger
+                # a second HTTP response here.
+                self.log_error("could not remove rejected ingest upload %s", zip_path)
 
     def _handle_gt_classify_shim(self):
         # Back-compat: /api/gt/classify?provider=mapkit → step=gt_mapkit.
@@ -861,6 +924,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self._send_json({"ok": False, "error": f"invalid JSON body: {e}"}, code=400)
             return
+        if not isinstance(req, dict):
+            self._send_json({"ok": False, "error": "JSON body must be an object"}, code=400)
+            return
+        if "params" in req and not isinstance(req["params"], list):
+            self._send_json({"ok": False, "error": "params must be an array"}, code=400)
+            return
+        if "params" in req and not all(isinstance(p, str) for p in req["params"]):
+            self._send_json({"ok": False, "error": "params must contain only string signal keys"}, code=400)
+            return
         try:
             result = run_submission(
                 name=(req.get("name") or "").strip(),
@@ -868,12 +940,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 lang=(req.get("lang") or "python").strip(),
                 dataset=(req.get("scope") or "all").strip(),
                 mode=(req.get("mode") or "exact").strip(),
-                params=req.get("params") or [],
+                params=req.get("params"),
                 save_mode=(req.get("save_mode") or "auto").strip(),
                 csv_path=CSV_PATH,
-                config_path=CONFIG_PATH,
+                config_path=config_read_path(),
                 candidate_paths=MATCH_CANDIDATE_PATHS,
                 runs_dir=RUNS_DIR,
+                candidate_limit=req.get("candidate_limit"),
             )
             self._send_json({"ok": True, **result})
         except RunError as e:
@@ -887,8 +960,9 @@ if __name__ == "__main__":
     # to DIRECTORY by Handler.translate_path.
     os.chdir(REPO_DIR)
     handler = functools.partial(Handler, directory=REPO_DIR)
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("127.0.0.1", PORT), handler) as httpd:
+    http.server.ThreadingHTTPServer.allow_reuse_address = True
+    # Long algorithm submissions must not block status/static/API requests.
+    with http.server.ThreadingHTTPServer(("127.0.0.1", PORT), handler) as httpd:
         where = REPO_DIR if DIRECTORY == REPO_DIR else f"{REPO_DIR} (UI) + {DIRECTORY} (data)"
         print(f"serving {where} at http://127.0.0.1:{PORT}  — open /mvp-eval-ui.html")
         httpd.serve_forever()
