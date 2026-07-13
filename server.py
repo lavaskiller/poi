@@ -12,7 +12,7 @@ from match_score import (
     provider_for_row,
     gt_for_provider,
 )
-from run_algorithm import run_submission, list_runs, RunError
+from run_algorithm import run_submission, list_runs, get_run, delete_run, RunError
 from gt_classify_common import read_csv as gc_read_csv, write_csv as gc_write_csv, backup_csv as gc_backup_csv
 
 # Data root. POI_DATA_DIR is the explicit override. For an ordinary checkout,
@@ -710,8 +710,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             return
         if route == "/api/runs":
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            name = (q.get("name", [""])[0]).strip()
+            version_raw = (q.get("version", [""])[0]).strip()
             try:
-                self._send_json({"runs": list_runs(RUNS_DIR)})
+                if name or version_raw:
+                    if not name or not version_raw:
+                        self._send_json({"error": "name and version are required together"}, code=400)
+                    else:
+                        self._send_json({"run": get_run(RUNS_DIR, name, int(version_raw))})
+                else:
+                    self._send_json({"runs": list_runs(RUNS_DIR)})
+            except RunError as e:
+                self._send_json({"error": str(e)}, code=404)
+            except (TypeError, ValueError):
+                self._send_json({"error": "version must be a positive integer"}, code=400)
             except Exception as e:
                 self._send_json({"error": str(e)}, code=500)
             return
@@ -776,6 +790,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._send_json({"ok": False, "error": "request body is too large", "max_bytes": max_bytes}, code=413)
             return None
         return self.rfile.read(content_length)
+
+    def do_DELETE(self):
+        from urllib.parse import urlparse, parse_qs
+        route = self.path.split("?")[0]
+        if route != "/api/runs":
+            self._send_json({"error": "not found"}, code=404)
+            return
+        q = parse_qs(urlparse(self.path).query)
+        name = (q.get("name", [""])[0]).strip()
+        version_raw = (q.get("version", [""])[0]).strip()
+        if not name or not version_raw:
+            self._send_json({"error": "name and version are required"}, code=400)
+            return
+        try:
+            deleted = delete_run(RUNS_DIR, name, int(version_raw))
+            self._send_json({"ok": True, "deleted": deleted})
+        except RunError as e:
+            self._send_json({"ok": False, "error": str(e)}, code=404)
+        except (TypeError, ValueError):
+            self._send_json({"ok": False, "error": "version must be a positive integer"}, code=400)
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)}, code=500)
 
     def do_POST(self):
         route = self.path.split("?")[0]

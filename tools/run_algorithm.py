@@ -20,6 +20,7 @@ Standard library only, to match the rest of the workspace.
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -267,6 +268,7 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
         "params": ALL_PARAMS if params is None else params,
         "candidate_limit": candidate_limit,
         "lang": lang,
+        "script_sha256": hashlib.sha256(script_text.encode("utf-8")).hexdigest(),
         "script_text": script_text,
         "metrics": {k: v for k, v in scored.items() if k != "cases"},
         "cases": scored["cases"],
@@ -294,6 +296,7 @@ def list_runs(runs_dir: str) -> List[Dict[str, Any]]:
             continue
         m = r.get("metrics", {})
         out.append({
+            "run_id": f"{r.get('safe_name') or _safe_name(r.get('name') or '')}__v{r.get('version')}",
             "name": r.get("name"),
             "safe_name": r.get("safe_name"),
             "version": r.get("version"),
@@ -302,13 +305,50 @@ def list_runs(runs_dir: str) -> List[Dict[str, Any]]:
             "params": r.get("params", []),
             "candidate_limit": r.get("candidate_limit"),
             "lang": r.get("lang"),
+            "script_sha256": r.get("script_sha256") or hashlib.sha256(
+                (r.get("script_text") or "").encode("utf-8")
+            ).hexdigest(),
             "created_at": r.get("created_at"),
             "n_eligible": m.get("n_eligible", 0),
             "correct": m.get("correct", 0),
+            "abstained": m.get("abstained", 0),
+            "errored": m.get("errored", 0),
             "accuracy_pct": m.get("accuracy_pct", 0),
         })
     out.sort(key=lambda r: (r.get("created_at") or "", r.get("version") or 0), reverse=True)
     return out
+
+
+def _run_path(runs_dir: str, name: str, version: Any) -> str:
+    """Resolve one persisted run by logical identity, never by a client path."""
+    if type(version) is not int or version < 1:
+        raise RunError("version must be a positive integer")
+    return os.path.join(runs_dir, f"{_safe_name(name)}__v{version}.json")
+
+
+def get_run(runs_dir: str, name: str, version: Any) -> Dict[str, Any]:
+    path = _run_path(runs_dir, name, version)
+    try:
+        with open(path, encoding="utf-8") as f:
+            run = json.load(f)
+    except FileNotFoundError:
+        raise RunError(f"run not found: {_safe_name(name)} v{version}")
+    except (OSError, json.JSONDecodeError) as e:
+        raise RunError(f"could not read run: {e}")
+    # A slug collision must not let a differently named record be managed.
+    if run.get("name") != name or run.get("version") != version:
+        raise RunError("run identity does not match its stored record")
+    return run
+
+
+def delete_run(runs_dir: str, name: str, version: Any) -> Dict[str, Any]:
+    run = get_run(runs_dir, name, version)
+    try:
+        os.unlink(_run_path(runs_dir, name, version))
+    except OSError as e:
+        raise RunError(f"could not delete run: {e}")
+    return {"name": run.get("name"), "version": version,
+            "run_id": f"{run.get('safe_name')}__v{version}"}
 
 
 def _cli() -> int:

@@ -198,6 +198,8 @@ loadRowStruct();
 // ---------- run workspace (live submission harness + persisted runs) ----------
 const REG={};
 let runsList=[];
+let selectedRunId=null, selectedRun=null;
+const comparedRunIds=new Set();
 const g=id=>document.getElementById(id);
 // 입력 파라미터 = 신호 + 추출 방법(provenance). methods[0]=현재, 그 외=대안(이후).
 const PARAMS=[
@@ -253,7 +255,7 @@ function updVer(){
 }
 function renderRuns(){
   g('runsbody').innerHTML=runsList.length ? runsList.map(r=>
-    `<tr><td class="name">${esc(r.name)}</td><td><code>v${esc(r.v)}</code></td><td><code>${esc(r.script||'—')}</code></td><td><code>${esc(r.inp)}</code></td><td>${esc(r.scope)}</td><td>${esc(r.r1)}</td><td><span class="stt ${esc(r.st)}">${esc(r.st)}</span></td></tr>`).join('') : '<tr><td colspan="7" style="color:var(--ink3);font-size:12px">아직 제출된 알고리즘 실행 결과가 없습니다. 후보검색 평가는 ③ 탭의 실제 GT/MapKit rank만 표시합니다.</td></tr>';
+    `<tr><td class="name">${esc(r.name)}</td><td><code>v${esc(r.version)}</code></td><td><code>${esc(r.lang||'—')}</code></td><td><code>${esc((r.params||[]).length+'개')}</code></td><td>${esc(r.scope)}</td><td>${esc(r.accuracy_pct)}%</td><td><span class="stt ok">저장됨</span></td></tr>`).join('') : '<tr><td colspan="7" style="color:var(--ink3);font-size:12px">아직 제출된 알고리즘 실행 결과가 없습니다. 후보검색 평가는 ③ 탭의 실제 GT/MapKit rank만 표시합니다.</td></tr>';
 }
 let scriptName='',scriptText='',scriptLang='python';
 const LANG_BY_EXT={py:'python',c:'c',cpp:'cpp',rs:'rust',js:'node',sh:'sh'};
@@ -328,6 +330,18 @@ g('runbtn').onclick=async()=>{
   finally{ g('runbtn').disabled=false; }
 };
 // live runs from /api/runs → 최근 실행 표 + 식별 정확도 막대(알고리즘별, 이름당 최신 버전)
+function runKey(r){return `${r.name}__v${r.version}`}
+function renderRunManager(){
+ const host=g('runManagerList');if(!host)return;g('compareHint').textContent=`${comparedRunIds.size} / 4 선택`;
+ host.innerHTML=runsList.length?runsList.map(r=>{const k=runKey(r),dups=runsList.filter(x=>x.script_sha256===r.script_sha256).length;return `<div class="runrow ${k===selectedRunId?'sel':''}" data-rkey="${esc(k)}"><div class="rt"><span>${esc(r.name)} v${r.version}</span><b>${r.accuracy_pct}%</b></div><div class="rm">${esc(r.created_at||'')} · ${esc(r.scope)} · ${esc((r.params||[]).join(', ')||'추가 신호 없음')} · 후보 ${r.candidate_limit==null?'전체':r.candidate_limit}${dups>1?' · 동일 코드 '+dups+'회':''}</div><label class="compare" style="margin:7px 0 0"><input type="checkbox" data-compare="${esc(k)}" ${comparedRunIds.has(k)?'checked':''}> 비교에 포함</label></div>`}).join(''):'<div style="color:var(--ink3);font-size:12px;padding:10px">저장된 실행이 없습니다.</div>';
+ host.querySelectorAll('[data-rkey]').forEach(el=>el.onclick=e=>{if(!e.target.matches('input'))selectRun(el.dataset.rkey)});
+ host.querySelectorAll('[data-compare]').forEach(el=>el.onchange=e=>{const k=e.target.dataset.compare;if(e.target.checked&&!comparedRunIds.has(k)&&comparedRunIds.size>=4){e.target.checked=false;alert('비교는 최대 4개 실행까지 선택할 수 있습니다.');return}e.target.checked?comparedRunIds.add(k):comparedRunIds.delete(k);renderRunManager();drawCompareBars()});drawCompareBars();
+}
+function drawCompareBars(){const svg=g('compareBars');if(!svg)return;const rs=runsList.filter(r=>comparedRunIds.has(runKey(r))),W=580,H=210,pl=42,pr=14,pt=15,pb=42;if(!rs.length){svg.innerHTML=`<text x="290" y="105" text-anchor="middle" fill="var(--ink3)" font-size="12" font-family="var(--mono)">실행을 1개 이상 비교 선택하세요</text>`;return}const y=v=>pt+(H-pt-pb)*(1-v/100),step=(W-pl-pr)/rs.length,bw=Math.min(95,step*.6);let out='';for(let v=0;v<=100;v+=25)out+=`<line x1="${pl}" y1="${y(v)}" x2="${W-pr}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"/><text x="${pl-6}" y="${y(v)+4}" text-anchor="end" fill="var(--ink3)" font-size="10">${v}</text>`;rs.forEach((r,i)=>{const cx=pl+step*(i+.5),a=Number(r.accuracy_pct)||0,n=Number(r.n_eligible)||0;out+=`<rect x="${cx-bw/2}" y="${y(a)}" width="${bw}" height="${y(0)-y(a)}" rx="4" fill="var(--cyan)"/><text x="${cx}" y="${y(a)-6}" text-anchor="middle" fill="var(--ink)" font-size="11">${a}%</text>`;let x=cx-bw/2;[[r.correct,'var(--green)'],[r.abstained,'var(--orange)'],[r.errored,'var(--red)'],[Math.max(0,n-(r.correct||0)-(r.abstained||0)),'var(--pink)']].forEach(([v,c])=>{const w=n?bw*v/n:0;out+=`<rect x="${x}" y="179" width="${w}" height="8" fill="${c}"/>`;x+=w});out+=`<text x="${cx}" y="199" text-anchor="middle" fill="var(--ink2)" font-size="10">${esc(r.name)} v${r.version}</text>`});svg.innerHTML=out}
+async function selectRun(k){const r=runsList.find(x=>runKey(x)===k);if(!r)return;selectedRunId=k;renderRunManager();g('runDetail').textContent='실행 상세를 불러오는 중…';try{const d=await apiJSON(`/api/runs?name=${encodeURIComponent(r.name)}&version=${r.version}`,'run-detail');selectedRun=d.run;renderRunDetail()}catch(e){g('runDetail').textContent='실행 상세를 불러오지 못했습니다.'}}
+function renderRunDetail(){const r=selectedRun,m=r.metrics||{},n=m.n_eligible||0,wrong=Math.max(0,n-(m.correct||0)-(m.abstained||0)),part=(v,c)=>n?`<span style="width:${100*v/n}%;background:${c}"></span>`:'',fails=(r.cases||[]).filter(c=>!c.correct).slice(0,80);g('runDetail').innerHTML=`<div style="display:flex;justify-content:space-between;gap:10px"><b style="color:var(--ink)">${esc(r.name)} v${r.version}</b><button class="btn danger" id="deleteRun">실행 삭제</button></div><div class="dl"><b>실행 시각</b><span>${esc(r.created_at||'')}</span><b>설정</b><span>${esc(r.scope)} · ${esc(r.mode)} · 후보 ${r.candidate_limit==null?'전체':r.candidate_limit}</span><b>입력</b><span>${esc((r.params||[]).join(', ')||'추가 신호 없음')}</span><b>코드 해시</b><span>${esc((r.script_sha256||'').slice(0,12)||'기존 실행: 해시 없음')}</span></div><div><b style="color:var(--ink)">${m.accuracy_pct||0}% · ${m.correct||0}/${n}</b> 정확</div><div class="outcomes">${part(m.correct||0,'var(--green)')}${part(m.abstained||0,'var(--orange)')}${part(m.errored||0,'var(--red)')}${part(wrong,'var(--pink)')}</div><div style="font:11px var(--mono);color:var(--ink3)">정답 ${m.correct||0} · 기권 ${m.abstained||0} · 오류 ${m.errored||0} · 오답 ${wrong}</div><div class="casefail"><b style="color:var(--ink3)">실패 케이스 (${fails.length})</b>${fails.map(c=>`<div>${esc(c.dataset)} · ${esc(c.photo)}<br>GT: ${esc(c.gt)} → 예측: ${esc(c.prediction||'(기권)')}${c.error?' · 오류: '+esc(c.error):''}</div>`).join('')||'<div>실패 케이스 없음</div>'}</div>`;g('deleteRun').onclick=()=>deleteSelectedRun(r)}
+async function deleteSelectedRun(r){if(!confirm(`실행 "${r.name}" v${r.version}을 영구 삭제할까요?\n\n저장된 실행 JSON과 케이스 결과만 삭제됩니다.`))return;try{const res=await fetch(`/api/runs?name=${encodeURIComponent(r.name)}&version=${r.version}`,{method:'DELETE'}),d=await res.json();if(!res.ok||!d.ok)throw Error(d.error||`HTTP ${res.status}`);comparedRunIds.delete(runKey(r));selectedRunId=null;selectedRun=null;g('runDetail').textContent='실행이 삭제되었습니다.';await loadRuns()}catch(e){alert('실행 삭제 실패: '+e.message)}}
+
 async function loadRuns(){
   let payload;
   try{ payload=await apiJSON('/api/runs','runs'); }catch(e){ return; }
@@ -335,12 +349,14 @@ async function loadRuns(){
   Object.keys(REG).forEach(k=>delete REG[k]);
   runs.forEach(r=>{ (REG[r.name]=REG[r.name]||[]).push(r.version); });
   Object.values(REG).forEach(a=>a.sort((x,y)=>x-y));
-  runsList=runs.map(r=>({name:r.name,v:r.version,script:r.lang,inp:(r.params||[]).length+'개',scope:r.scope,r1:r.accuracy_pct+'%',st:'ok'}));
+  runsList=runs;
   renderRuns();updVer();
   // one bar per algorithm name, latest version wins
   const latest={};
   runs.forEach(r=>{ if(!latest[r.name]||r.version>latest[r.name].version) latest[r.name]=r; });
   drawBars(Object.values(latest).sort((a,b)=>b.accuracy_pct-a.accuracy_pct).map(r=>[`${r.name} v${r.version}`,r.accuracy_pct]));
+  if(selectedRunId&&!runs.some(r=>runKey(r)===selectedRunId)){ selectedRunId=null; selectedRun=null; }
+  renderRunManager();
 }
 renderParams();updVer();loadRuns();
 

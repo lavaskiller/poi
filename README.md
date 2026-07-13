@@ -73,7 +73,9 @@ python3 tools/run_algorithm.py examples/baseline_nearest.py \
   --name baseline --params nearby_candidates
 ```
 
-Results are written below `<data-root>/generated/runs/` and shown in **③ 평가 결과**. Identification accuracy (`prediction == GT`) is distinct from candidate-retrieval coverage. Current MVP scoring uses same-provider exact-name matching; Korea, `non_poi`, and rows without GT are held out until the required provider data is available.
+Results are written below `<data-root>/generated/runs/` and shown in **③ 평가 결과**. Select persisted executions there to inspect their configuration, outcome distribution, and failed cases; compare up to four executions, and delete one only after a confirmation. The UI labels runs with the same SHA-256 submitted-code hash, so equal scores from identical code are not mistaken for a display problem. Deleting a run permanently removes only its saved run JSON—not a dataset, photo, or source script.
+
+Identification accuracy (`prediction == GT`) is distinct from candidate-retrieval coverage. Current MVP scoring uses same-provider exact-name matching; Korea, `non_poi`, and rows without GT are held out until the required provider data is available.
 
 ## Repository layout
 

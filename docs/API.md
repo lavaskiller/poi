@@ -26,7 +26,8 @@ POI_DATA_DIR=/absolute/path/to/poi-data POI_PORT=8420 python3 server.py
 | GET | `/api/records` | 케이스 레코드 목록 (③ 케이스 분석) |
 | GET | `/api/matchrate` | 후보 검색 커버리지 지표 (③) |
 | GET | `/api/datasets` | 데이터셋 및 신호별 채움 현황 (④) |
-| GET | `/api/runs` | 저장된 알고리즘 실행 목록 (②/③) |
+| GET | `/api/runs` | 저장된 알고리즘 실행 목록 또는 한 실행의 상세 (②/③) |
+| DELETE | `/api/runs` | 이름·버전으로 저장된 실행을 영구 삭제 (③) |
 | GET | `/api/jobs` · `/api/jobs/status?job_id=…` | 비동기 작업 및 상태 (④) |
 | POST | `/api/run` | 알고리즘 제출·채점 (②) |
 | POST | `/api/validate-upload-package` | 데이터셋 ZIP 검증 (④) |
@@ -139,7 +140,7 @@ POI_DATA_DIR=/absolute/path/to/poi-data POI_PORT=8420 python3 server.py
 
 ## GET `/api/runs`
 
-저장된 알고리즘 실행(`generated/runs/*.json`) 요약 목록. 파라미터 없음.
+저장된 알고리즘 실행(`generated/runs/*.json`) 요약 목록. 파라미터 없이 호출한다.
 
 **응답(200):**
 
@@ -148,9 +149,26 @@ POI_DATA_DIR=/absolute/path/to/poi-data POI_PORT=8420 python3 server.py
   { "name": "spec-probe", "safe_name": "spec-probe", "version": 1,
     "scope": "vancouver", "mode": "exact", "params": ["nearby_candidates"], "candidate_limit": 10,
     "lang": "python", "created_at": "2026-07-10T12:26:58",
-    "n_eligible": 11, "correct": 2, "accuracy_pct": 18 }
+    "script_sha256": "<64-char SHA-256>",
+    "n_eligible": 11, "correct": 2, "abstained": 0, "errored": 0, "accuracy_pct": 18 }
 ] }
 ```
+
+`script_sha256` identifies byte-identical submitted code; old persisted records derive it from their stored script text. Equal accuracy is not evidence that two executions are different algorithms.
+
+### GET `/api/runs?name=<name>&version=<positive integer>`
+
+Returns the complete persisted record for one logical run, including `metrics`, case-level `cases`, and the submitted `script_text`. Both selectors are required. The server resolves a generated filename internally and verifies the record's stored name/version, so a slug collision cannot access another run.
+
+This is a local single-user API: run detail may contain submitted local code and case metadata. Do not expose it to untrusted clients.
+
+### DELETE `/api/runs?name=<name>&version=<positive integer>`
+
+Permanently removes exactly one persisted run JSON after the same logical-identity check. It does not delete source scripts outside `generated/runs/`, datasets, photos, or candidate data.
+
+**Response (200):** `{ "ok": true, "deleted": {"name":"spec-probe","version":1,"run_id":"spec-probe__v1"} }`.
+
+**Status codes for run detail/deletion:** `400` missing or malformed selector · `404` no matching run (including a safe-slug path attempt that does not name a stored record) · `500` read/delete failure.
 
 ---
 
