@@ -295,6 +295,7 @@ def list_runs(runs_dir: str) -> List[Dict[str, Any]]:
         except Exception:
             continue
         m = r.get("metrics", {})
+        stored_hash = r.get("script_sha256")
         out.append({
             "run_id": f"{r.get('safe_name') or _safe_name(r.get('name') or '')}__v{r.get('version')}",
             "name": r.get("name"),
@@ -305,10 +306,14 @@ def list_runs(runs_dir: str) -> List[Dict[str, Any]]:
             "params": r.get("params", []),
             "candidate_limit": r.get("candidate_limit"),
             "lang": r.get("lang"),
-            "script_sha256": r.get("script_sha256") or hashlib.sha256(
-                (r.get("script_text") or "").encode("utf-8")
-            ).hexdigest(),
+            "script_sha256": stored_hash or (
+                hashlib.sha256(str(r["script_text"]).encode("utf-8")).hexdigest()
+                if r.get("script_text")
+                else None
+            ),
+            "script_sha256_derived": bool(not stored_hash and r.get("script_text")),
             "created_at": r.get("created_at"),
+            "metrics": m,
             "n_eligible": m.get("n_eligible", 0),
             "correct": m.get("correct", 0),
             "abstained": m.get("abstained", 0),
@@ -338,6 +343,15 @@ def get_run(runs_dir: str, name: str, version: Any) -> Dict[str, Any]:
     # A slug collision must not let a differently named record be managed.
     if run.get("name") != name or run.get("version") != version:
         raise RunError("run identity does not match its stored record")
+    # Legacy records predate explicit code hashes.  Derive the identity from
+    # their persisted script text instead of presenting the run as unknowable.
+    if not run.get("script_sha256") and run.get("script_text"):
+        run["script_sha256"] = hashlib.sha256(
+            str(run["script_text"]).encode("utf-8")
+        ).hexdigest()
+        run["script_sha256_derived"] = True
+    else:
+        run["script_sha256_derived"] = False
     return run
 
 
