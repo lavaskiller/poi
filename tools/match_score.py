@@ -81,16 +81,39 @@ def input_place_name(row: Dict[str, str]) -> str:
     return (row.get("input_place_name") or "").strip()
 
 
-def gt_for_provider(row: Dict[str, str], provider: str) -> str:
-    """Provider-canonical ground-truth name used for scoring.
+# These values document the outcome of provider-name resolution. They are not
+# provider-canonical POI names and must never be used as answer strings.
+GT_SENTINEL_STATUS = {
+    "NON_MAPKIT": "non_mapkit",
+    "SIM_MAPKIT": "sim_mapkit",
+    "NON_KAKAO": "non_kakao",
+    "SIM_KAKAO": "sim_kakao",
+    "KOR": "other_provider_marker",
+    "NON_KR": "other_provider_marker",
+}
 
-    GT is split per provider: ``gt_mapkit`` for MapKit rows, ``gt_kakao`` for
-    Kakao rows, populated by the provider name-resolution job. Until that job
-    fills them, fall back to the raw ``input_place_name`` so existing metrics
-    keep working.
+
+def gt_resolution(row: Dict[str, str], provider: str) -> Tuple[str, str]:
+    """Return ``(canonical_name, resolution_status)`` for a provider.
+
+    The provider GT field is authoritative. The raw input name is the string
+    being verified, so falling back to it would manufacture a canonical label.
+    Empty cells and classifier sentinel values are ineligible for canonical-name
+    scoring.
     """
     col = "gt_kakao" if provider == "kakao_local" else "gt_mapkit"
-    return (row.get(col) or "").strip() or input_place_name(row)
+    value = (row.get(col) or "").strip()
+    if not value:
+        return "", "no_gt"
+    status = GT_SENTINEL_STATUS.get(value)
+    if status:
+        return "", status
+    return value, "canonical"
+
+
+def gt_for_provider(row: Dict[str, str], provider: str) -> str:
+    """Provider-canonical GT name, or empty when resolution is not canonical."""
+    return gt_resolution(row, provider)[0]
 
 
 def confidence_tier(row: Dict[str, str], cfg: Dict[str, Any]) -> str:
@@ -231,7 +254,8 @@ def evaluate(dataset: str = "all", mode: str = "exact", rows: Optional[List[Dict
         counts["rows"] += 1
         tier = confidence_tier(row, cfg)
         provider = provider_for_row(row, cfg)
-        gt = gt_for_provider(row, provider)
+        gt, gt_status = gt_resolution(row, provider)
+        counts[f"gt_{gt_status}"] += 1
         country = canonical_country(row, cfg)
         photo = (row.get("photo") or "").strip()
 
@@ -241,8 +265,9 @@ def evaluate(dataset: str = "all", mode: str = "exact", rows: Optional[List[Dict
         elif tier == "non_poi":
             status = "excluded_non_poi"
             counts[status] += 1
-        elif not gt:
-            status = "excluded_no_gt"
+        elif gt_status != "canonical":
+            # A classifier result (NON_*/SIM_*) is metadata, never a GT name.
+            status = f"excluded_{gt_status}"
             counts[status] += 1
         else:
             counts["eligible"] += 1
@@ -291,10 +316,12 @@ def evaluate(dataset: str = "all", mode: str = "exact", rows: Optional[List[Dict
                         counts["top3"] += 1
                         by_provider[provider]["top3"] += 1
                         by_dataset[ds]["top3"] += 1
-                    if r <= 5:
-                        counts["top5"] += 1
-                        by_provider[provider]["top5"] += 1
-                        by_dataset[ds]["top5"] += 1
+                    for cutoff in (5, 10, 20, 50):
+                        if r <= cutoff:
+                            key = f"top{cutoff}"
+                            counts[key] += 1
+                            by_provider[provider][key] += 1
+                            by_dataset[ds][key] += 1
 
         by_provider[provider]["rows"] += 1
         by_dataset[ds]["rows"] += 1
@@ -328,10 +355,16 @@ def evaluate(dataset: str = "all", mode: str = "exact", rows: Optional[List[Dict
             "rank1": counter["rank1"],
             "top3": counter["top3"],
             "top5": counter["top5"],
+            "top10": counter["top10"],
+            "top20": counter["top20"],
+            "top50": counter["top50"],
             "miss": counter["miss"],
             "rank1_rate": counter["rank1"] / en if en else 0.0,
             "top3_rate": counter["top3"] / en if en else 0.0,
             "top5_rate": counter["top5"] / en if en else 0.0,
+            "top10_rate": counter["top10"] / en if en else 0.0,
+            "top20_rate": counter["top20"] / en if en else 0.0,
+            "top50_rate": counter["top50"] / en if en else 0.0,
             "miss_rate": counter["miss"] / en if en else 0.0,
         }
 
@@ -349,16 +382,24 @@ def evaluate(dataset: str = "all", mode: str = "exact", rows: Optional[List[Dict
         "rank1": counts["rank1"],
         "top3": counts["top3"],
         "top5": counts["top5"],
+        "top10": counts["top10"],
+        "top20": counts["top20"],
+        "top50": counts["top50"],
         "miss": counts["miss"],
         "rank1_rate": rate("rank1"),
         "top3_rate": rate("top3"),
         "top5_rate": rate("top5"),
+        "top10_rate": rate("top10"),
+        "top20_rate": rate("top20"),
+        "top50_rate": rate("top50"),
         "miss_rate": rate("miss"),
         "search_failure": counts["search_failure"],
         "selection_failure": counts["selection_failure"],
         "no_provider_data": counts["no_provider_data"],
         "excluded_non_poi": counts["excluded_non_poi"],
         "excluded_no_gt": counts["excluded_no_gt"],
+        "excluded_non_mapkit": counts["excluded_non_mapkit"],
+        "excluded_sim_mapkit": counts["excluded_sim_mapkit"],
         "excluded_korea_pending_kakao": counts["excluded_korea_pending_kakao"],
         "by_provider": {k: summarize(v) for k, v in sorted(by_provider.items())},
         "by_dataset": {k: summarize(v) for k, v in sorted(by_dataset.items())},

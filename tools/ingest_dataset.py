@@ -5,7 +5,8 @@ Runs as a background job (tracked in the job panel). Given an upload package
 (`dataset_slug/manifest.csv` + `photos/`), it: validates the package, copies
 photos into the dataset's photo dir under POI_DATA_DIR, appends one CSV row per
 manifest row (dataset=slug, photo=basename, input_place_name=gt_input_raw,
-notes, gt_confidence=source default), and registers the source in
+notes, gt_confidence=source default, plus optional capture_lat/capture_lon/
+timestamp when the manifest supplies them), and registers the source in
 dashboard_config.json if new. A successful server-managed ingest then starts
 its EXIF/OCR/MapKit/GT post-processing pipeline (fill-empty-only). Geocoding is
 reported as skipped until a real CLGeocoder worker is implemented.
@@ -86,6 +87,7 @@ def _extract_rows(zip_path, report, root, slug, photo_dir, dest_dir, default_con
                 "gt_confidence": default_conf,
                 "capture_lat": (r.get("lat") or r.get("capture_lat") or "").strip(),
                 "capture_lon": (r.get("lon") or r.get("capture_lon") or "").strip(),
+                "timestamp": (r.get("timestamp") or "").strip(),
             })
             if i % 5 == 0 or i == n:
                 _progress(i, n)

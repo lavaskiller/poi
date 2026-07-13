@@ -35,7 +35,9 @@ from typing import Any
 
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".heic"}
 REQUIRED_COLUMNS = {"photo", "gt_input_raw"}
-OPTIONAL_COLUMNS = {"notes"}
+# notes is a free-form memo; the capture_*/timestamp/lat/lon columns are an
+# optional fallback the ingest tool reads when photos carry no EXIF GPS/date.
+OPTIONAL_COLUMNS = {"notes", "capture_lat", "capture_lon", "timestamp", "lat", "lon"}
 
 
 class ValidationError(Exception):

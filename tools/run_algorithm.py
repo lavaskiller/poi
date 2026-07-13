@@ -98,10 +98,12 @@ def build_cases(rows, cfg, candidates, dataset: str, params: Optional[List[str]]
         if dataset != "all" and ds != dataset:
             continue
         provider = ms.provider_for_row(row, cfg)
-        gt = ms.gt_for_provider(row, provider)
+        gt, gt_status = ms.gt_resolution(row, provider)
         tier = ms.confidence_tier(row, cfg)
-        # eligibility mirrors match_score.evaluate
-        if provider == "kakao_local" or tier == "non_poi" or not gt:
+        # Eligibility exactly mirrors match_score.evaluate: provider sentinels
+        # and missing provider-canonical GT are holdouts, never answer labels.
+        if (provider == "kakao_local" or tier == "non_poi"
+                or gt_status != "canonical"):
             continue
         photo = (row.get("photo") or "").strip()
 

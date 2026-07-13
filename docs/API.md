@@ -69,7 +69,7 @@ POI_DATA_DIR=/absolute/path/to/poi-data POI_PORT=8420 python3 server.py
 
 **응답(200):** 레코드 배열.
 
-`gt`는 provider별 정규 정답명(`gt_mapkit`/`gt_kakao`)이며, 비면 `input_place_name`으로 폴백한 **유효 GT**다. `input_place_name`은 사용자 원본 입력을 그대로 노출한다.
+`gt`는 provider별 정규 정답명(`gt_mapkit`/`gt_kakao`)이 **canonical**일 때만 값이 있다. provider GT가 비어 있거나 `NON_MAPKIT`, `SIM_MAPKIT`, `NON_KAKAO`, `SIM_KAKAO`, `KOR`, `NON_KR` 같은 resolution sentinel이면 `gt`는 빈 문자열이고 `gt_status`가 이유를 나타낸다. `input_place_name`은 사용자 원본 입력을 그대로 노출할 뿐, GT로 폴백하지 않는다.
 
 ```json
 [{
@@ -77,6 +77,8 @@ POI_DATA_DIR=/absolute/path/to/poi-data POI_PORT=8420 python3 server.py
   "photo": "IMG_6133.jpeg",
   "photo_url": "/photos/IMG_6133.jpeg",
   "gt": "",
+  "gt_status": "no_gt",
+  "provider": "mapkit",
   "input_place_name": "",
   "gt_confidence": "synthetic_unconfirmed",
   "category": "cafe",
@@ -89,17 +91,17 @@ POI_DATA_DIR=/absolute/path/to/poi-data POI_PORT=8420 python3 server.py
   "dist": "-",
   "candidates": [{"name": "…", "dist": "…"}],
   "outcome": "no_gt",
-  "oc_label": "no_gt"
+  "oc_label": "GT 제외: no_gt"
 }]
 ```
 
-`outcome` ∈ `correct`(정답)·`selection`(식별실패, rank>1)·`retrieval`(검색실패, MISS)·`non_poi`·`deferred`·`no_gt`·`other`.
+`outcome` ∈ `correct`(정답)·`selection`(식별실패, rank>1)·`retrieval`(검색실패, MISS)·`non_poi`·`deferred`·`no_gt`·`non_mapkit`·`sim_mapkit`·`non_kakao`·`sim_kakao`·`other_provider_marker`·`korea_pending_kakao`. 후자의 GT-resolution 상태들은 채점 대상이 아니다.
 
 ---
 
 ## GET `/api/matchrate`
 
-후보 검색 커버리지 지표(식별 정확도 아님). 한국은 Kakao 데이터 확보 전까지 홀드아웃.
+후보 검색 커버리지 지표(식별 정확도 아님). 한국은 Kakao 데이터 확보 전까지 홀드아웃이며, provider-canonical GT가 아닌 resolution sentinel/빈 GT도 홀드아웃이다.
 
 **쿼리:** `dataset`(위와 동일) · `mode` = `exact`(기본)·`normalized`.
 
@@ -115,13 +117,20 @@ POI_DATA_DIR=/absolute/path/to/poi-data POI_PORT=8420 python3 server.py
     "provider_place_id": "nullable/fallback; not required for MVP scoring"
   },
   "counts": {
-    "rows": 280, "excluded_non_poi": 6, "eligible": 238, "evaluated": 228,
-    "rank1": 38, "top3": 59, "top5": 68, "miss": 143,
-    "selection_failure": 47, "search_failure": 143,
-    "excluded_no_gt": 8, "no_provider_data": 10, "excluded_korea_pending_kakao": 28
+    "rows": 280, "gt_canonical": 85, "gt_non_mapkit": 139,
+    "gt_sim_mapkit": 14, "gt_no_gt": 42,
+    "excluded_non_poi": 6, "excluded_non_mapkit": 139,
+    "excluded_sim_mapkit": 14, "excluded_no_gt": 8,
+    "excluded_korea_pending_kakao": 28, "eligible": 85, "evaluated": 80,
+    "rank1": 29, "top3": 45, "top5": 54, "top10": 62,
+    "top20": 64, "top50": 65, "miss": 15,
+    "selection_failure": 36, "search_failure": 15, "no_provider_data": 5
   },
-  "n": 228, "rank1": 38, "top3": 59, "top5": 68, "miss": 143,
-  "rank1_rate": 0.1667, "top3_rate": 0.2588, "top5_rate": 0.2982, "miss_rate": 0.6272,
+  "n": 80, "rank1": 29, "top3": 45, "top5": 54,
+  "top10": 62, "top20": 64, "top50": 65, "miss": 15,
+  "rank1_rate": 0.3625, "top3_rate": 0.5625, "top5_rate": 0.675,
+  "top10_rate": 0.775, "top20_rate": 0.8, "top50_rate": 0.8125,
+  "miss_rate": 0.1875,
   "by_provider": { "mapkit": { "rows": 252, "evaluated": 228, "rank1": 38, "…": "…" },
                    "kakao_local": { "rows": 28, "evaluated": 0, "…": 0 } },
   "by_dataset":  { "linkedspaces": {"…": "…"}, "union-city": {"…": "…"}, "vancouver": {"…": "…"} },
@@ -133,8 +142,11 @@ POI_DATA_DIR=/absolute/path/to/poi-data POI_PORT=8420 python3 server.py
 }
 ```
 
-- `n` = 채점된 행 수. `rank1/top3/top5` = GT가 top-N 후보에 포함된 수, `miss` = 후보에 GT 없음.
-- `cases[].status` ∈ `correct`·`selection_failure`·`search_failure`·`no_provider_data`·`excluded_non_poi`·`excluded_no_gt`·`excluded_korea_pending_kakao`. `rank`는 정수·`"MISS"`·`null`.
+- `counts.gt_<status>`는 provider GT 품질 분포다. `canonical`만 eligible이다. `excluded_*`와 `no_provider_data`를 함께 보면 전체 행 → canonical GT → 실제 후보 데이터가 있는 평가 분모를 추적할 수 있다.
+- `n` = 실제 후보 데이터가 있어 채점된 행 수. `rank1/top3/top5/top10/top20/top50`은 GT가 저장된 rank 기준 top-N에 포함된 수이며 누적이다. `miss` = 후보 결과에 GT 없음.
+- 현재 rank의 출처는 MapKit probe의 wide 250m 결과(`ls_nearby_results.tsv`)이며, strict probe 반경은 80m이다. 후보는 API relevance가 아니라 사진 좌표까지의 거리 오름차순으로 재정렬한다. fresh unique-coordinate 요청에는 1.5초 간격을 두고, wide가 비면 cooldown 후 재시도한다.
+- `generated/mapkit_candidates.jsonl`은 후보 하나당 한 줄인 flat JSONL이고, 현재 보존본은 사진당 최대 18행(후보 rank는 최대 6)이다. 따라서 API가 `top20`/`top50`을 반환해도 제출 알고리즘에 전달되는 JSONL 후보가 실제로 20/50개까지 보장되는 것은 아니다. top-N coverage는 TSV의 `app_poi_rank`를 사용하지만, submission candidate depth를 늘리려면 생성 파이프라인이 wide 결과를 모두 JSONL로 보존해야 한다.
+- `cases[].status` ∈ `correct`·`selection_failure`·`search_failure`·`no_provider_data`·`excluded_non_poi`·`excluded_no_gt`·`excluded_non_mapkit`·`excluded_sim_mapkit`·`excluded_korea_pending_kakao`. `rank`는 정수·`"MISS"`·`null`.
 
 ---
 
@@ -218,7 +230,7 @@ def predict(case) -> str:      # 예측 장소명, 기권은 ""
     "by_dataset": { "vancouver": { "n": 11, "correct": 2, "accuracy": 0.1818 } } },
   "n_cases": 11 }
 ```
-- 채점: `예측 == GT`(공급원 exact). 한국/`non_poi`/GT 없음 row는 자동 홀드아웃 → `n_eligible`에서 제외.
+- 채점: `예측 == GT`(공급원 exact). 한국/Kakao, `non_poi`, 빈 provider GT 및 provider resolution sentinel은 자동 홀드아웃 → `n_eligible`에서 제외. raw `input_place_name`은 GT 대체값이 아니다.
 - 저장: `generated/runs/<safe_name>__v<version>.json`.
 
 **상태코드:** `200` 성공 · `400` JSON 본문/`params` 타입 오류 · `422` 제출 또는 `candidate_limit` 검증 오류(`RunError`) · `500` 기타.

@@ -75,7 +75,11 @@ python3 tools/run_algorithm.py examples/baseline_nearest.py \
 
 Results are written below `<data-root>/generated/runs/` and shown in **③ 평가 결과**. Select persisted executions there to inspect their configuration, outcome distribution, and failed cases; compare up to four executions, and delete one only after a confirmation. The UI labels runs with the same SHA-256 submitted-code hash, so equal scores from identical code are not mistaken for a display problem. Deleting a run permanently removes only its saved run JSON—not a dataset, photo, or source script.
 
-Identification accuracy (`prediction == GT`) is distinct from candidate-retrieval coverage. Current MVP scoring uses same-provider exact-name matching; Korea, `non_poi`, and rows without GT are held out until the required provider data is available.
+Identification accuracy (`prediction == GT`) is distinct from candidate-retrieval coverage. Current MVP scoring uses same-provider exact-name matching; Korea/Kakao, `non_poi`, blank provider GT, and provider-resolution sentinels (for example `NON_MAPKIT` and `SIM_MAPKIT`) are held out. A raw `input_place_name` is never substituted for a missing provider-canonical GT.
+
+### Candidate retrieval scope
+
+The current non-Korea retrieval probe uses `MKLocalPointsOfInterestRequest`: strict 80m and wide 250m searches, then distance-from-photo-coordinate ordering (not MapKit relevance ordering). The probe TSV can contain up to 50 wide results, so retrieval coverage reports cumulative top-1/3/5/10/20/50 when a rank is available. The current generated candidate file is flat JSONL (one candidate per line) and does **not** yet preserve that depth for every photo: its local snapshot has at most 18 rows per photo and ranks through 6. Consequently, top-20/top-50 coverage is a probe-rank diagnostic, not a guarantee that a submitted algorithm receives 20 or 50 candidates. Extending submission depth requires retaining the full wide probe result in `generated/mapkit_candidates.jsonl`.
 
 ## Repository layout
 
