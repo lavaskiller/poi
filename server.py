@@ -1,5 +1,5 @@
 import http.server, socketserver, functools, json, csv, os, sys, tempfile
-import threading, subprocess, uuid, time
+import threading, subprocess, uuid, time, math
 from collections import Counter
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -10,7 +10,7 @@ from match_score import (
     load_candidates as load_match_candidates,
     read_rows as read_match_rows,
     provider_for_row,
-    gt_for_provider,
+    gt_resolution,
 )
 from run_algorithm import run_submission, list_runs, get_run, delete_run, RunError
 from gt_classify_common import read_csv as gc_read_csv, write_csv as gc_write_csv, backup_csv as gc_backup_csv
@@ -566,6 +566,55 @@ def build_overview():
     }
 
 
+
+def build_field_profile(group, dataset="__all"):
+    """Return an on-demand, local-only profile of a schema field group."""
+    cfg = load_config()
+    cols, all_rows = read_eval_csv()
+    spec = next((g for g in cfg["schema_groups"] if g["group"] == group), None)
+    selected_cols = ([c for c in spec["cols"] if c in cols] if spec else ([group] if group in cols else []))
+    if not selected_cols:
+        raise ValueError("unknown field group")
+    rows = all_rows if dataset in ("", "__all", "all") else [r for r in all_rows if (r.get("dataset") or "").strip() == dataset]
+    def clipped(value, limit=220):
+        value = str(value)
+        return value if len(value) <= limit else value[:limit - 1] + "…"
+    def as_numbers(values):
+        try: return [float(v) for v in values]
+        except (TypeError, ValueError): return None
+    def bins(numbers):
+        if not numbers: return []
+        lo, hi = min(numbers), max(numbers)
+        if lo == hi: return [{"label": f"{lo:g}", "count": len(numbers)}]
+        count = min(10, max(4, int(math.sqrt(len(numbers)))))
+        width, result = (hi - lo) / count, [0] * count
+        for value in numbers: result[min(count - 1, int((value - lo) / width))] += 1
+        return [{"label": f"{lo + i * width:.4g}–{lo + (i + 1) * width:.4g}", "count": n} for i, n in enumerate(result)]
+    profiles = []
+    for col in selected_cols:
+        present = [(r.get(col) or "").strip() for r in rows]
+        present = [v for v in present if v]
+        counts, numbers, lower = Counter(present), as_numbers(present) if present else None, col.lower()
+        is_coordinate = lower in {"capture_lat", "capture_lon", "lat", "lon", "lng", "latitude", "longitude"}
+        is_asset = any(part in lower for part in ("photo", "image", "url", "file", "path"))
+        is_date = any(part in lower for part in ("timestamp", "date", "time"))
+        if is_coordinate: kind, kind_label = "coordinate", "좌표"
+        elif numbers is not None: kind, kind_label = "number", "숫자"
+        elif is_date: kind, kind_label = "date", "날짜·시간"
+        elif is_asset: kind, kind_label = "asset", "파일·URL"
+        elif len(counts) <= min(20, max(4, len(present) // 3)): kind, kind_label = "category", "범주"
+        else: kind, kind_label = "text", "텍스트"
+        profile = {"column": col, "kind": kind, "kind_label": kind_label, "present": len(present), "missing": len(rows) - len(present), "unique": len(counts), "samples": [clipped(v) for v in present[:5]], "top": [{"value": clipped(v, 100), "count": n} for v, n in counts.most_common(8)]}
+        if numbers is not None:
+            ordered = sorted(numbers)
+            profile["numeric"] = {"min": min(numbers), "median": ordered[len(numbers) // 2], "max": max(numbers), "histogram": bins(numbers)}
+        if kind == "text":
+            lengths = sorted(len(v) for v in present)
+            profile["text"] = {"min_length": lengths[0] if lengths else 0, "median_length": lengths[len(lengths) // 2] if lengths else 0, "max_length": lengths[-1] if lengths else 0}
+        if kind == "date": profile["date_counts"] = [{"value": v, "count": n} for v, n in Counter(v[:10] for v in present).most_common(8)]
+        profiles.append(profile)
+    return {"group": group, "dataset": dataset, "total": len(rows), "columns": profiles}
+
 def build_datasets():
     """One entry per dataset for tab ④: label, count, per-signal fill, photo dir.
 
@@ -650,18 +699,26 @@ def build_records(dataset_filter):
                 if len(c) >= 9 and c[0]:
                     cand[c[0]] = {"n": c[4], "rank": c[5], "dist": c[6], "top3": _parse_candidates(c[8])}
 
-    def eff_gt(r):
-        # provider-canonical GT (gt_mapkit/gt_kakao), falling back to input_place_name
-        return gt_for_provider(r, provider_for_row(r, cfg))
+    def gt_info(r):
+        """Provider-canonical label and its resolution status for display.
+
+        Sentinel values are state markers, not labels.  In particular, do not
+        manufacture a GT from input_place_name when the provider GT is blank.
+        """
+        provider = provider_for_row(r, cfg)
+        gt, status = gt_resolution(r, provider)
+        return provider, gt, status
 
     def outcome(r):
-        gt = eff_gt(r)
+        provider, gt, gt_status = gt_info(r)
         conf = roll.get((r.get("gt_confidence") or "").strip(), "")
         rk = (r.get("app_poi_rank") or "").strip()
+        if provider == "kakao_local":
+            return ("korea_pending_kakao", "Kakao 후보 대기")
         if conf == "non_poi":
             return ("non_poi", "non_poi")
-        if not gt:
-            return ("no_gt", "no_gt")
+        if gt_status != "canonical":
+            return (gt_status, f"GT 제외: {gt_status}")
         if not rk:
             return ("deferred", "deferred")
         if rk == "MISS":
@@ -683,7 +740,9 @@ def build_records(dataset_filter):
         ocr = (r.get("caption_ondevice") or "").strip()
         recs.append({
             "dataset": ds, "photo": photo, "photo_url": _photo_url(ds, photo),
-            "gt": eff_gt(r),
+            "gt": gt_info(r)[1],
+            "gt_status": gt_info(r)[2],
+            "provider": gt_info(r)[0],
             "input_place_name": (r.get("input_place_name") or "").strip(),
             "gt_confidence": (r.get("gt_confidence") or "").strip(),
             "category": (r.get("category") or "").strip(),
@@ -827,6 +886,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if route == "/api/overview":
             try:
                 self._send_json(build_overview())
+            except Exception as e:
+                self._send_json({"error": str(e)}, code=500)
+            return
+        if route == "/api/field-profile":
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            group, dataset = (q.get("group", [""])[0]).strip(), q.get("dataset", ["__all"])[0]
+            try:
+                self._send_json(build_field_profile(group, dataset))
+            except ValueError as e:
+                self._send_json({"error": str(e)}, code=400)
             except Exception as e:
                 self._send_json({"error": str(e)}, code=500)
             return

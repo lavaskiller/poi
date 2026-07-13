@@ -1,7 +1,7 @@
 // ---------- language ----------
 let uiLanguage=localStorage.getItem('poi-ui-language')||'ko';
 const I18N={
-  ko:{appSubtitle:'데이터 상태 확인 → 알고리즘 실행 → 결과·실패 케이스 분석',tabOverview:'개요',tabRun:'알고리즘 실행',tabResults:'실행 결과',tabData:'데이터셋 관리',resultsIntro:'실행 결과는 이곳에서 관리합니다. 실행을 하나 선택해 설정과 실패를 확인하고, 최대 4개 실행을 비교하거나 필요 없는 실행을 삭제하세요.',savedRuns:'저장된 실행',compareSelect:'비교 선택 (최대 4개)',runDetailEmpty:'왼쪽에서 실행을 선택하세요. 설정, 측정 결과, 필터 가능한 실패 케이스를 표시합니다.',selectedCompare:'선택 실행 비교',compareHelp:'막대는 정확도입니다. 아래 색 띠는 정답, 기권(예측 미제출), 오류, 오답의 구성입니다. 기권은 코드가 장소 예측을 반환하지 않은 경우이며, 실행 오류와는 별도로 집계합니다. 같은 코드 해시는 같은 제출 코드의 재실행을 뜻합니다.',retrievalDiagnostics:'후보 검색 진단',retrievalDiagnosticsHelp:'- 알고리즘 실행 결과와 별개인 후보 공급원 상태'},
+  ko:{appSubtitle:'데이터 상태 확인 → 알고리즘 실행 → 결과·실패 케이스 분석',tabOverview:'개요',tabRun:'알고리즘 실행',tabResults:'실행 결과',tabData:'데이터셋 관리',resultsIntro:'실행 결과는 이곳에서 관리합니다. 실행을 하나 선택해 설정과 실패를 확인하고, 최대 4개 실행을 비교하거나 필요 없는 실행을 삭제하세요.',savedRuns:'저장된 실행',compareSelect:'비교 선택 (최대 4개)',runDetailEmpty:'왼쪽에서 실행을 선택하세요. 설정, 측정 결과, 필터 가능한 실패 케이스를 표시합니다.',selectedCompare:'선택 실행 비교',compareHelp:'막대는 정확도입니다. 아래 색 띠는 정답, 예측 없음(제출값 비어 있음), 오류, 오답의 구성입니다. 예측 없음은 코드가 빈 예측값을 반환한 경우이며, 실행 오류와는 별도로 집계합니다. 같은 코드 해시는 같은 제출 코드의 재실행을 뜻합니다.',retrievalDiagnostics:'후보 검색 진단',retrievalDiagnosticsHelp:'- 알고리즘 실행 결과와 별개인 후보 공급원 상태'},
   en:{appSubtitle:'Check data health → run an algorithm → inspect results and failures',tabOverview:'Overview',tabRun:'Run algorithm',tabResults:'Run results',tabData:'Dataset management',resultsIntro:'Manage persisted results here. Select one run to inspect its configuration and failures, compare up to four runs, or remove an obsolete result.',savedRuns:'Saved runs',compareSelect:'Compare (up to 4)',runDetailEmpty:'Select a run on the left. Its configuration, measured outcomes, and filterable failures appear here.',selectedCompare:'Compare selected runs',compareHelp:'Bars show accuracy. The colored strip breaks down correct, abstained (no prediction submitted), errored, and wrong cases. Abstentions are distinct from execution errors. Matching code hashes mean the same submission was run again.',retrievalDiagnostics:'Retrieval diagnostics',retrievalDiagnosticsHelp:'- candidate-provider health, separate from algorithm results'}
 };
 function applyLanguage(){document.documentElement.lang=uiLanguage;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=I18N[uiLanguage][el.dataset.i18n]||el.textContent});document.querySelectorAll('[data-lang]').forEach(b=>b.classList.toggle('on',b.dataset.lang===uiLanguage));if(selectedRun)renderRunDetail();}
@@ -39,20 +39,20 @@ async function render(){
   const apiMode='exact';
   let d;
   try{d=await apiJSON(`/api/matchrate?dataset=${encodeURIComponent(scope)}&mode=${apiMode}`,'matchrate');}
-  catch(e){d={n:0,rank1:0,top3:0,top5:0,miss:0,counts:{},by_provider:{},matching_policy:{}};}
+  catch(e){d={n:0,rank1:0,top3:0,top5:0,top10:0,top20:0,top50:0,miss:0,counts:{},by_provider:{},matching_policy:{}};}
   const n=d.n||0, pct=x=>n?Math.round(100*x/n):0;
-  const excl=[]; if(d.excluded_korea_pending_kakao)excl.push(`KR 제외 ${d.excluded_korea_pending_kakao}`); if(d.excluded_non_poi)excl.push(`non_poi ${d.excluded_non_poi}`); if(d.excluded_no_gt)excl.push(`no_gt ${d.excluded_no_gt}`); if(d.no_provider_data)excl.push(`provider_data 없음 ${d.no_provider_data}`);
+  const c=d.counts||{}, rows=c.rows||0;
+  const excl=[]; if(d.excluded_korea_pending_kakao)excl.push(`KR/Kakao 대기 ${d.excluded_korea_pending_kakao}`); if(d.excluded_non_poi)excl.push(`non_poi ${d.excluded_non_poi}`); if(d.excluded_non_mapkit)excl.push(`NON_MAPKIT ${d.excluded_non_mapkit}`); if(d.excluded_sim_mapkit)excl.push(`SIM_MAPKIT ${d.excluded_sim_mapkit}`); if(d.excluded_no_gt)excl.push(`provider GT 없음 ${d.excluded_no_gt}`); if(d.no_provider_data)excl.push(`후보 데이터 없음 ${d.no_provider_data}`);
   $("#meta").innerHTML=d.counts&&d.counts.rows===0
     ? '등록된 데이터셋이 없습니다. ④ 데이터셋 관리에서 ZIP을 추가하면 평가 지표와 케이스가 표시됩니다.'
-    : `후보검색 평가 가능 GT <b>n=${n}</b> · 제외/대기: ${excl.join(' · ')||'-'} · 매칭: <b>동일 provider canonical name == candidate name</b> · 후보공급원: 현재 KR 제외 / non-KR=MapKit`;
+    : `대상 행 <b>${rows}</b> · canonical GT <b>${c.gt_canonical||0}</b> · 평가 완료 <b>n=${n}</b> · 제외/대기: ${excl.join(' · ')||'-'}<br>매칭: <b>동일 provider canonical name == candidate name</b> · sentinel/빈 provider GT는 정답 문자열이 아니라 홀드아웃 · 후보공급원: 현재 KR 제외 / non-KR=MapKit`;
   const set=(id,c)=>{$("#p-"+id).textContent=pct(c)+"%";$("#c-"+id).textContent=c+" / "+n;};
-  set("r1",d.rank1||0);set("t3",d.top3||0);set("t5",d.top5||0);set("miss",d.miss||0);
+  set("r1",d.rank1||0);set("t3",d.top3||0);set("t5",d.top5||0);set("t10",d.top10||0);set("t20",d.top20||0);set("t50",d.top50||0);set("miss",d.miss||0);
   $("#flip").classList.add("hidden");
-  // Only the N the API actually measures: rank-1 (=top-1), top-3, top-5. No interpolation.
-  drawCurve([[1,pct(d.rank1||0)],[3,pct(d.top3||0)],[5,pct(d.top5||0)]]);
+  drawCurve([[1,pct(d.rank1||0)],[3,pct(d.top3||0)],[5,pct(d.top5||0)],[10,pct(d.top10||0)],[20,pct(d.top20||0)],[50,pct(d.top50||0)]]);
 }
 function drawCurve(points){
-  const W=580,H=260,pl=44,pr=16,pt=16,pb=32,xs=[1,3,5];
+  const W=580,H=260,pl=44,pr=16,pt=16,pb=32,xs=points.map(p=>p[0]);
   const x=i=>pl+(W-pl-pr)*(i/(xs.length-1)),y=v=>pt+(H-pt-pb)*(1-v/100);
   let g="";
   for(let v=0;v<=100;v+=25)g+=`<line x1="${pl}" y1="${y(v)}" x2="${W-pr}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"/><text x="${pl-8}" y="${y(v)+4}" text-anchor="end" fill="var(--ink3)" font-size="11" font-family="var(--mono)">${v}%</text>`;
@@ -172,6 +172,7 @@ async function loadOverviewSummary(){
 // No hardcoded column list — schema_groups / CSV changes reflect on reload.
 // The 출처(dataset) dropdown recomputes 채움% from per-dataset fills.
 let _rowstruct=null;
+let _openFieldGroup=null;
 async function loadRowStruct(){
   try{_rowstruct=await apiJSON('/api/overview','overview');}catch(e){_rowstruct={};}
   const sel=$("#rowstruct-src");
@@ -179,7 +180,7 @@ async function loadRowStruct(){
     const dss=_rowstruct.datasets||[];
     sel.innerHTML='<option value="__all">전체</option>'+dss.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
     sel.dataset.init='1';
-    sel.addEventListener('change',renderRowStruct);
+    sel.addEventListener('change',()=>{renderRowStruct(); if(_openFieldGroup) loadFieldProfile(_openFieldGroup);});
   }
   renderRowStruct();
 }
@@ -195,11 +196,40 @@ function renderRowStruct(){
     const pct=total?Math.round(100*f/total):0;
     const color=pct>=90?'var(--green)':(pct===0?'var(--ink3)':'var(--orange)');
     const rcolor=RC[s.role_key]||'var(--ink3)';
-    return `<tr><td class="nm3">${esc(s.group)}</td>
+    return `<tr data-group="${esc(s.group)}" tabindex="0" role="button" aria-label="${esc(s.group)} 값 상세 보기"><td class="nm3">${esc(s.group)}</td>
       <td class="rl" style="color:${rcolor}">${esc(s.role_label||s.role_key||'')}</td>
       <td><div class="fb2"><div class="mt2"><div class="mf2" style="width:${pct}%;background:${color}"></div></div><span class="mp2">${pct}%</span></div></td>
-      <td class="m3">${plain(s.desc||'')}</td></tr>`;
+      <td class="m3">${plain(s.desc||'')} <span style="color:var(--ink3)">· 상세 보기</span></td></tr>`;
   }).join('');
+  $("#rowstruct").querySelectorAll('tr[data-group]').forEach(row=>{
+    const open=()=>loadFieldProfile(row.dataset.group);
+    row.addEventListener('click',open);
+    row.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});
+  });
+}
+function fmtProfileNumber(n){return Number.isInteger(n)?String(n):Number(n).toLocaleString(undefined,{maximumFractionDigits:5});}
+function profileBars(items){
+  const max=Math.max(1,...items.map(x=>x.count||0));
+  return `<div class="profile-bars">${items.map(x=>`<div class="profile-bar"><span title="${esc(x.value||x.label)}">${esc(x.value||x.label)}</span><div class="track"><div class="fill" style="width:${Math.round(100*(x.count||0)/max)}%;background:var(--cyan)"></div></div><b>${x.count}</b></div>`).join('')}</div>`;
+}
+async function loadFieldProfile(group){
+  _openFieldGroup=group;
+  const panel=$('#fieldprofile'),src=$('#rowstruct-src')?.value||'__all';
+  document.querySelectorAll('#rowstruct tr[data-group]').forEach(r=>r.classList.toggle('selected',r.dataset.group===group));
+  panel.classList.add('on'); panel.textContent='실제 값과 분포를 불러오는 중…';
+  try{
+    const d=await apiJSON(`/api/field-profile?group=${encodeURIComponent(group)}&dataset=${encodeURIComponent(src)}`,'field-profile');
+    const card=(p)=>{
+      const denom=d.total||0, fill=denom?Math.round(100*p.present/denom):0;
+      const stats=[`유형 <b>${esc(p.kind_label)}</b>`,`채움 <b>${p.present}/${denom} (${fill}%)</b>`,`결측 <b>${p.missing}</b>`,`고유값 <b>${p.unique}</b>`];
+      if(p.numeric)stats.push(`최소 <b>${fmtProfileNumber(p.numeric.min)}</b>`,`중앙 <b>${fmtProfileNumber(p.numeric.median)}</b>`,`최대 <b>${fmtProfileNumber(p.numeric.max)}</b>`);
+      if(p.text)stats.push(`길이 <b>${p.text.min_length} · ${p.text.median_length} · ${p.text.max_length}자</b>`);
+      const distribution=p.numeric?.histogram || p.date_counts || p.top;
+      const title=p.numeric?'값 구간 분포':(p.kind==='text'?'반복된 값 (OCR/자유 텍스트는 대개 고유)':p.kind==='date'?'날짜별 값':'상위 값');
+      return `<section><h4>${esc(p.column)} · ${esc(p.kind_label)}</h4><div class="profile-stats">${stats.map(x=>`<span class="profile-stat">${x}</span>`).join('')}</div>${distribution.length?`<h4>${title}</h4>${profileBars(distribution)}`:''}${p.samples.length?`<h4>실제 값 예시 (최대 5개)</h4><ul class="profile-samples">${p.samples.map(v=>`<li>${esc(v)}</li>`).join('')}</ul>`:''}</section>`;
+    };
+    panel.innerHTML=`<h3>${esc(group)} <span style="font:11px var(--mono);color:var(--ink3)">· ${src==='__all'?'전체':esc(src)} · ${d.total}행</span></h3>${d.columns.map(card).join('')}`;
+  }catch(e){panel.textContent=`상세 값을 불러오지 못했습니다: ${e.message}`;}
 }
 loadOverviewSummary();
 loadRowStruct();
@@ -333,7 +363,7 @@ g('runbtn').onclick=async()=>{
     const data=await res.json();
     if(data.ok){
       const m=data.metrics||{};
-      g('runhint').textContent=`완료: ${data.name} v${data.version} · 식별 정확도 ${m.accuracy_pct}% (${m.correct}/${m.n_eligible}, 무응답 ${m.abstained}, 오류 ${m.errored})`;
+      g('runhint').textContent=`완료: ${data.name} v${data.version} · 식별 정확도 ${m.accuracy_pct}% (${m.correct}/${m.n_eligible}, 예측 없음 ${m.abstained}, 오류 ${m.errored})`;
       await loadRuns();
     }else{
       g('runhint').textContent=`실패: ${data.error||'실행 오류'}`;
@@ -364,7 +394,7 @@ g('codeModal').onclick=e=>{if(e.target===g('codeModal'))closeRunCode()};
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeRunCode()});
 function renderRunDetail(){
   const r=selectedRun,m=r.metrics||{},n=m.n_eligible||0,wrong=Math.max(0,n-(m.correct||0)-(m.abstained||0)-(m.errored||0));
-  const L=uiLanguage==='ko', label=L?{del:'실행 삭제',created:'실행 시각',config:'설정',inputs:'입력',identity:'코드 식별',candidates:'후보',all:'전체',none:'추가 신호 없음',correct:'정답',abstained:'기권(예측 미제출)',errors:'오류',wrong:'오답',failures:'실패 케이스',total:'전체',matching:'필터 결과',allDatasets:'모든 데이터셋',allOutcomes:'모든 결과',previous:'이전',next:'다음',noFailures:'조건에 맞는 실패가 없습니다.',error:'오류'}:{del:'Delete run',created:'Created',config:'Config',inputs:'Inputs',identity:'Code identity',candidates:'candidates',all:'all',none:'none',correct:'correct',abstained:'abstained (no prediction)',errors:'errors',wrong:'wrong',failures:'Failures',total:'total',matching:'matching',allDatasets:'All datasets',allOutcomes:'All outcomes',previous:'Previous',next:'Next',noFailures:'No failures match these filters.',error:'Error'};
+  const L=uiLanguage==='ko', label=L?{del:'실행 삭제',created:'실행 시각',config:'설정',inputs:'입력',identity:'코드 식별',candidates:'후보',all:'전체',none:'추가 신호 없음',correct:'정답',abstained:'예측 없음(제출값 비어 있음)',errors:'오류',wrong:'오답',failures:'실패 케이스',total:'전체',matching:'필터 결과',allDatasets:'모든 데이터셋',allOutcomes:'모든 결과',previous:'이전',next:'다음',noFailures:'조건에 맞는 실패가 없습니다.',error:'오류'}:{del:'Delete run',created:'Created',config:'Config',inputs:'Inputs',identity:'Code identity',candidates:'candidates',all:'all',none:'none',correct:'correct',abstained:'no prediction submitted',errors:'errors',wrong:'wrong',failures:'Failures',total:'total',matching:'matching',allDatasets:'All datasets',allOutcomes:'All outcomes',previous:'Previous',next:'Next',noFailures:'No failures match these filters.',error:'Error'};
   const part=(v,c)=>n?`<span style="width:${100*v/n}%;background:${c}"></span>`:'';
   const allFails=(r.cases||[]).filter(c=>!c.correct);
   const datasets=[...new Set(allFails.map(c=>c.dataset).filter(Boolean))].sort();
@@ -375,8 +405,9 @@ function renderRunDetail(){
   const shown=filtered.slice(runFailurePage*RUN_FAILURE_PAGE_SIZE,(runFailurePage+1)*RUN_FAILURE_PAGE_SIZE);
   const hash=r.script_sha256||'';
   const hashText=hash?`${hash.slice(0,12)}${r.script_sha256_derived?(L?' · 레거시 파생':' · legacy-derived'):''}`:(L?'사용 불가':'unavailable');
-  const failRows=shown.map(c=>{const kind=c.error?'error':(c.prediction?'wrong':'abstained'),ctx=c.context||{};const title=ctx.input_place_name||c.gt||c.photo||'case';const location=[ctx.category,ctx.city,ctx.country].filter(Boolean).join(' · ');const prediction=c.error?`${label.error}: ${c.error}`:(c.prediction||label.abstained);const ocr=ctx.ocr_text?`<span class="failreason">OCR: ${esc(ctx.ocr_text)}</span>`:'';const coords=(ctx.lat&&ctx.lon)?`<span class="failmeta">${esc(ctx.lat)}, ${esc(ctx.lon)}</span>`:'';const image=c.photo_url?`<img class="failthumb" src="${esc(c.photo_url)}" alt="" loading="lazy">`:'<span class="failthumb"></span>';return `<div class="failrow">${image}<span><span class="failtitle">${esc(title)}</span><span class="failmeta">${esc(location||c.dataset||'—')}</span><span class="failreason">GT: ${esc(c.gt||'—')} → ${esc(prediction)}</span>${ocr}${coords}<span class="failmeta">${esc(c.photo||'')}</span></span><span class="oc ${kind==='error'?'retrieval':kind==='wrong'?'selection':'other'}">${kind}</span></div>`}).join('')||`<div>${label.noFailures}</div>`;
-  g('runDetail').innerHTML=`<div style="display:flex;justify-content:space-between;gap:10px"><b style="color:var(--ink)">${esc(r.name)} v${r.version}</b><button class="btn danger" id="deleteRun">${label.del}</button></div><div class="dl"><b>${label.created}</b><span>${esc(r.created_at||'')}</span><b>${label.config}</b><span>${esc(r.scope)} · ${esc(r.mode)} · ${label.candidates} ${r.candidate_limit==null?label.all:r.candidate_limit}</span><b>${label.inputs}</b><span>${esc((r.params||[]).join(', ')||label.none)}</span><b>${label.identity}</b><span title="${esc(hash||(L?'스크립트 텍스트가 없어 코드 식별값을 만들 수 없습니다.':'No script text was available to derive an identity.'))}">${esc(hashText)} <button class="btn" type="button" id="viewRunCode">${L?'코드 보기':'View code'}</button></span></div><div><b style="color:var(--ink)">${m.accuracy_pct||0}% · ${m.correct||0}/${n}</b> ${label.correct}</div><div class="outcomes">${part(m.correct||0,'var(--green)')}${part(m.abstained||0,'var(--orange)')}${part(m.errored||0,'var(--red)')}${part(wrong,'var(--pink)')}</div><div style="font:11px var(--mono);color:var(--ink3)">${label.correct} ${m.correct||0} · ${label.abstained} ${m.abstained||0} · ${label.errors} ${m.errored||0} · ${label.wrong} ${wrong}</div><div class="casefail"><b style="color:var(--ink3)">${label.failures} · ${allFails.length} ${label.total}, ${filtered.length} ${label.matching}</b><div class="detail-filters"><select id="failureDataset"><option value="all">${label.allDatasets}</option>${datasets.map(x=>`<option value="${esc(x)}" ${x===runFailureDataset?'selected':''}>${esc(x)}</option>`).join('')}</select><select id="failureKind"><option value="all">${label.allOutcomes}</option>${kinds.map(x=>`<option value="${x}" ${x===runFailureKind?'selected':''}>${x}</option>`).join('')}</select></div>${failRows}<div class="pager"><button id="failurePrev" ${runFailurePage===0?'disabled':''}>${label.previous}</button><span>${filtered.length?`${runFailurePage+1} / ${pages}`:'0 / 0'}</span><button id="failureNext" ${runFailurePage>=pages-1?'disabled':''}>${label.next}</button></div></div>`;
+  const kindLabel={error:label.errors,wrong:label.wrong,abstained:label.abstained};
+  const failRows=shown.map(c=>{const kind=c.error?'error':(c.prediction?'wrong':'abstained'),ctx=c.context||{};const title=ctx.input_place_name||c.gt||c.photo||'case';const location=[ctx.category,ctx.city,ctx.country].filter(Boolean).join(' · ');const prediction=c.error?`${label.error}: ${c.error}`:(c.prediction||label.abstained);const ocr=ctx.ocr_text?`<span class="failreason">OCR: ${esc(ctx.ocr_text)}</span>`:'';const coords=(ctx.lat&&ctx.lon)?`<span class="failmeta">${esc(ctx.lat)}, ${esc(ctx.lon)}</span>`:'';const image=c.photo_url?`<img class="failthumb" src="${esc(c.photo_url)}" alt="" loading="lazy">`:'<span class="failthumb"></span>';return `<div class="failrow">${image}<span><span class="failtitle">${esc(title)}</span><span class="failmeta">${esc(location||c.dataset||'—')}</span><span class="failreason">GT: ${esc(c.gt||'—')} → ${esc(prediction)}</span>${ocr}${coords}<span class="failmeta">${esc(c.photo||'')}</span></span><span class="oc ${kind==='error'?'retrieval':kind==='wrong'?'selection':'other'}">${esc(kindLabel[kind])}</span></div>`}).join('')||`<div>${label.noFailures}</div>`;
+  g('runDetail').innerHTML=`<div style="display:flex;justify-content:space-between;gap:10px"><b style="color:var(--ink)">${esc(r.name)} v${r.version}</b><button class="btn danger" id="deleteRun">${label.del}</button></div><div class="dl"><b>${label.created}</b><span>${esc(r.created_at||'')}</span><b>${label.config}</b><span>${esc(r.scope)} · ${esc(r.mode)} · ${label.candidates} ${r.candidate_limit==null?label.all:r.candidate_limit}</span><b>${label.inputs}</b><span>${esc((r.params||[]).join(', ')||label.none)}</span><b>${label.identity}</b><span title="${esc(hash||(L?'스크립트 텍스트가 없어 코드 식별값을 만들 수 없습니다.':'No script text was available to derive an identity.'))}">${esc(hashText)} <button class="btn" type="button" id="viewRunCode">${L?'코드 보기':'View code'}</button></span></div><div><b style="color:var(--ink)">${m.accuracy_pct||0}% · ${m.correct||0}/${n}</b> ${label.correct}</div><div class="outcomes">${part(m.correct||0,'var(--green)')}${part(m.abstained||0,'var(--orange)')}${part(m.errored||0,'var(--red)')}${part(wrong,'var(--pink)')}</div><div style="font:11px var(--mono);color:var(--ink3)">${label.correct} ${m.correct||0} · ${label.abstained} ${m.abstained||0} · ${label.errors} ${m.errored||0} · ${label.wrong} ${wrong}</div><div class="casefail"><b style="color:var(--ink3)">${label.failures} · ${allFails.length} ${label.total}, ${filtered.length} ${label.matching}</b><div class="detail-filters"><select id="failureDataset"><option value="all">${label.allDatasets}</option>${datasets.map(x=>`<option value="${esc(x)}" ${x===runFailureDataset?'selected':''}>${esc(x)}</option>`).join('')}</select><select id="failureKind"><option value="all">${label.allOutcomes}</option>${kinds.map(x=>`<option value="${x}" ${x===runFailureKind?'selected':''}>${esc(kindLabel[x]||x)}</option>`).join('')}</select></div>${failRows}<div class="pager"><button id="failurePrev" ${runFailurePage===0?'disabled':''}>${label.previous}</button><span>${filtered.length?`${runFailurePage+1} / ${pages}`:'0 / 0'}</span><button id="failureNext" ${runFailurePage>=pages-1?'disabled':''}>${label.next}</button></div></div>`;
   g('deleteRun').onclick=()=>deleteSelectedRun(r);
   g('viewRunCode').onclick=showRunCode;
   g('failureDataset').onchange=e=>{runFailureDataset=e.target.value;runFailurePage=0;renderRunDetail()};

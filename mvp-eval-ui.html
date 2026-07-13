@@ -162,6 +162,11 @@
   .rst .fb2{display:flex;align-items:center;gap:8px}
   .rst .mt2{width:80px;height:7px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}
   .rst .mf2{height:100%;border-radius:4px} .rst .mp2{font-family:var(--mono);font-size:11px;color:var(--ink2);width:34px}
+  .fieldprofile{display:none;margin-top:12px;padding:14px;border:1px solid rgba(86,200,255,.28);border-radius:8px;background:rgba(86,200,255,.035);font-size:12px;color:var(--ink2)}
+  .fieldprofile.on{display:block}.fieldprofile h3{margin:0 0 10px;color:var(--ink);font-size:14px}.fieldprofile h4{margin:14px 0 7px;font:11px var(--mono);color:var(--cyan)}
+  .rst tr[data-group]{cursor:pointer}.rst tr[data-group]:hover td,.rst tr[data-group].selected td{background:rgba(86,200,255,.06)}.rst tr[data-group]:focus{outline:1px solid var(--cyan);outline-offset:-2px}
+  .profile-stats{display:flex;flex-wrap:wrap;gap:7px}.profile-stat{padding:5px 7px;background:rgba(255,255,255,.045);border-radius:4px;font-family:var(--mono);font-size:11px}.profile-stat b{color:var(--ink)}
+  .profile-bars{display:grid;gap:4px}.profile-bar{display:grid;grid-template-columns:minmax(80px,1fr) minmax(70px,2fr) 34px;gap:7px;align-items:center;font:11px var(--mono)}.profile-bar .track{height:6px}.profile-samples{margin:0;padding-left:18px;display:grid;gap:4px;font:11px var(--mono);color:var(--ink2);word-break:break-word}
   .editor{width:100%;min-height:200px;background:#0a1140;color:#cfe3ff;border:1px solid var(--line);border-radius:10px;padding:14px;font-family:var(--mono);font-size:12.5px;line-height:1.6;resize:vertical;white-space:pre}
   .loadsnippet{margin:0;background:#0a1140;color:#cfe3ff;border:1px solid var(--line);border-radius:10px;padding:14px;font-family:var(--mono);font-size:12.5px;line-height:1.65;overflow-x:auto;white-space:pre}
   .filedrop{display:flex;align-items:center;justify-content:center;gap:8px;border:1.5px dashed var(--line);border-radius:10px;padding:24px;cursor:pointer;color:var(--ink2);font-size:13px;background:var(--card2);transition:border-color .2s}
@@ -256,6 +261,7 @@
         <select id="rowstruct-src"></select>
       </div>
       <table class="rst"><thead><tr><th>필드</th><th>역할</th><th>채움</th><th>추출 방법</th></tr></thead><tbody id="rowstruct"></tbody></table>
+      <div id="fieldprofile" class="fieldprofile" aria-live="polite"><span>행을 선택하면 실제 값 구성과 분포를 표시합니다.</span></div>
       <div class="note" style="margin-top:14px"><b>채움률은 알고리즘 입력 가용성입니다.</b> 낮은 채움률의 신호를 선택하면 평가 가능한 행과 성능 상한이 줄어듭니다.</div>
     </div>
 
@@ -326,7 +332,7 @@
       <div class="panel"><div class="compare"><span data-i18n="compareSelect">비교 선택 (최대 4개)</span><span id="compareHint" style="margin-left:auto;font-family:var(--mono);color:var(--ink3)"></span></div><div class="runrows" id="runManagerList"></div></div>
       <div class="panel rundetail" id="runDetail" data-i18n="runDetailEmpty">왼쪽에서 실행을 선택하세요. 설정, 측정 결과, 필터 가능한 실패 케이스를 표시합니다.</div>
     </div>
-    <div class="panel" style="margin-top:14px"><h2 style="margin-top:0" data-i18n="selectedCompare">선택 실행 비교</h2><svg id="compareBars" width="580" height="210" viewBox="0 0 580 210"></svg><div class="note" data-i18n="compareHelp">막대는 정확도입니다. 아래 색 띠는 정답, 기권, 오류, 오답의 구성입니다. 같은 코드 해시는 같은 제출 코드의 재실행을 뜻합니다.</div></div>
+    <div class="panel" style="margin-top:14px"><h2 style="margin-top:0" data-i18n="selectedCompare">선택 실행 비교</h2><svg id="compareBars" width="580" height="210" viewBox="0 0 580 210"></svg><div class="note" data-i18n="compareHelp">막대는 정확도입니다. 아래 색 띠는 정답, 예측 없음(제출값 비어 있음), 오류, 오답의 구성입니다. 예측 없음은 코드가 빈 예측값을 반환한 경우이며, 실행 오류와는 별도로 집계합니다. 같은 코드 해시는 같은 제출 코드의 재실행을 뜻합니다.</div></div>
     <details class="analysis-disclosure">
       <summary><b data-i18n="retrievalDiagnostics">후보 검색 진단</b> <span data-i18n="retrievalDiagnosticsHelp">- 알고리즘 실행 결과와 별개인 후보 공급원 상태</span></summary>
       <div class="inside">
@@ -344,6 +350,9 @@
       <div class="rc r1"><div class="k">후보 rank-1 · GT가 1위 후보</div><div class="pct" id="p-r1">–</div><div class="cnt" id="c-r1"></div></div>
       <div class="rc t3"><div class="k">후보 top-3 · GT 포함</div><div class="pct" id="p-t3">–</div><div class="cnt" id="c-t3"></div></div>
       <div class="rc t5"><div class="k">후보 top-5 · GT 포함</div><div class="pct" id="p-t5">–</div><div class="cnt" id="c-t5"></div></div>
+      <div class="rc t5"><div class="k">후보 top-10 · GT 포함</div><div class="pct" id="p-t10">–</div><div class="cnt" id="c-t10"></div></div>
+      <div class="rc t5"><div class="k">후보 top-20 · GT 포함</div><div class="pct" id="p-t20">–</div><div class="cnt" id="c-t20"></div></div>
+      <div class="rc t5"><div class="k">후보 top-50 · GT 포함</div><div class="pct" id="p-t50">–</div><div class="cnt" id="c-t50"></div></div>
       <div class="rc miss"><div class="k">MISS · 후보 API에 GT 없음</div><div class="pct" id="p-miss">–</div><div class="cnt" id="c-miss"></div></div>
     </div>
     <div class="flip" id="flip"></div>
@@ -353,7 +362,7 @@
       <svg id="curve" width="580" height="260" viewBox="0 0 580 260"></svg>
       <div class="legend">
         <div class="lg"><span class="sw" style="background:var(--green)"></span>MapKit <span class="soon">현재 후보 공급원</span></div>
-        <div class="lg" style="margin-top:6px;color:var(--ink3);font-size:12px">y = GT가 top-N 후보에 존재<br>x = N (1·3·5, API 실측치)</div>
+        <div class="lg" style="margin-top:6px;color:var(--ink3);font-size:12px">y = GT가 top-N 후보에 존재<br>x = N (1·3·5·10·20·50, 저장된 rank 실측치)</div>
       </div>
     </div>
     <div class="note"><b>검색만.</b> 후보 API가 GT 장소를 후보 리스트에 포함했는지 보는 지표다. 지금은 한국 row를 제외하고 한국 외 후보 공급원은 MapKit이다. 이 값은 <b>식별 정확도</b>가 아니라 알고리즘이 선택할 수 있는 후보 상한/커버리지다.</div></div>
