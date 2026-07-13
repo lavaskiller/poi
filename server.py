@@ -60,9 +60,10 @@ STEP_REGISTRY = {
     "mapkit_nearby":  {"script": os.path.join(REPO_DIR, "tools", "rerun_mapkit_nearby.py")},
     "ingest":         {"script": os.path.join(REPO_DIR, "tools", "ingest_dataset.py")},
     "delete_dataset": {"builtin": "delete_dataset"},
-    # backends not built yet — registered so the UI can grey them; server 501s.
-    "exif":           {"disabled": "미구현"},
-    "geocode":        {"disabled": "미구현"},
+    "pipeline":       {"builtin": "post_ingest_pipeline"},
+    "exif":           {"script": os.path.join(REPO_DIR, "tools", "rerun_exif.py")},
+    # These are intentionally unavailable rather than pretending enrichment ran.
+    "geocode":        {"disabled": "미구현 (CLGeocoder worker 없음)"},
     "vlm_caption":    {"disabled": "미구현"},
 }
 
@@ -148,9 +149,17 @@ def _run_job(job_id):
                 except Exception:
                     result = None
                 break
+        # A successful upload immediately flows through the implemented
+        # enrichment stages under this same CSV-mutating job lock.  It is not a
+        # second reservable job, avoiding a race with another writer.
+        if step == "ingest" and proc.returncode == 0 and (result or {}).get("dataset"):
+            with open(log_path, "a", encoding="utf-8") as log:
+                pipeline = _post_ingest_pipeline({"dataset": result["dataset"]}, log)
+            result = {"ingest": result, "pipeline": pipeline}
+        lines = _tail_log(log_path, 25)
         job.update(status=("done" if proc.returncode == 0 else "error"),
                    returncode=proc.returncode, finished=time.time(),
-                   result=result, log_tail=lines[-25:])
+                   result=result, log_tail=lines)
     except Exception as e:
         job.update(status="error", finished=time.time(), error=str(e))
     finally:
@@ -218,7 +227,50 @@ def _config_photo_dirs():
 def _run_builtin(name, params, log):
     if name == "delete_dataset":
         return _delete_dataset(params, log)
+    if name == "post_ingest_pipeline":
+        return _post_ingest_pipeline(params, log)
     return {"ok": False, "error": f"unknown builtin {name!r}"}
+
+
+def _post_ingest_pipeline(params, log):
+    """Run implemented post-upload stages while holding the single CSV lock."""
+    dataset = (params.get("dataset") or "").strip()
+    if not dataset:
+        return {"ok": False, "error": "pipeline requires dataset"}
+    stages = [{"step": "geocode", "status": "skipped",
+               "reason": "no CLGeocoder worker is implemented"}]
+    sequence = ["exif", "ocr", "mapkit_nearby", "gt_mapkit"]
+    if os.environ.get("KAKAO_REST_API_KEY", "").strip():
+        sequence.append("gt_kakao")
+    else:
+        stages.append({"step": "gt_kakao", "status": "skipped",
+                       "reason": "KAKAO_REST_API_KEY is not set"})
+    env = dict(os.environ); env["POI_DATA_DIR"] = DIRECTORY
+    for pos, step in enumerate(sequence, 1):
+        print(f"[pipeline] {pos}/{len(sequence)} starting {step}", file=log, flush=True)
+        proc = subprocess.run(_job_argv(step, {"dataset": dataset, "only_empty": True}),
+            cwd=REPO_DIR, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, stdin=subprocess.DEVNULL, close_fds=True, start_new_session=True)
+        lines = proc.stdout.splitlines()
+        for line in lines: print(f"[{step}] {line}", file=log)
+        result = None
+        for line in reversed(lines):
+            if line.startswith("RESULT "):
+                try: result = json.loads(line[7:])
+                except json.JSONDecodeError: pass
+                break
+        status = "done" if proc.returncode == 0 else "error"
+        reason = None
+        if status == "done" and result and not result.get("targets", 1):
+            status, reason = "skipped", result.get("skip_reason") or "no eligible rows"
+        stages.append({"step": step, "status": status, "reason": reason,
+                       "returncode": proc.returncode, "result": result})
+        print("PROGRESS " + json.dumps({"done": pos, "total": len(sequence), "step": step}), file=log, flush=True)
+    errors = [s["step"] for s in stages if s["status"] == "error"]
+    outcome = {"ok": True, "step": "pipeline", "dataset": dataset, "stages": stages,
+               "partial": bool(errors), "errors": errors}
+    print("RESULT " + json.dumps(outcome, ensure_ascii=False), file=log)
+    return outcome
 
 
 def _delete_dataset(params, log):
