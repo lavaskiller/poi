@@ -1,8 +1,8 @@
 # POI 평가 도구 — 기능 명세서 (페이지별)
 
-> 대상: `mvp-eval-ui.html` (단일 페이지 · 4탭) + 보조 페이지.
-> 모든 수치는 서버 API 실측이며 목업 값이 없다. 코드=`~/Desktop/poi`, 데이터=`~/Desktop/poi-data` (`POI_DATA_DIR`).
-> API 상세는 [API-SPEC.md](API-SPEC.md) 참고. 최종 갱신 2026-07-10.
+> 대상: `mvp-eval-ui.html` (단일 페이지 · 4탭).
+> 모든 수치는 서버 API 실측이며 목업 값이 없다. 데이터 위치는 `poi-data/` 또는 `POI_DATA_DIR`로 정한다.
+> API 상세는 [API.md](API.md) 참고. 최종 갱신 2026-07-10.
 
 ---
 
@@ -12,9 +12,7 @@
 |---|---|---|
 | 진입 | `GET /` | `302 → /mvp-eval-ui.html` (서버 리다이렉트) |
 | **메인 툴** | `mvp-eval-ui.html` + `mvp-eval-ui.js` | 4탭 단일 페이지 앱 (본 문서의 핵심) |
-| 개요 풀버전 | `dataset-overview.html` | ①탭의 상세판 — 스키마 테이블·툴팁·경고배너·라이브 집계 |
-| 명세서 뷰어 | `spec-viewer.html` | 리포지토리의 `.md` 스펙 문서를 브라우저에서 렌더 |
-| 정적 랜딩 | `index.html` | 구 대시보드 랜딩(정적) |
+
 
 메인 툴 상단 탭: **① 개요 · ② 평가 실행 · ③ 평가 결과 · ④ 데이터셋 추가.** 탭 전환은 클라이언트에서 뷰 토글(`.tabs button` → `.view.on`), 각 탭은 진입 시 해당 API를 `no-store`로 호출한다.
 
@@ -56,7 +54,7 @@
    | `ocr_text` | `ocr_text` | Vision VNRecognizeTextRequest |
    | 주변 후보 `nearby_candidates` | `nearby_candidates[]` | MapKit MKLocalPointsOfInterest |
    | `city,country,address` | `geocode{}` | 지오코딩 |
-   | `category` | `category_hint` | GT 파생 |
+
 
 3. **사용 방법 스니펫** — 선택한 입력을 스크립트에서 불러오는 예시 코드 자동 생성.
 4. **예측 함수 첨부** — `predict(case)` 계약을 구현한 파일 업로드(`.py` 외 언어는 stdin JSON → stdout 예측). **▶ 실행**.

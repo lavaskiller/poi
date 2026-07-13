@@ -2,13 +2,13 @@
 
 > 서버: `server.py` (Python 표준 라이브러리 `http.server`, 로컬 단일 사용자).
 > UI는 리포지토리에서, 데이터셋 파일은 `POI_DATA_DIR`에서 읽는다.
-> 페이지별 기능은 [FUNCTIONAL-SPEC.md](FUNCTIONAL-SPEC.md) 참고. 스키마는 2026-07-10 실측 응답 기준.
+> 페이지별 기능은 [functional-spec.md](functional-spec.md) 참고. 스키마는 2026-07-10 실측 응답 기준.
 
 ## 실행
 
 ```bash
-POI_DATA_DIR=/Users/massis/Desktop/poi-data POI_PORT=8488 python3 /Users/massis/Desktop/poi/server.py
-# 기본 포트 8488(POI_PORT 미지정 시 8420). Base URL = http://127.0.0.1:<PORT>
+POI_DATA_DIR=/absolute/path/to/poi-data POI_PORT=8420 python3 server.py
+# 기본 포트 8420. Base URL = http://127.0.0.1:<PORT>
 ```
 
 ## 공통 규약
@@ -25,10 +25,13 @@ POI_DATA_DIR=/Users/massis/Desktop/poi-data POI_PORT=8488 python3 /Users/massis/
 | GET | `/api/overview` | 데이터셋 구조·집계 (①탭) |
 | GET | `/api/records` | 케이스 레코드 목록 (③ 케이스 분석) |
 | GET | `/api/matchrate` | 후보 검색 커버리지 지표 (③) |
+| GET | `/api/datasets` | 데이터셋 및 신호별 채움 현황 (④) |
 | GET | `/api/runs` | 저장된 알고리즘 실행 목록 (②/③) |
+| GET | `/api/jobs` · `/api/jobs/status?job_id=…` | 비동기 작업 및 상태 (④) |
 | POST | `/api/run` | 알고리즘 제출·채점 (②) |
 | POST | `/api/validate-upload-package` | 데이터셋 ZIP 검증 (④) |
-| GET | 정적 | `mvp-eval-ui.html/.js`, `dataset-overview.html`, `spec-viewer.html`, `index.html` (repo) · `/linkedspaces-photos/*`, `/photos/*`, `/templates/*` (데이터/repo) |
+| POST | `/api/ingest` | ZIP을 비동기 ingest 작업으로 등록 (④) |
+| GET | 정적 | `mvp-eval-ui.html/.js`, `/examples/*`, `/templates/*` (repo) · 구성된 사진 폴더 (data root) |
 
 ---
 
@@ -143,7 +146,7 @@ POI_DATA_DIR=/Users/massis/Desktop/poi-data POI_PORT=8488 python3 /Users/massis/
 ```json
 { "runs": [
   { "name": "spec-probe", "safe_name": "spec-probe", "version": 1,
-    "scope": "vancouver", "mode": "exact", "params": ["nearby_candidates"],
+    "scope": "vancouver", "mode": "exact", "params": ["nearby_candidates"], "candidate_limit": 10,
     "lang": "python", "created_at": "2026-07-10T12:26:58",
     "n_eligible": 11, "correct": 2, "accuracy_pct": 18 }
 ] }
@@ -165,6 +168,7 @@ POI_DATA_DIR=/Users/massis/Desktop/poi-data POI_PORT=8488 python3 /Users/massis/
 | `scope` | string | `all`·`linkedspaces`·`union-city`·`vancouver` |
 | `mode` | string | `exact`(기본)·`normalized` |
 | `params` | string[] | 입력 파라미터 키. 예: `["nearby_candidates"]` |
+| `candidate_limit` | integer \| null | nearby 후보 상한. `1`–`250`; `null`은 전체. `nearby_candidates` 선택 시 적용 |
 | `save_mode` | string | `auto`(다음 버전)·`v1`·`v2`(덮어쓰기) |
 
 **`predict(case)` 계약** (Python):
@@ -174,23 +178,23 @@ def predict(case) -> str:      # 예측 장소명, 기권은 ""
     ...
 ```
 - 그 외 언어: stdin으로 case JSON → stdout으로 예측 출력.
-- `case`는 **선택한 params에 해당하는 필드만** 노출하며 **GT를 절대 포함하지 않는다**. `photo`는 항상 포함.
+- `case`는 **선택한 params에 해당하는 필드만** 노출하며 **GT를 절대 포함하지 않는다**. `photo`는 항상 포함. `params` 생략은 기본 전체 신호, 명시적인 `[]`는 추가 신호 없음이다.
 
 | `case` 필드 | 타입 | params 키 |
 |---|---|---|
-| `photo` | string | (항상) |
+| `photo` | string | 사진 참조 ID/상대 경로 (항상; 이미지 바이트나 URL은 아님) |
 | `lat`,`lon`,`timestamp` | string | `lat,lon` |
 | `ocr_text` | string | `ocr_text` |
 | `vlm_caption` | string | (미추출, 현재 `""`) |
 | `nearby_candidates` | `[{name,rank,distance_m}]` (근접순) | `nearby_candidates` |
 | `geocode` | `{city,country,address}` | `city,country,address` |
-| `category_hint` | string | `category` |
+
 
 **응답(200):**
 ```json
 { "ok": true, "name": "spec-probe", "safe_name": "spec-probe", "version": 1,
   "created_at": "2026-07-10T12:26:58", "scope": "vancouver", "mode": "exact",
-  "params": ["nearby_candidates"], "lang": "python",
+  "params": ["nearby_candidates"], "candidate_limit": 10, "lang": "python",
   "metrics": { "n_eligible": 11, "correct": 2, "abstained": 0, "errored": 0,
     "accuracy": 0.1818, "accuracy_pct": 18,
     "by_dataset": { "vancouver": { "n": 11, "correct": 2, "accuracy": 0.1818 } } },
@@ -199,7 +203,7 @@ def predict(case) -> str:      # 예측 장소명, 기권은 ""
 - 채점: `예측 == GT`(공급원 exact). 한국/`non_poi`/GT 없음 row는 자동 홀드아웃 → `n_eligible`에서 제외.
 - 저장: `generated/runs/<safe_name>__v<version>.json`.
 
-**상태코드:** `200` 성공 · `400` JSON 파싱 실패 · `422` 제출 오류(`RunError`) · `500` 기타.
+**상태코드:** `200` 성공 · `400` JSON 본문/`params` 타입 오류 · `422` 제출 또는 `candidate_limit` 검증 오류(`RunError`) · `500` 기타.
 
 ---
 
@@ -223,6 +227,6 @@ def predict(case) -> str:      # 예측 장소명, 기권은 ""
 
 ## 정적 라우트
 
-- **UI/문서(리포지토리에서 서빙):** `/mvp-eval-ui.html`, `/mvp-eval-ui.js`, `/dataset-overview.html`, `/spec-viewer.html`, `/index.html`, `/templates/*`.
-- **데이터 파일(`POI_DATA_DIR`에서 remap):** `/linkedspaces-photos/<file>`, `/photos/<file>`. (union-city 사진은 로컬 미서빙.)
-- `POI_DATA_DIR`이 repo와 다를 때 `translate_path`가 데이터 prefix만 `POI_DATA_DIR`로 재매핑하므로 UI는 항상 최신, 데이터는 워크스페이스에서 읽는다.
+- **UI/공개 리소스(리포지토리에서 서빙):** `/mvp-eval-ui.html`, `/mvp-eval-ui.js`, `/examples/*`, `/templates/*`.
+- **데이터 파일(`POI_DATA_DIR`에서 remap):** 기본 사진 prefix(`/linkedspaces-photos/*`, `/photos/*`, `/union-city-trip/*`, `/generated/*`)와 `dashboard_config.json > sources.*.photo_dir`에 등록된 사진 폴더. URL 인코딩된 중첩 경로도 지원한다.
+- `POI_DATA_DIR`이 repo와 다를 때 `translate_path`가 허용된 데이터 prefix만 데이터 루트로 재매핑하므로 UI는 항상 최신이며, 임의 경로를 데이터 루트에서 공개하지 않는다.

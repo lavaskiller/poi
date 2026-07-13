@@ -43,7 +43,6 @@ PARAM_SIGNALS = {
     "vlm_caption": ("vlm_caption",),
     "nearby_candidates": ("nearby_candidates",),
     "city,country,address": ("geocode",),
-    "category": ("category_hint",),
 }
 ALL_PARAMS = list(PARAM_SIGNALS.keys())
 
@@ -81,10 +80,13 @@ def _candidate_names(candidates, provider: str, photo: str, row: Dict[str, str])
     return out
 
 
-def build_cases(rows, cfg, candidates, dataset: str, params: List[str]) -> List[Dict[str, Any]]:
+def build_cases(rows, cfg, candidates, dataset: str, params: Optional[List[str]],
+                candidate_limit: Optional[int] = None) -> List[Dict[str, Any]]:
     """Return eligible eval cases. Each has a public `input` (fed to predict,
     never containing GT) plus internal `_gt`/`_dataset`/`_photo` for scoring."""
-    selected = [p for p in (params or ALL_PARAMS) if p in PARAM_SIGNALS] or ALL_PARAMS
+    # None is the legacy/CLI default (all signals); [] deliberately means no
+    # optional signals. Never leak inputs the user explicitly unchecked.
+    selected = [p for p in (ALL_PARAMS if params is None else params) if p in PARAM_SIGNALS]
     wanted = set()
     for p in selected:
         wanted.update(PARAM_SIGNALS[p])
@@ -110,13 +112,13 @@ def build_cases(rows, cfg, candidates, dataset: str, params: List[str]) -> List[
             "timestamp": (row.get("timestamp") or "").strip(),
             "ocr_text": (row.get("caption_ondevice") or "").strip(),
             "vlm_caption": "",  # not extracted yet
-            "nearby_candidates": _candidate_names(candidates, provider, photo, row),
+            "nearby_candidates": _candidate_names(candidates, provider, photo, row)[:candidate_limit],
             "geocode": {
                 "city": (row.get("city") or "").strip(),
                 "country": (row.get("country") or "").strip(),
                 "address": (row.get("address") or "").strip(),
             },
-            "category_hint": (row.get("category") or "").strip(),  # GT-derived
+
         }
         public = {k: v for k, v in full.items() if k in wanted}
         public["photo"] = photo  # always present as a reference id
@@ -214,16 +216,26 @@ def _pick_version(runs_dir: str, safe: str, save_mode: str) -> int:
 
 
 def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode: str,
-                   params: List[str], save_mode: str, csv_path: str, config_path: str,
-                   candidate_paths: List[str], runs_dir: str) -> Dict[str, Any]:
+                   params: Optional[List[str]], save_mode: str, csv_path: str, config_path: str,
+                   candidate_paths: List[str], runs_dir: str,
+                   candidate_limit: Optional[int] = None) -> Dict[str, Any]:
     if not (script_text or "").strip():
         raise RunError("no script provided — attach a predict() script before running")
     lang = "python" if lang in ("python", "py", "") else lang
 
+    if params is not None:
+        if not all(isinstance(p, str) for p in params):
+            raise RunError("params must contain only string signal keys")
+        unknown = sorted(set(params) - set(PARAM_SIGNALS))
+        if unknown:
+            raise RunError("unknown input signal(s): " + ", ".join(unknown))
+
     cfg = ms.load_config(config_path)
     rows = ms.read_rows(csv_path)
     candidates = ms.load_candidates(candidate_paths)
-    cases = build_cases(rows, cfg, candidates, dataset or "all", params or [])
+    if candidate_limit is not None and (type(candidate_limit) is not int or candidate_limit < 1 or candidate_limit > 250):
+        raise RunError("candidate_limit must be an integer between 1 and 250, or null")
+    cases = build_cases(rows, cfg, candidates, dataset or "all", params, candidate_limit)
     if not cases:
         raise RunError(f"no eligible eval cases for scope '{dataset}' "
                        "(need rows with GT, non-Korea, not non_poi)")
@@ -252,7 +264,8 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
         "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
         "scope": dataset or "all",
         "mode": "exact" if mode in ("exact", "raw", "") else "normalized",
-        "params": params or ALL_PARAMS,
+        "params": ALL_PARAMS if params is None else params,
+        "candidate_limit": candidate_limit,
         "lang": lang,
         "script_text": script_text,
         "metrics": {k: v for k, v in scored.items() if k != "cases"},
@@ -287,6 +300,7 @@ def list_runs(runs_dir: str) -> List[Dict[str, Any]]:
             "scope": r.get("scope"),
             "mode": r.get("mode"),
             "params": r.get("params", []),
+            "candidate_limit": r.get("candidate_limit"),
             "lang": r.get("lang"),
             "created_at": r.get("created_at"),
             "n_eligible": m.get("n_eligible", 0),
@@ -305,15 +319,17 @@ def _cli() -> int:
     ap.add_argument("--dataset", default="all")
     ap.add_argument("--mode", default="exact", choices=["exact", "raw", "normalized"])
     ap.add_argument("--params", default="", help="comma-separated param keys (default: all)")
+    ap.add_argument("--candidate-limit", type=int, default=None)
     ap.add_argument("--runs-dir", default=os.path.join(ms.CANDIDATE_DIR, "runs"))
     args = ap.parse_args()
     with open(args.script, encoding="utf-8") as f:
         script_text = f.read()
     res = run_submission(
         name=args.name, script_text=script_text, lang="python", dataset=args.dataset,
-        mode=args.mode, params=[p for p in args.params.split(",") if p], save_mode="auto",
+        mode=args.mode, params=([p for p in args.params.split(",") if p] if args.params else None), save_mode="auto",
         csv_path=ms.CSV_PATH, config_path=ms.CONFIG_PATH,
         candidate_paths=ms.DEFAULT_CANDIDATE_FILES, runs_dir=args.runs_dir,
+        candidate_limit=args.candidate_limit,
     )
     print(json.dumps(res, ensure_ascii=False, indent=2))
     return 0
