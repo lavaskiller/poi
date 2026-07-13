@@ -6,15 +6,36 @@ document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
 
 // ---------- eval (live /api/matchrate) ----------
 const $=s=>document.querySelector(s);
+let apiFailures=new Set();
+let storeDataState=null;
+function setApiState(key,error){
+  if(error) apiFailures.add(key); else apiFailures.delete(key);
+  const health=$('#apiHealth'), box=$('#apiError'), text=$('#apiErrorText');
+  if(apiFailures.size){
+    health.className='health err'; health.textContent='데이터 연결 오류';
+    box.classList.add('on'); text.textContent='일부 데이터를 불러오지 못했습니다. 서버가 실행 중인지 확인한 뒤 다시 시도하세요.';
+  }else{
+    health.className='health ok';
+    health.textContent=storeDataState==='empty'?'API 연결됨 · 데이터 없음':'실데이터 연결됨';
+    box.classList.remove('on');
+  }
+}
+async function apiJSON(url,key){
+  try{const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw new Error(`HTTP ${r.status}`);const d=await r.json();setApiState(key,null);return d;}
+  catch(e){setApiState(key,e);throw e;}
+}
+$('#retryLoad').onclick=()=>loadAll();
 let scope="all",mode="raw";
 async function render(){
   const apiMode='exact';
   let d;
-  try{d=await(await fetch(`/api/matchrate?dataset=${encodeURIComponent(scope)}&mode=${apiMode}`,{cache:'no-store'})).json();}
+  try{d=await apiJSON(`/api/matchrate?dataset=${encodeURIComponent(scope)}&mode=${apiMode}`,'matchrate');}
   catch(e){d={n:0,rank1:0,top3:0,top5:0,miss:0,counts:{},by_provider:{},matching_policy:{}};}
   const n=d.n||0, pct=x=>n?Math.round(100*x/n):0;
   const excl=[]; if(d.excluded_korea_pending_kakao)excl.push(`KR 제외 ${d.excluded_korea_pending_kakao}`); if(d.excluded_non_poi)excl.push(`non_poi ${d.excluded_non_poi}`); if(d.excluded_no_gt)excl.push(`no_gt ${d.excluded_no_gt}`); if(d.no_provider_data)excl.push(`provider_data 없음 ${d.no_provider_data}`);
-  $("#meta").innerHTML=`후보검색 평가 가능 GT <b>n=${n}</b> · 제외/대기: ${excl.join(' · ')||'-'} · 매칭: <b>동일 provider canonical name == candidate name</b> · 후보공급원: 현재 KR 제외 / non-KR=MapKit`;
+  $("#meta").innerHTML=d.counts&&d.counts.rows===0
+    ? '등록된 데이터셋이 없습니다. ④ 데이터셋 관리에서 ZIP을 추가하면 평가 지표와 케이스가 표시됩니다.'
+    : `후보검색 평가 가능 GT <b>n=${n}</b> · 제외/대기: ${excl.join(' · ')||'-'} · 매칭: <b>동일 provider canonical name == candidate name</b> · 후보공급원: 현재 KR 제외 / non-KR=MapKit`;
   const set=(id,c)=>{$("#p-"+id).textContent=pct(c)+"%";$("#c-"+id).textContent=c+" / "+n;};
   set("r1",d.rank1||0);set("t3",d.top3||0);set("t5",d.top5||0);set("miss",d.miss||0);
   $("#flip").classList.add("hidden");
@@ -47,18 +68,19 @@ function drawBars(algos){
     const cx=pl+step*(i+0.5);
     g+=`<rect x="${cx-bw/2}" y="${y(acc)}" width="${bw}" height="${y(0)-y(acc)}" rx="5" fill="${cols[i%cols.length]}"/>`;
     g+=`<text x="${cx}" y="${y(acc)-7}" text-anchor="middle" fill="var(--ink)" font-size="12.5" font-weight="700" font-family="var(--mono)">${acc}%</text>`;
-    g+=`<text x="${cx}" y="${H-22}" text-anchor="middle" fill="var(--ink2)" font-size="11.5">${name}</text>`;
+    g+=`<text x="${cx}" y="${H-22}" text-anchor="middle" fill="var(--ink2)" font-size="11.5">${esc(name)}</text>`;
   });
   $("#bars").innerHTML=g;
 }
 // ---------- case analysis (real /api/records) ----------
-const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const plain=s=>esc(String(s==null?'':s).replace(/<[^>]*>/g,''));
 let CASES=[],curOutcome='all',curCaseIdx=null;
 const OC_LABEL={correct:'rank1',selection:'rank>1',retrieval:'검색실패',non_poi:'non_poi',deferred:'deferred',no_gt:'no_gt',other:'기타'};
 const OC_ORDER=['all','correct','selection','retrieval','non_poi','deferred','no_gt'];
 const providerExactEq=(a,b)=>{a=(a||'').trim();b=(b||'').trim();return !!(a&&b&&a===b);};
 async function loadCases(){
-  try{const r=await fetch('/api/records?dataset=linkedspaces',{cache:'no-store'});CASES=await r.json();}
+  try{CASES=await apiJSON(`/api/records?dataset=${encodeURIComponent(scope)}`,'records');if(!Array.isArray(CASES))throw new Error(CASES.error||'invalid records response');}
   catch(e){CASES=[];}
   computeCoverage();renderChips();renderCaseList();renderParams();
 }
@@ -79,7 +101,7 @@ function renderChips(){
 function renderCaseList(){
   const list=CASES.map((c,i)=>[c,i]).filter(([c])=>curOutcome==='all'||c.outcome===curOutcome);
   $("#caselist").innerHTML=list.slice(0,200).map(([c,i])=>
-    `<div class="ci ${i===curCaseIdx?'sel':''}" data-i="${i}"><img loading="lazy" src="${c.photo_url}" onerror="this.style.visibility='hidden'"><span class="g">${esc(c.gt||'(GT 없음)')}</span><span class="oc ${c.outcome}">${OC_LABEL[c.outcome]||c.outcome}</span></div>`).join('')
+    `<div class="ci ${i===curCaseIdx?'sel':''}" data-i="${i}">${c.photo_url?`<img loading="lazy" src="${esc(c.photo_url)}" onerror="this.style.visibility='hidden'">`:'<span style="width:44px"></span>'}<span class="g">${esc(c.gt||'(GT 없음)')}</span><span class="oc ${c.outcome}">${esc(OC_LABEL[c.outcome]||c.outcome)}</span></div>`).join('')
     || '<div style="color:var(--ink3);font-size:12px;padding:10px">해당 케이스 없음</div>';
   $("#caselist").querySelectorAll('.ci').forEach(el=>el.onclick=()=>showCase(+el.dataset.i));
 }
@@ -100,7 +122,7 @@ function showCase(i){
     return `<div class="cand ${isgt?'isgt':''} ${ispick?'ispick':''}"><span>${esc(cd.name)}</span><span><span style="color:var(--ink3);font-family:var(--mono);font-size:11px">${esc(cd.dist)}</span>${tags}</span></div>`;
   }).join('');
   $("#casedetail").innerHTML=`
-    ${c.photo_url?`<img src="${c.photo_url}" onerror="this.style.display='none'">`:''}
+    ${c.photo_url?`<img src="${esc(c.photo_url)}" onerror="this.style.display='none'">`:''}
     <div class="drow"><span class="lab">GT</span><span class="val gt">${esc(c.gt||'(없음)')}</span></div>
     <div class="drow"><span class="lab">MapKit 1위</span><span class="val">${esc(c.baseline_pick||'—')} <span style="color:var(--ink3)">(최근접 · rank ${esc(c.rank)})</span></span></div>
     <div class="expl" style="background:${E[0]}"><b>${OC_LABEL[c.outcome]}</b> — ${E[1]}</div>
@@ -110,7 +132,7 @@ function showCase(i){
     <div class="drow"><span class="lab">카테고리</span><span class="val">${esc(c.category)}</span></div>`;
   renderCaseList();
 }
-$("#scope").onchange=e=>{scope=e.target.value;render();};
+$("#scope").onchange=e=>{scope=e.target.value;curCaseIdx=null;render();loadCases();};
 
 render();
 loadCases();
@@ -120,14 +142,17 @@ loadCases();
 async function loadOverviewSummary(){
   const by=id=>document.getElementById(id);
   try{
-    const d=await(await fetch('/api/overview',{cache:'no-store'})).json();
+    const d=await apiJSON('/api/overview','overview');
     const total=d.total||0;
+    storeDataState=d.data_state||((total>0)?'ready':'empty');
+    setApiState('overview',null);
     const pct=c=>total?Math.round(100*c/total):0;
     const color=v=>String(v||'var(--blue)').startsWith('var(')?v:`var(--${v})`;
     by('k-total').textContent=total;
     by('k-gt').textContent=d.gt_present||0;
     by('k-photo').textContent=d.photo_present||0;
     by('k-country').textContent=(d.countries||[]).length;
+    by('overviewEmpty').style.display=storeDataState==='empty'?'block':'none';
     by('sourcebars').innerHTML=(d.sources||[]).map(x=>`<div class="src"><span class="dot" style="background:${color(x.color)}"></span><span>${esc(x.key)} <span class="prov">· ${esc(x.owner||'')} · ${esc(x.source_type||x.desc||'')}</span></span><b>${x.count}</b></div>`).join('');
     by('confidencebars').innerHTML=(d.confidence||[]).map(x=>`<div class="bar"><span class="lbl">${esc(x.key)}</span><div class="track"><div class="fill" style="width:${pct(x.count)}%;background:${color(x.color)}"></div></div><span class="v">${x.count}</span></div>`).join('');
     by('countrybars').innerHTML=(d.countries||[]).map((x,i)=>`<div class="bar"><span class="lbl">${esc(x.flag||'·')} ${esc(x.key)}</span><div class="track"><div class="fill" style="width:${pct(x.count)}%;background:${['var(--blue)','var(--pink)','var(--cyan)','var(--violet)','var(--orange)'][i%5]}"></div></div><span class="v">${x.count}</span></div>`).join('');
@@ -139,7 +164,7 @@ async function loadOverviewSummary(){
 // The 출처(dataset) dropdown recomputes 채움% from per-dataset fills.
 let _rowstruct=null;
 async function loadRowStruct(){
-  try{_rowstruct=await(await fetch('/api/overview',{cache:'no-store'})).json();}catch(e){_rowstruct={};}
+  try{_rowstruct=await apiJSON('/api/overview','overview');}catch(e){_rowstruct={};}
   const sel=$("#rowstruct-src");
   if(sel && !sel.dataset.init){
     const dss=_rowstruct.datasets||[];
@@ -164,13 +189,13 @@ function renderRowStruct(){
     return `<tr><td class="nm3">${esc(s.group)}</td>
       <td class="rl" style="color:${rcolor}">${esc(s.role_label||s.role_key||'')}</td>
       <td><div class="fb2"><div class="mt2"><div class="mf2" style="width:${pct}%;background:${color}"></div></div><span class="mp2">${pct}%</span></div></td>
-      <td class="m3">${s.desc||''}</td></tr>`;
+      <td class="m3">${plain(s.desc||'')}</td></tr>`;
   }).join('');
 }
 loadOverviewSummary();
 loadRowStruct();
 
-// ---------- run workspace (submission harness pending; no generated runs) ----------
+// ---------- run workspace (live submission harness + persisted runs) ----------
 const REG={};
 let runsList=[];
 const g=id=>document.getElementById(id);
@@ -183,7 +208,6 @@ const PARAMS=[
   {k:"vlm_caption", name:"VLM 설명", methods:["FastVLM-0.5B","LLaVA (이후)"], on:false},
   {k:"nearby_candidates", name:"주변 후보", methods:["MapKit MKLocalPointsOfInterest","Google Places (이후)","Kakao Local (이후)"], on:true, topk:[3,5,10,"전체"]},
   {k:"city,country,address", name:"역지오코딩", methods:["Apple CLGeocoder","Google Geocoding (이후)"], on:false},
-  {k:"category", name:"카테고리", methods:["GT 라벨"], on:false, warn:"⚠ GT유래·실사용불가"},
 ];
 function methodOf(i){const s=document.querySelector(`.prow[data-pi="${i}"] select[data-mi]`);return s?s.value:PARAMS[i].methods[0];}
 function renderParams(){
@@ -200,14 +224,13 @@ function renderParams(){
   updSig();
 }
 const ACC={
-  'image':['img','case["photo_path"]'],
+  'image':['photo','case["photo"]'],
   'lat,lon':['lat, lon','case["lat"], case["lon"]'],
   'timestamp':['ts','case["timestamp"]'],
   'ocr_text':['ocr','case["ocr_text"]'],
   'vlm_caption':['vlm','case["vlm_caption"]'],
   'nearby_candidates':['cands','case["nearby_candidates"]'],
   'city,country,address':['geo','case["geocode"]'],
-  'category':['cat','case["category_hint"]'],
 };
 function updSig(){
   const rows=[...document.querySelectorAll('.prow')].filter(r=>r.querySelector('input').checked);
@@ -230,7 +253,7 @@ function updVer(){
 }
 function renderRuns(){
   g('runsbody').innerHTML=runsList.length ? runsList.map(r=>
-    `<tr><td class="name">${r.name}</td><td><code>v${r.v}</code></td><td><code>${r.script||'—'}</code></td><td><code>${r.inp}</code></td><td>${r.scope}</td><td>${r.r1}</td><td><span class="stt ${r.st}">${r.st}</span></td></tr>`).join('') : '<tr><td colspan="7" style="color:var(--ink3);font-size:12px">아직 제출된 알고리즘 실행 결과가 없습니다. 후보검색 평가는 ③ 탭의 실제 GT/MapKit rank만 표시합니다.</td></tr>';
+    `<tr><td class="name">${esc(r.name)}</td><td><code>v${esc(r.v)}</code></td><td><code>${esc(r.script||'—')}</code></td><td><code>${esc(r.inp)}</code></td><td>${esc(r.scope)}</td><td>${esc(r.r1)}</td><td><span class="stt ${esc(r.st)}">${esc(r.st)}</span></td></tr>`).join('') : '<tr><td colspan="7" style="color:var(--ink3);font-size:12px">아직 제출된 알고리즘 실행 결과가 없습니다. 후보검색 평가는 ③ 탭의 실제 GT/MapKit rank만 표시합니다.</td></tr>';
 }
 let scriptName='',scriptText='',scriptLang='python';
 const LANG_BY_EXT={py:'python',c:'c',cpp:'cpp',rs:'rust',js:'node',sh:'sh'};
@@ -242,6 +265,18 @@ g('scriptfile').onchange=e=>{
     scriptLang=LANG_BY_EXT[(f.name.split('.').pop()||'').toLowerCase()]||'python';
     const rd=new FileReader(); rd.onload=()=>{scriptText=rd.result||'';}; rd.readAsText(f);
   }
+};
+g('loadExample').onclick=async()=>{
+  const hint=g('runhint');
+  try{
+    const res=await fetch('/examples/baseline_nearest.py',{cache:'no-store'});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    scriptText=await res.text(); scriptName='baseline_nearest.py'; scriptLang='python';
+    g('filelabel').textContent='📎 baseline_nearest.py 예시 코드가 준비됨';
+    document.querySelector('.filedrop').classList.add('has');
+    g('tname').value='baseline-nearest'; updVer();
+    hint.textContent='예시 코드 준비 완료. 데이터셋이 있으면 실행할 수 있습니다.';
+  }catch(err){ hint.textContent=`예시 코드 로드 실패: ${err.message}`; }
 };
 const uploadZip=g('uploadZip');
 if(uploadZip){
@@ -267,11 +302,17 @@ function selectedParams(){
     .filter(r=>r.querySelector('input').checked)
     .map(r=>PARAMS[+r.dataset.pi].k);
 }
+function selectedCandidateLimit(){
+  const row=[...document.querySelectorAll('.prow')].find(r=>PARAMS[+r.dataset.pi].k==='nearby_candidates');
+  if(!row||!row.querySelector('input').checked)return null;
+  const raw=(row.querySelector('.topk')?.value||'').replace('top ','');
+  return raw==='전체'||!raw?null:Number(raw);
+}
 g('runbtn').onclick=async()=>{
   if(!scriptText){ g('runhint').textContent='먼저 predict() 스크립트를 첨부하세요.'; return; }
   const name=(g('tname').value||'').trim()||'algorithm';
   const scope=g('rscope').value, save=g('savemode').value;
-  const body={name,scope,mode:'exact',save_mode:save,lang:scriptLang,params:selectedParams(),script_text:scriptText};
+  const body={name,scope,mode:'exact',save_mode:save,lang:scriptLang,params:selectedParams(),candidate_limit:selectedCandidateLimit(),script_text:scriptText};
   g('runbtn').disabled=true; g('runhint').textContent=`실행 중: ${name} (${scope}) …`;
   try{
     const res=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -288,8 +329,9 @@ g('runbtn').onclick=async()=>{
 };
 // live runs from /api/runs → 최근 실행 표 + 식별 정확도 막대(알고리즘별, 이름당 최신 버전)
 async function loadRuns(){
-  let runs=[];
-  try{ runs=(await (await fetch('/api/runs',{cache:'no-store'})).json()).runs||[]; }catch(e){}
+  let payload;
+  try{ payload=await apiJSON('/api/runs','runs'); }catch(e){ return; }
+  const runs=Array.isArray(payload.runs)?payload.runs:[];
   Object.keys(REG).forEach(k=>delete REG[k]);
   runs.forEach(r=>{ (REG[r.name]=REG[r.name]||[]).push(r.version); });
   Object.values(REG).forEach(a=>a.sort((x,y)=>x-y));
@@ -309,7 +351,7 @@ let _dsData=null, _jobTimer=null, _watchJob=null, _pollBusy=false;
 const STEP_PIPELINE={ocr:'Vision OCR', mapkit_nearby:'MapKit 베이스라인', gt_mapkit:'MapKit 정규명(GT)'};
 
 async function loadDatasets(){
-  let d; try{ d=await(await fetch('/api/datasets',{cache:'no-store'})).json(); }catch(e){ return; }
+  let d; try{ d=await apiJSON('/api/datasets','datasets'); }catch(e){ return; }
   _dsData=d;
   const sig=d.signals_meta||{};
   gid('dsTable').innerHTML=(d.datasets||[]).map(ds=>{
@@ -325,6 +367,17 @@ async function loadDatasets(){
     const dis=s.status&&s.status!=='ok';
     return `<option value="${esc(s.step||name)}"${dis?' disabled':''}>${esc(s.label)}${dis?' · '+esc(s.status):''}</option>`;
   }).join('');
+  const hasData=(d.datasets||[]).length>0;
+  gid('rerunDataset').disabled=!hasData;
+  gid('rerunStep').disabled=!hasData;
+  gid('rerunBtn').disabled=!hasData;
+  g('runbtn').disabled=!hasData;
+  if(!hasData){
+    gid('rerunHint').textContent='먼저 데이터셋을 추가하세요.';
+    g('runhint').textContent='등록된 데이터셋이 없어 실행할 수 없습니다. 예시 코드는 미리 불러올 수 있습니다.';
+  }else if(g('runhint').textContent.startsWith('등록된 데이터셋이 없어')){
+    g('runhint').textContent='';
+  }
   gid('dsTable').querySelectorAll('button[data-del]').forEach(b=>b.onclick=()=>deleteDataset(b.dataset.del));
 }
 
@@ -362,7 +415,7 @@ function fmtResult(r){
 }
 
 async function pollJobs(){
-  let d; try{ d=await(await fetch('/api/jobs',{cache:'no-store'})).json(); }catch(e){ return null; }
+  let d; try{ d=await apiJSON('/api/jobs','jobs'); }catch(e){ return null; }
   const active=(d.jobs||[]).find(j=>j.job_id===d.active);
   const ab=gid('jobActive');
   if(ab){ if(active){ const pr=active.progress; ab.innerHTML=`<span style="color:var(--orange)">● 실행중</span> ${esc(active.step)}${active.params&&active.params.dataset?' · '+esc(active.params.dataset):''} · ${active.elapsed_s||0}s${pr?` · ${pr.done}/${pr.total}`:''}`; } else ab.textContent='실행 중인 작업 없음.'; }
@@ -414,3 +467,4 @@ if(_ingestZip) _ingestZip.onchange=async e=>{
 };
 loadDatasets();
 pollJobs().then(d=>{ if(d&&d.active) startJobPolling(); });
+function loadAll(){ apiFailures.clear(); loadOverviewSummary(); loadRowStruct(); render(); loadCases(); loadRuns(); loadDatasets(); pollJobs(); }
