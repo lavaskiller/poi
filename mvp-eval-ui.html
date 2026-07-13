@@ -188,8 +188,11 @@
   .outcomes{display:flex;height:13px;border-radius:7px;overflow:hidden;background:rgba(255,255,255,.06);margin:9px 0}.outcomes span{height:100%}
   .casefail{max-height:300px;overflow:auto;border-top:1px solid var(--line);margin-top:12px;padding-top:9px}
   .casefail div{padding:5px 0;border-bottom:1px solid var(--line);font:11px var(--mono)}
-  .casefail .failrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:start;padding:8px 0}
-  .casefail .failrow small{display:block;color:var(--ink3);margin-top:2px}
+  .casefail .failrow{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:9px;align-items:start;padding:9px 0}
+  .casefail .failthumb{width:52px;height:52px;object-fit:cover;border-radius:6px;background:#080e38;border:1px solid var(--line)}
+  .casefail .failtitle{color:var(--ink);font:12px var(--sans);font-weight:650}
+  .casefail .failmeta{display:block;color:var(--ink3);font:10.5px var(--mono);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .casefail .failreason{display:block;color:var(--ink2);font:11px var(--sans);margin-top:3px}
   .detail-filters{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:12px 0 8px}
   .detail-filters select{padding:5px 7px;font-size:11px}
   .pager{display:flex;gap:7px;align-items:center;margin-top:8px;font:11px var(--mono);color:var(--ink3)}
@@ -202,6 +205,11 @@
   .analysis-disclosure summary b{color:var(--ink)}
   .analysis-disclosure .inside{padding:0 16px 16px}
   .danger{border-color:rgba(255,107,92,.5)!important;background:rgba(255,107,92,.12)!important;color:#ffb3aa!important;cursor:pointer}
+  .modal{display:none;position:fixed;inset:0;z-index:10;background:rgba(1,4,24,.72);padding:24px;align-items:center;justify-content:center}
+  .modal.on{display:flex}.modalbox{width:min(900px,100%);max-height:min(760px,90vh);display:flex;flex-direction:column;background:var(--card);border:1px solid rgba(59,130,246,.55);border-radius:14px;box-shadow:0 22px 70px rgba(0,0,0,.48);padding:16px}
+  .modalhead{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}.modalhead b{font:13px var(--mono);color:var(--ink)}
+  .modalclose{border:1px solid var(--line);background:var(--card2);color:var(--ink2);border-radius:7px;padding:5px 9px;cursor:pointer}
+  .codeview{margin:0;overflow:auto;background:#070d32;border:1px solid var(--line);border-radius:9px;padding:14px;color:#cfe3ff;font:12px/1.65 var(--mono);white-space:pre}
   footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);color:var(--ink3);font-size:12px;font-family:var(--mono)}
   @media(max-width:800px){.kpis,.cards{grid-template-columns:repeat(2,1fr)}.grid2,.fgwrap,.steps,.runmanage{grid-template-columns:1fr}.grid{grid-template-columns:repeat(3,1fr)}.arrow{display:none}}
 </style>
@@ -411,6 +419,10 @@
   </div>
 
   <footer>mvp-eval-ui.html · MVP · /api/overview + /api/matchrate + /api/records</footer>
+</div>
+
+<div class="modal" id="codeModal" role="dialog" aria-modal="true" aria-labelledby="codeModalTitle">
+  <div class="modalbox"><div class="modalhead"><b id="codeModalTitle">제출 알고리즘 코드</b><button class="modalclose" type="button" id="closeCodeModal">닫기</button></div><pre class="codeview" id="codeModalContent"></pre></div>
 </div>
 
 <script src="mvp-eval-ui.js"></script>

@@ -168,9 +168,11 @@ def _score(cases, preds, mode: str) -> Dict[str, Any]:
         err = p.get("error")
         gt = c["_gt"]
         is_correct = bool(pred) and matcher(gt, pred)
+        # An execution/protocol error is distinct from a blank prediction.
+        # Keep outcome counts mutually exclusive for summaries and charts.
         if err:
             errored += 1
-        if not pred:
+        elif not pred:
             abstained += 1
         if is_correct:
             correct += 1

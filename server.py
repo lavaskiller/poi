@@ -648,6 +648,30 @@ def build_records(dataset_filter):
     return recs
 
 
+def enrich_run_cases(run):
+    """Attach current display context without altering historical run evidence."""
+    _, rows = read_eval_csv()
+    row_by_case = {
+        ((r.get("dataset") or "").strip(), (r.get("photo") or "").strip()): r
+        for r in rows
+    }
+    for case in run.get("cases") or []:
+        dataset = (case.get("dataset") or "").strip()
+        photo = (case.get("photo") or "").strip()
+        row = row_by_case.get((dataset, photo), {})
+        case["photo_url"] = _photo_url(dataset, photo)
+        case["context"] = {
+            "input_place_name": (row.get("input_place_name") or "").strip(),
+            "category": (row.get("category") or "").strip(),
+            "city": (row.get("city") or "").strip(),
+            "country": (row.get("country") or "").strip(),
+            "ocr_text": (row.get("caption_ondevice") or "").strip()[:240],
+            "lat": (row.get("capture_lat") or "").strip()[:9],
+            "lon": (row.get("capture_lon") or "").strip()[:9],
+        }
+    return run
+
+
 def build_matchrate(dataset_filter="all", mode="exact"):
     """Live MVP candidate-retrieval API.
 
@@ -719,7 +743,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     if not name or not version_raw:
                         self._send_json({"error": "name and version are required together"}, code=400)
                     else:
-                        self._send_json({"run": get_run(RUNS_DIR, name, int(version_raw))})
+                        self._send_json({"run": enrich_run_cases(get_run(RUNS_DIR, name, int(version_raw)))})
                 else:
                     self._send_json({"runs": list_runs(RUNS_DIR)})
             except RunError as e:
