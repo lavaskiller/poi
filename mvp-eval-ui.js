@@ -2,11 +2,25 @@
 // Retain an explicit previous choice, but make English the first-visit default.
 let uiLanguage=localStorage.getItem('poi-ui-language')||'en';
 const I18N={
-  ko:{appSubtitle:'데이터 상태 확인 → 알고리즘 실행 → 결과·실패 케이스 분석',tabOverview:'개요',tabRun:'알고리즘 실행',tabResults:'실행 결과',tabData:'데이터셋 관리',resultsIntro:'실행 결과는 이곳에서 관리합니다. 실행을 하나 선택해 설정과 실패를 확인하고, 최대 4개 실행을 비교하거나 필요 없는 실행을 삭제하세요.',savedRuns:'저장된 실행',compareSelect:'비교 선택 (최대 4개)',runDetailEmpty:'왼쪽에서 실행을 선택하세요. 설정, 측정 결과, 필터 가능한 실패 케이스를 표시합니다.',selectedCompare:'선택 실행 비교',compareHelp:'막대는 정확도입니다. 아래 색 띠는 정답, 예측 없음(제출값 비어 있음), 오류, 오답의 구성입니다. 예측 없음은 코드가 빈 예측값을 반환한 경우이며, 실행 오류와는 별도로 집계합니다. 같은 코드 해시는 같은 제출 코드의 재실행을 뜻합니다.',retrievalDiagnostics:'후보 검색 진단',retrievalDiagnosticsHelp:'- 알고리즘 실행 결과와 별개인 후보 공급원 상태',downloadExample:'예시 .py 다운로드',downloadTemplate:'템플릿 ZIP 다운로드',retry:'다시 시도',totalRows:'총 행',rowsWithGt:'GT 라벨 있는 행',rowsWithPhotos:'사진 참조 있는 행',countries:'국가',overviewEmpty:'<b>아직 등록된 데이터가 없습니다.</b> API는 정상 연결되었습니다. ④ 데이터셋 관리에서 ZIP을 검증하고 추가하면 이 화면과 평가 기능이 활성화됩니다.',provenance:'출처 (provenance)',confidenceTier:'신뢰등급 (채점 취급)',signalPipeline:'신호 파이프라인',rowStructure:'한 행의 구조 — 라벨 컬럼 · 채움 · 입력벡터',coverageByDataset:'출처별 채움',field:'필드',role:'역할',coverage:'채움',extractionMethod:'추출 방법',coverageHelp:'<b>채움률은 알고리즘 입력 가용성입니다.</b> 낮은 채움률의 신호를 선택하면 평가 가능한 행과 성능 상한이 줄어듭니다.'},
-  en:{appSubtitle:'Check data health → run an algorithm → inspect results and failures',tabOverview:'Overview',tabRun:'Run algorithm',tabResults:'Run results',tabData:'Dataset management',resultsIntro:'Manage persisted results here. Select one run to inspect its configuration and failures, compare up to four runs, or remove an obsolete result.',savedRuns:'Saved runs',compareSelect:'Compare (up to 4)',runDetailEmpty:'Select a run on the left. Its configuration, measured outcomes, and filterable failures appear here.',selectedCompare:'Compare selected runs',compareHelp:'Bars show accuracy. The colored strip breaks down correct, abstained (no prediction submitted), errored, and wrong cases. Abstentions are distinct from execution errors. Matching code hashes mean the same submission was run again.',retrievalDiagnostics:'Retrieval diagnostics',retrievalDiagnosticsHelp:'- candidate-provider health, separate from algorithm results',downloadExample:'Download example .py',downloadTemplate:'Download template ZIP',retry:'Retry',totalRows:'Total rows',rowsWithGt:'Rows with GT labels',rowsWithPhotos:'Rows with photo references',countries:'Countries',overviewEmpty:'<b>No dataset has been added yet.</b> The API is connected. Validate and add a ZIP in ④ Dataset management to enable this view and evaluation.',provenance:'Provenance',confidenceTier:'Confidence tier (scoring)',signalPipeline:'Signal pipeline',rowStructure:'Row structure — label columns, coverage, and input vector',coverageByDataset:'Coverage by dataset',field:'Field',role:'Role',coverage:'Coverage',extractionMethod:'Extraction method',coverageHelp:'<b>Coverage determines algorithm-input availability.</b> Selecting sparse signals reduces eligible rows and the performance ceiling.'}
+  en:{
+    appSubtitle:'Check data health → run an algorithm → inspect results and failures',tabOverview:'Overview',tabRun:'Run algorithm',tabResults:'Run results',tabData:'Dataset management',
+    retry:'Retry',totalRows:'Total rows',rowsWithGt:'Rows with GT labels',rowsWithPhotos:'Rows with photo references',countries:'Countries',overviewEmpty:'<b>No dataset has been added yet.</b> The API is connected. Validate and add a ZIP under Dataset management to enable evaluation.',provenance:'Provenance',confidenceTier:'Confidence tier (scoring)',signalPipeline:'Signal pipeline',rowStructure:'Row structure — label columns, coverage, and input vector',coverageByDataset:'Coverage by dataset',field:'Field',role:'Role',coverage:'Coverage',extractionMethod:'Extraction method',coverageHelp:'<b>Coverage determines algorithm-input availability.</b> Selecting sparse signals reduces eligible rows and the performance ceiling.',
+    runIntro:'Upload a script that implements one prediction function. It runs against the evaluation set and saves the scored result under Run results.',runSettings:'Run settings',runName:'Run name',saveModeScope:'Save mode and scope',saveAuto:'Automatic (next version)',overwriteV1:'Overwrite v1',overwriteV2:'Overwrite v2',selectInputs:'Select inputs',selectInputsHelp:'— values passed to the function, extraction method, and candidate limit',usage:'Usage',usageHelp:'— access the selected inputs in your script',predictionFunction:'Prediction function',attachFileTypes:'— upload .py, .c, .cpp, .rs, .js, or .sh',attachScript:'📎 Upload a script that implements predict — click or drop',loadExample:'Load example code',downloadExample:'Download example .py',exampleHelp:'Minimal example that returns the nearest candidate',contract:'Contract',otherLanguages:'other languages read JSON from stdin and write the prediction to stdout',runAction:'▶ Run',recentRuns:'Recent runs',versioningHelp:'— matching names are versioned automatically',name:'Name',version:'Version',script:'Script',inputs:'Inputs',scope:'Scope',all:'All',status:'Status',
+    resultsIntro:'Manage persisted results here. Select a run to inspect it, compare up to four runs, or delete it.',savedRuns:'Saved runs',compareSelect:'Compare (up to 4)',runDetailEmpty:'Select a run on the left to view its configuration, metrics, and failures.',selectedCompare:'Compare selected runs',compareHelp:'Bars show accuracy. The strip below each bar shows correct, no-prediction, error, and wrong cases.',retrievalDiagnostics:'Retrieval diagnostics',retrievalDiagnosticsHelp:'— candidate-provider coverage, separate from algorithm results',matching:'Matching',candidateRank1:'Candidate rank 1 · GT is first',candidateTop3:'Candidate top 3 · includes GT',candidateTop5:'Candidate top 5 · includes GT',candidateTop10:'Candidate top 10 · includes GT',candidateTop20:'Candidate top 20 · includes GT',candidateTop50:'Candidate top 50 · includes GT',candidateMiss:'Miss · GT absent from candidates',retrievalCoverage:'Retrieval coverage — top N by candidate provider',currentProvider:'current provider',curveAxes:'y = GT present in top-N candidates<br>x = N (measured ranks)',retrievalNote:'<b>Retrieval only.</b> This measures whether the provider returned the GT place. It is a coverage ceiling, not algorithm accuracy.',selectionAccuracy:'Selection accuracy by algorithm',selectionNote:'<b>Each bar is a submitted algorithm.</b> It shows exact-match accuracy for the latest version of each run name.',caseAnalysis:'Case analysis — retrieval success and failure',caseAnalysisHelp:'· live data · provider rank',selectCase:'Select a case on the left.',caseHelp:'<b>Retrieval failure</b> means GT is absent from all candidates. <b>Rank &gt; 1</b> means GT was returned but was not first.',
+    datasetIntro:'Review datasets, rerun extraction steps, or add and remove data.',datasets:'Datasets',datasetCoverageHelp:'— processing and result coverage',dataset:'Dataset',rows:'Rows',signalCoverage:'Processing and detection',loading:'Loading…',rerunStepTitle:'Rerun extraction',rerunStepHelp:'— process rows not yet attempted',step:'Step',emptyRowsOnly:'Unprocessed rows only',rerun:'▶ Rerun',jobLimitHelp:'Only one data job can run at a time. Unavailable steps are disabled.',jobs:'Jobs',jobsHelp:'— progress and logs',noActiveJob:'No active job.',elapsed:'Elapsed',result:'Result',addDataset:'Add a dataset',addDatasetHelp:'— upload a ZIP and track ingestion above',downloadTemplate:'Download template ZIP',validateZip:'Validate ZIP',ingestDataset:'＋ Add dataset',uploadHelp:'Validate a ZIP before adding it. Ingestion runs as a job; derived signals can be filled afterward with Rerun extraction.',footer:'POI evaluation dashboard',submittedCode:'Submitted algorithm code',close:'Close'
+  },
+  ko:{
+    appSubtitle:'데이터 상태 확인 → 알고리즘 실행 → 결과 및 실패 사례 확인',tabOverview:'개요',tabRun:'알고리즘 실행',tabResults:'실행 결과',tabData:'데이터셋 관리',
+    retry:'다시 시도',totalRows:'전체 행',rowsWithGt:'정답 라벨이 있는 행',rowsWithPhotos:'사진이 있는 행',countries:'국가',overviewEmpty:'<b>등록된 데이터셋이 없습니다.</b> 데이터셋 관리에서 ZIP을 검증하고 추가하면 평가를 시작할 수 있습니다.',provenance:'데이터 출처',confidenceTier:'신뢰도 등급',signalPipeline:'신호 처리 단계',rowStructure:'행 구조 — 라벨, 입력값, 데이터 채움률',coverageByDataset:'데이터셋별 채움률',field:'필드',role:'역할',coverage:'채움률',extractionMethod:'추출 방법',coverageHelp:'<b>채움률은 알고리즘이 사용할 수 있는 입력의 비율입니다.</b> 채움률이 낮은 신호를 선택하면 평가 가능한 행이 줄어듭니다.',
+    runIntro:'예측 함수가 포함된 스크립트를 업로드하세요. 평가 데이터 전체에 실행한 뒤 채점 결과를 실행 결과에 저장합니다.',runSettings:'실행 설정',runName:'실행 이름',saveModeScope:'저장 방식 및 범위',saveAuto:'자동(다음 버전)',overwriteV1:'v1 덮어쓰기',overwriteV2:'v2 덮어쓰기',selectInputs:'입력 선택',selectInputsHelp:'— 함수에 전달할 값, 추출 방법, 후보 수',usage:'사용 방법',usageHelp:'— 스크립트에서 선택한 입력에 접근하는 방법',predictionFunction:'예측 함수',attachFileTypes:'— .py, .c, .cpp, .rs, .js, .sh 업로드',attachScript:'📎 predict를 구현한 스크립트를 클릭하거나 끌어다 놓으세요',loadExample:'예시 코드 불러오기',downloadExample:'예시 .py 다운로드',exampleHelp:'가장 가까운 후보를 반환하는 간단한 예시',contract:'입출력 규약',otherLanguages:'그 외 언어는 stdin으로 JSON을 읽고 stdout으로 예측값을 출력',runAction:'▶ 실행',recentRuns:'최근 실행',versioningHelp:'— 같은 이름은 자동으로 버전이 올라갑니다',name:'이름',version:'버전',script:'스크립트',inputs:'입력',scope:'범위',all:'전체',status:'상태',
+    resultsIntro:'저장된 실행을 확인하고, 최대 4개까지 비교하거나 삭제할 수 있습니다.',savedRuns:'저장된 실행',compareSelect:'비교할 실행 선택(최대 4개)',runDetailEmpty:'왼쪽에서 실행을 선택하면 설정, 지표, 실패 사례를 볼 수 있습니다.',selectedCompare:'선택한 실행 비교',compareHelp:'막대는 정확도를, 아래 띠는 정답·예측 없음·오류·오답의 비율을 나타냅니다.',retrievalDiagnostics:'후보 검색 진단',retrievalDiagnosticsHelp:'— 알고리즘 결과와 별도로 후보 제공 범위를 확인합니다',matching:'일치 기준',candidateRank1:'후보 1위 · 정답이 첫 번째',candidateTop3:'상위 3개 후보 · 정답 포함',candidateTop5:'상위 5개 후보 · 정답 포함',candidateTop10:'상위 10개 후보 · 정답 포함',candidateTop20:'상위 20개 후보 · 정답 포함',candidateTop50:'상위 50개 후보 · 정답 포함',candidateMiss:'검색 실패 · 후보에 정답 없음',retrievalCoverage:'후보 검색 범위 — 제공자별 상위 N개',currentProvider:'현재 후보 제공자',curveAxes:'y = 상위 N개 후보에 정답이 있는 비율<br>x = N(실측 순위)',retrievalNote:'<b>후보 검색 지표입니다.</b> 제공자가 정답 장소를 반환했는지 보여 주며, 알고리즘 정확도가 아니라 선택 가능한 범위의 상한입니다.',selectionAccuracy:'알고리즘별 선택 정확도',selectionNote:'<b>막대 하나가 제출한 알고리즘 하나를 나타냅니다.</b> 실행 이름별 최신 버전의 완전 일치 정확도입니다.',caseAnalysis:'사례 분석 — 후보 검색 성공 및 실패',caseAnalysisHelp:'· 실제 데이터 · 후보 순위',selectCase:'왼쪽에서 사례를 선택하세요.',caseHelp:'<b>검색 실패</b>는 전체 후보에 정답이 없다는 뜻입니다. <b>순위 2위 이하</b>는 정답이 후보에 있지만 첫 번째가 아니라는 뜻입니다.',
+    datasetIntro:'데이터셋을 확인하고 추출 단계를 다시 실행하거나 데이터를 추가·삭제할 수 있습니다.',datasets:'데이터셋',datasetCoverageHelp:'— 처리율·결과 검출률 및 관리',dataset:'데이터셋',rows:'행',signalCoverage:'처리 상태와 결과 검출',loading:'불러오는 중…',rerunStepTitle:'추출 다시 실행',rerunStepHelp:'— 아직 처리하지 않은 행 실행',step:'단계',emptyRowsOnly:'미처리 행만',rerun:'▶ 다시 실행',jobLimitHelp:'데이터 작업은 한 번에 하나만 실행할 수 있습니다. 사용할 수 없는 단계는 비활성화됩니다.',jobs:'작업',jobsHelp:'— 진행 상황 및 로그',noActiveJob:'실행 중인 작업이 없습니다.',elapsed:'경과 시간',result:'결과',addDataset:'새 데이터셋 추가',addDatasetHelp:'— ZIP을 업로드하고 위에서 진행 상황 확인',downloadTemplate:'템플릿 ZIP 다운로드',validateZip:'ZIP 검증',ingestDataset:'＋ 데이터셋 추가',uploadHelp:'추가하기 전에 ZIP을 검증하세요. 데이터 추가는 작업으로 실행되며, 파생 신호는 이후 추출 다시 실행에서 채울 수 있습니다.',footer:'POI 평가 대시보드',submittedCode:'제출한 알고리즘 코드',close:'닫기'
+  }
 };
+const tr=(key,fallback='')=>I18N[uiLanguage]?.[key]??I18N.en[key]??fallback;
+const bi=(en,ko)=>uiLanguage==='ko'?ko:en;
 function applyLanguage(){document.documentElement.lang=uiLanguage;document.querySelectorAll('[data-i18n]').forEach(el=>{const value=I18N[uiLanguage][el.dataset.i18n];if(value!==undefined)el.innerHTML=value});document.querySelectorAll('[data-lang]').forEach(b=>b.classList.toggle('on',b.dataset.lang===uiLanguage));setApiState('language',null);if(selectedRun)renderRunDetail();if(_rowstruct){const open=_openFieldGroup;renderRowStruct();if(open)loadFieldProfile(open);}loadOverviewSummary();}
-document.querySelectorAll('[data-lang]').forEach(b=>b.onclick=()=>{uiLanguage=b.dataset.lang;localStorage.setItem('poi-ui-language',uiLanguage);applyLanguage()});
+document.querySelectorAll('[data-lang]').forEach(b=>b.onclick=()=>{uiLanguage=b.dataset.lang;localStorage.setItem('poi-ui-language',uiLanguage);applyLanguage();renderParams();renderRuns();renderRunManager();drawCompareBars();renderChips();renderCaseList();if(curCaseIdx!=null)showCase(curCaseIdx);loadDatasets();pollJobs()});
 
 // ---------- tabs ----------
 document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
@@ -43,10 +57,10 @@ async function render(){
   catch(e){d={n:0,rank1:0,top3:0,top5:0,top10:0,top20:0,top50:0,miss:0,counts:{},by_provider:{},matching_policy:{}};}
   const n=d.n||0, pct=x=>n?Math.round(100*x/n):0;
   const c=d.counts||{}, rows=c.rows||0;
-  const excl=[]; if(d.excluded_korea_pending_kakao)excl.push(`KR/Kakao 대기 ${d.excluded_korea_pending_kakao}`); if(d.excluded_non_poi)excl.push(`non_poi ${d.excluded_non_poi}`); if(d.excluded_non_mapkit)excl.push(`NON_MAPKIT ${d.excluded_non_mapkit}`); if(d.excluded_sim_mapkit)excl.push(`SIM_MAPKIT ${d.excluded_sim_mapkit}`); if(d.excluded_no_gt)excl.push(`provider GT 없음 ${d.excluded_no_gt}`); if(d.no_provider_data)excl.push(`후보 데이터 없음 ${d.no_provider_data}`);
+  const excl=[]; if(d.excluded_korea_pending_kakao)excl.push(`${bi('KR/Kakao pending','KR/Kakao 대기')} ${d.excluded_korea_pending_kakao}`); if(d.excluded_non_poi)excl.push(`non_poi ${d.excluded_non_poi}`); if(d.excluded_non_mapkit)excl.push(`NON_MAPKIT ${d.excluded_non_mapkit}`); if(d.excluded_sim_mapkit)excl.push(`SIM_MAPKIT ${d.excluded_sim_mapkit}`); if(d.excluded_no_gt)excl.push(`${bi('no provider GT','provider GT 없음')} ${d.excluded_no_gt}`); if(d.no_provider_data)excl.push(`${bi('no candidate data','후보 데이터 없음')} ${d.no_provider_data}`);
   $("#meta").innerHTML=d.counts&&d.counts.rows===0
-    ? '등록된 데이터셋이 없습니다. ④ 데이터셋 관리에서 ZIP을 추가하면 평가 지표와 케이스가 표시됩니다.'
-    : `대상 행 <b>${rows}</b> · canonical GT <b>${c.gt_canonical||0}</b> · 평가 완료 <b>n=${n}</b> · 제외/대기: ${excl.join(' · ')||'-'}<br>매칭: <b>동일 provider canonical name == candidate name</b> · sentinel/빈 provider GT는 정답 문자열이 아니라 홀드아웃 · 후보공급원: 현재 KR 제외 / non-KR=MapKit`;
+    ? bi('No datasets yet. Add a ZIP under Dataset management to see evaluation metrics and cases.','등록된 데이터셋이 없습니다. 데이터셋 관리에서 ZIP을 추가하면 평가 지표와 사례를 볼 수 있습니다.')
+    : bi(`Eligible rows <b>${rows}</b> · canonical GT <b>${c.gt_canonical||0}</b> · evaluated <b>n=${n}</b> · excluded/pending: ${excl.join(' · ')||'-'}<br>Match rule: <b>provider canonical name == candidate name</b> · sentinel or empty provider GT is held out · candidate provider: non-KR MapKit (KR excluded)`,`대상 행 <b>${rows}</b> · canonical GT <b>${c.gt_canonical||0}</b> · 평가 완료 <b>n=${n}</b> · 제외/대기: ${excl.join(' · ')||'-'}<br>일치 기준: <b>제공자 canonical name == candidate name</b> · sentinel 또는 빈 provider GT는 평가에서 제외 · 후보 제공자: 한국 제외, 그 외 MapKit`);
   const set=(id,c)=>{$("#p-"+id).textContent=pct(c)+"%";$("#c-"+id).textContent=c+" / "+n;};
   set("r1",d.rank1||0);set("t3",d.top3||0);set("t5",d.top5||0);set("t10",d.top10||0);set("t20",d.top20||0);set("t50",d.top50||0);set("miss",d.miss||0);
   $("#flip").classList.add("hidden");
@@ -67,7 +81,7 @@ function drawCurve(points){
 function drawBars(algos){
   const W=580,H=250,pl=44,pr=16,pt=16,pb=42;
   if(!algos.length){
-    $("#bars").innerHTML=`<text x="${W/2}" y="${H/2-8}" text-anchor="middle" fill="var(--ink2)" font-size="13" font-family="var(--mono)">제출된 알고리즘 없음 — ② 평가 실행에서 predict() 제출</text><text x="${W/2}" y="${H/2+16}" text-anchor="middle" fill="var(--ink3)" font-size="11.5">MapKit/Kakao는 후보 공급원이며 식별 정확도 막대가 아니다</text>`;
+    $("#bars").innerHTML=`<text x="${W/2}" y="${H/2-8}" text-anchor="middle" fill="var(--ink2)" font-size="13" font-family="var(--mono)">${bi('No algorithms submitted — upload predict() under Run algorithm','제출된 알고리즘이 없습니다 — 알고리즘 실행에서 predict()를 업로드하세요')}</text><text x="${W/2}" y="${H/2+16}" text-anchor="middle" fill="var(--ink3)" font-size="11.5">${bi('MapKit and Kakao provide candidates; they are not algorithm results.','MapKit과 Kakao는 후보 제공자이며 알고리즘 결과가 아닙니다.')}</text>`;
     return;
   }
   const y=v=>pt+(H-pt-pb)*(1-v/100), step=(W-pl-pr)/algos.length, bw=Math.min(70,step*0.5);
@@ -86,7 +100,7 @@ function drawBars(algos){
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const plain=s=>esc(String(s==null?'':s).replace(/<[^>]*>/g,''));
 let CASES=[],curOutcome='all',curCaseIdx=null;
-const OC_LABEL={correct:'rank1',selection:'rank>1',retrieval:'검색실패',non_poi:'non_poi',deferred:'deferred',no_gt:'no_gt',other:'기타'};
+const outcomeLabel=o=>(uiLanguage==='ko'?{correct:'1위 일치',selection:'2위 이하',retrieval:'검색 실패',non_poi:'POI 아님',deferred:'보류',no_gt:'GT 없음',other:'기타',all:'전체'}:{correct:'rank 1',selection:'rank > 1',retrieval:'retrieval miss',non_poi:'not a POI',deferred:'deferred',no_gt:'no GT',other:'other',all:'All'})[o]||o;
 const OC_ORDER=['all','correct','selection','retrieval','non_poi','deferred','no_gt'];
 const providerExactEq=(a,b)=>{a=(a||'').trim();b=(b||'').trim();return !!(a&&b&&a===b);};
 async function loadCases(){
@@ -105,41 +119,41 @@ function computeCoverage(){
 const outCount=o=>o==='all'?CASES.length:CASES.filter(c=>c.outcome===o).length;
 function renderChips(){
   $("#chips").innerHTML=OC_ORDER.filter(o=>o==='all'||outCount(o)).map(o=>
-    `<span class="chip ${o===curOutcome?'on':''}" data-o="${o}">${o==='all'?'전체':OC_LABEL[o]}<span class="c">${outCount(o)}</span></span>`).join('');
+    `<span class="chip ${o===curOutcome?'on':''}" data-o="${o}">${outcomeLabel(o)}<span class="c">${outCount(o)}</span></span>`).join('');
   $("#chips").querySelectorAll('.chip').forEach(el=>el.onclick=()=>{curOutcome=el.dataset.o;renderChips();renderCaseList();});
 }
 function renderCaseList(){
   const list=CASES.map((c,i)=>[c,i]).filter(([c])=>curOutcome==='all'||c.outcome===curOutcome);
   $("#caselist").innerHTML=list.slice(0,200).map(([c,i])=>
-    `<div class="ci ${i===curCaseIdx?'sel':''}" data-i="${i}">${c.photo_url?`<img loading="lazy" src="${esc(c.photo_url)}" onerror="this.style.visibility='hidden'">`:'<span style="width:44px"></span>'}<span class="g">${esc(c.gt||'(GT 없음)')}</span><span class="oc ${c.outcome}">${esc(OC_LABEL[c.outcome]||c.outcome)}</span></div>`).join('')
-    || '<div style="color:var(--ink3);font-size:12px;padding:10px">해당 케이스 없음</div>';
+    `<div class="ci ${i===curCaseIdx?'sel':''}" data-i="${i}">${c.photo_url?`<img loading="lazy" src="${esc(c.photo_url)}" onerror="this.style.visibility='hidden'">`:'<span style="width:44px"></span>'}<span class="g">${esc(c.gt||bi('(no GT)','(GT 없음)'))}</span><span class="oc ${c.outcome}">${esc(outcomeLabel(c.outcome))}</span></div>`).join('')
+    || `<div style="color:var(--ink3);font-size:12px;padding:10px">${bi('No matching cases.','조건에 맞는 사례가 없습니다.')}</div>`;
   $("#caselist").querySelectorAll('.ci').forEach(el=>el.onclick=()=>showCase(+el.dataset.i));
 }
 function showCase(i){
   curCaseIdx=i;const c=CASES[i];
   const E={
-    correct:['rgba(95,211,123,.1)','MapKit 1위 후보가 GT와 exact match.'],
-    selection:['rgba(255,159,69,.1)',`GT는 후보 <b>rank ${esc(c.rank)}</b> — MapKit 1위는 '<b>${esc(c.baseline_pick)}</b>'이다. <b>GT가 후보에는 있으므로 selection 알고리즘이 고를 여지는 있음.</b>`],
-    retrieval:['rgba(255,107,92,.1)',`GT가 250m 후보(${esc(c.n_wide)}개)에 <b>없음</b>. 알고리즘으론 못 고침 — 반경·API·no_venue 문제. <i>동일 provider exact name 기준으로 확인한다.</i>`],
-    non_poi:['rgba(118,131,184,.1)','POI 아님. 정답은 거절.'],
-    deferred:['rgba(118,131,184,.1)','베이스라인 미실행(한국 등).'],
-    no_gt:['rgba(118,131,184,.1)','GT 라벨 없음.'],
+    correct:['rgba(95,211,123,.1)',bi('The first MapKit candidate exactly matches the GT.','MapKit의 첫 번째 후보가 GT와 정확히 일치합니다.')],
+    selection:['rgba(255,159,69,.1)',bi(`The GT is candidate <b>rank ${esc(c.rank)}</b>; MapKit ranked '<b>${esc(c.baseline_pick)}</b>' first. The algorithm can still select the GT.`,`GT는 후보 <b>${esc(c.rank)}위</b>이며 MapKit의 첫 번째 후보는 '<b>${esc(c.baseline_pick)}</b>'입니다. 알고리즘은 후보에서 GT를 선택할 수 있습니다.`)],
+    retrieval:['rgba(255,107,92,.1)',bi(`The GT is absent from all ${esc(c.n_wide)} candidates within 250 m. Selection logic cannot recover it.`,`250m 내 후보 ${esc(c.n_wide)}개에 GT가 없습니다. 선택 알고리즘으로는 해결할 수 없습니다.`)],
+    non_poi:['rgba(118,131,184,.1)',bi('Not a POI; the correct action is to reject it.','POI가 아니므로 거절이 정답입니다.')],
+    deferred:['rgba(118,131,184,.1)',bi('Baseline evaluation was deferred.','베이스라인 평가가 보류되었습니다.')],
+    no_gt:['rgba(118,131,184,.1)',bi('No GT label is available.','GT 라벨이 없습니다.')],
   }[c.outcome]||['rgba(118,131,184,.1)',''];
   const gtIn=(c.candidates||[]).some(cd=>providerExactEq(cd.name,c.gt));
   const cands=(c.candidates||[]).map(cd=>{
     const isgt=providerExactEq(cd.name,c.gt),ispick=providerExactEq(cd.name,c.baseline_pick);
-    const tags=(isgt?'<span class="tg" style="background:rgba(95,211,123,.2);color:var(--green)">GT</span>':'')+(ispick?'<span class="tg" style="background:rgba(255,159,69,.2);color:var(--orange)">MapKit 1위</span>':'');
+    const tags=(isgt?'<span class="tg" style="background:rgba(95,211,123,.2);color:var(--green)">GT</span>':'')+(ispick?`<span class="tg" style="background:rgba(255,159,69,.2);color:var(--orange)">${bi('MapKit rank 1','MapKit 1위')}</span>`:'');
     return `<div class="cand ${isgt?'isgt':''} ${ispick?'ispick':''}"><span>${esc(cd.name)}</span><span><span style="color:var(--ink3);font-family:var(--mono);font-size:11px">${esc(cd.dist)}</span>${tags}</span></div>`;
   }).join('');
   $("#casedetail").innerHTML=`
     ${c.photo_url?`<img src="${esc(c.photo_url)}" onerror="this.style.display='none'">`:''}
-    <div class="drow"><span class="lab">GT</span><span class="val gt">${esc(c.gt||'(없음)')}</span></div>
-    <div class="drow"><span class="lab">MapKit 1위</span><span class="val">${esc(c.baseline_pick||'—')} <span style="color:var(--ink3)">(최근접 · rank ${esc(c.rank)})</span></span></div>
-    <div class="expl" style="background:${E[0]}"><b>${OC_LABEL[c.outcome]}</b> — ${E[1]}</div>
-    <div class="drow"><span class="lab">후보 top3</span><span class="val" style="flex:1">${cands||'<span style="color:var(--ink3)">없음</span>'}${(c.rank&&c.rank!=='MISS'&&!gtIn)?`<div style="color:var(--ink3);font-size:11px;margin-top:2px">※ GT는 rank ${esc(c.rank)} — 상위 3 밖 (전체 ${esc(c.n_wide)}개 중)</div>`:''}</span></div>
-    <div class="drow"><span class="lab">OCR</span><span class="val" style="font-size:12px;color:${c.ocr_text?'var(--ink2)':'var(--ink3)'}">${esc(c.ocr_text||'(텍스트 없음)')}</span></div>
-    <div class="drow"><span class="lab">좌표</span><span class="val" style="font-family:var(--mono);font-size:12px">${esc(c.lat)}, ${esc(c.lon)}</span></div>
-    <div class="drow"><span class="lab">카테고리</span><span class="val">${esc(c.category)}</span></div>`;
+    <div class="drow"><span class="lab">GT</span><span class="val gt">${esc(c.gt||bi('(none)','(없음)'))}</span></div>
+    <div class="drow"><span class="lab">${bi('MapKit rank 1','MapKit 1위')}</span><span class="val">${esc(c.baseline_pick||'—')} <span style="color:var(--ink3)">(${bi('nearest','최근접')} · rank ${esc(c.rank)})</span></span></div>
+    <div class="expl" style="background:${E[0]}"><b>${outcomeLabel(c.outcome)}</b> — ${E[1]}</div>
+    <div class="drow"><span class="lab">${bi('Top 3 candidates','상위 3개 후보')}</span><span class="val" style="flex:1">${cands||`<span style="color:var(--ink3)">${bi('None','없음')}</span>`}${(c.rank&&c.rank!=='MISS'&&!gtIn)?`<div style="color:var(--ink3);font-size:11px;margin-top:2px">${bi(`GT is rank ${esc(c.rank)}, outside the top 3 of ${esc(c.n_wide)} candidates.`,`GT는 ${esc(c.rank)}위로 전체 후보 ${esc(c.n_wide)}개 중 상위 3개 밖에 있습니다.`)}</div>`:''}</span></div>
+    <div class="drow"><span class="lab">OCR</span><span class="val" style="font-size:12px;color:${c.ocr_text?'var(--ink2)':'var(--ink3)'}">${esc(c.ocr_text||bi('(no text)','(텍스트 없음)'))}</span></div>
+    <div class="drow"><span class="lab">${bi('Coordinates','좌표')}</span><span class="val" style="font-family:var(--mono);font-size:12px">${esc(c.lat)}, ${esc(c.lon)}</span></div>
+    <div class="drow"><span class="lab">${bi('Category','카테고리')}</span><span class="val">${esc(c.category)}</span></div>`;
   renderCaseList();
 }
 $("#scope").onchange=e=>{scope=e.target.value;curCaseIdx=null;render();loadCases();};
@@ -149,6 +163,7 @@ loadCases();
 
 // ---------- overview: row structure (라벨 컬럼 · 채움 · 입력벡터) — live /api/overview fill ----------
 
+const PIPELINE_LABELS_EN={'GPS 좌표':'GPS coordinates','사진 다운로드+변환':'Photo download and conversion','입력 장소명':'Input place name','MapKit 베이스라인':'MapKit baseline','MapKit 정규명(GT)':'MapKit canonical name (GT)','온디바이스 LLM (v2)':'On-device LLM (v2)','FastVLM (이미지)':'FastVLM (image)'};
 async function loadOverviewSummary(){
   const by=id=>document.getElementById(id);
   try{
@@ -163,11 +178,10 @@ async function loadOverviewSummary(){
     by('k-photo').textContent=d.photo_present||0;
     by('k-country').textContent=(d.countries||[]).length;
     by('overviewEmpty').style.display=storeDataState==='empty'?'block':'none';
-    by('sourcebars').innerHTML=(d.sources||[]).map(x=>`<div class="src"><span class="dot" style="background:${color(x.color)}"></span><span>${esc(x.key)} <span class="prov">· ${esc(x.owner||'')} · ${esc(x.source_type||x.desc||'')}</span></span><b>${x.count}</b></div>`).join('');
+    by('sourcebars').innerHTML=(d.sources||[]).map(x=>`<div class="src"><span class="dot" style="background:${color(x.color)}"></span><span>${esc(x.key)}</span><b>${x.count}</b></div>`).join('');
     by('confidencebars').innerHTML=(d.confidence||[]).map(x=>`<div class="bar"><span class="lbl">${esc(x.key)}</span><div class="track"><div class="fill" style="width:${pct(x.count)}%;background:${color(x.color)}"></div></div><span class="v">${x.count}</span></div>`).join('');
     by('countrybars').innerHTML=(d.countries||[]).map((x,i)=>`<div class="bar"><span class="lbl">${esc(x.flag||'·')} ${esc(x.key)}</span><div class="track"><div class="fill" style="width:${pct(x.count)}%;background:${['var(--blue)','var(--pink)','var(--cyan)','var(--violet)','var(--orange)'][i%5]}"></div></div><span class="v">${x.count}</span></div>`).join('');
-    const pipelineLabels={'GPS 좌표':'GPS coordinates','사진 다운로드+변환':'Photo download and conversion','입력 장소명':'Input place name','MapKit 베이스라인':'MapKit baseline','MapKit 정규명(GT)':'MapKit canonical name (GT)','온디바이스 LLM (v2)':'On-device LLM (v2)','FastVLM (이미지)':'FastVLM (image)'};
-    by('pipelinebars').innerHTML=(d.pipeline||[]).map(x=>{const p=total?Math.round(100*(x.merged||x.extracted||0)/total):0;const st=x.status==='done'?(uiLanguage==='en'?'Done':'완료'):(x.status==='run'?(uiLanguage==='en'?'In progress':'진행중'):(uiLanguage==='en'?'Waiting':'대기'));const label=uiLanguage==='en'?(pipelineLabels[x.label]||x.label):x.label;const col=x.status==='done'?'var(--green)':(x.status==='run'?'var(--orange)':'#333c66');return `<div class="pl"><span class="lbl">${esc(label)}</span><div class="track"><div class="seg" style="width:${p}%;background:${col}"></div></div><span class="st ${x.status}">${st}</span></div>`}).join('');
+    by('pipelinebars').innerHTML=(d.pipeline||[]).map(x=>{const p=total?Math.round(100*(x.merged||x.extracted||0)/total):0;const st=x.status==='done'?(uiLanguage==='en'?'Done':'완료'):(x.status==='run'?(uiLanguage==='en'?'In progress':'진행중'):(uiLanguage==='en'?'Waiting':'대기'));const label=uiLanguage==='en'?(PIPELINE_LABELS_EN[x.label]||x.label):x.label;const col=x.status==='done'?'var(--green)':(x.status==='run'?'var(--orange)':'#333c66');return `<div class="pl"><span class="lbl">${esc(label)}</span><div class="track"><div class="seg" style="width:${p}%;background:${col}"></div></div><span class="st ${x.status}">${st}</span></div>`}).join('');
   }catch(e){ console.warn('overview load failed',e); }
 }
 // Row structure is rendered live from /api/overview `schema` (config-driven).
@@ -202,13 +216,18 @@ function renderRowStruct(){
     const pct=total?Math.round(100*f/total):0;
     const color=pct>=90?'var(--green)':(pct===0?'var(--ink3)':'var(--orange)');
     const rcolor=RC[s.role_key]||'var(--ink3)';
-    return `<tr data-group="${esc(s.group)}"><td class="nm3">${esc(s.group)}</td>
+    return `<tr data-group="${esc(s.group)}" tabindex="0" aria-label="${esc(s.group)} ${uiLanguage==='en'?'details':'값 상세 보기'}"><td class="nm3">${esc(s.group)}</td>
       <td class="rl" style="color:${rcolor}">${esc(uiLanguage==='en'?(ROLE_EN[s.role_key]||s.role_key||''):(s.role_label||s.role_key||''))}</td>
       <td><div class="fb2"><div class="mt2"><div class="mf2" style="width:${pct}%;background:${color}"></div></div><span class="mp2">${pct}%</span></div></td>
-      <td class="m3">${uiLanguage==='en'?esc(FIELD_DESC_EN[s.group]||plain(s.desc||'')):plain(s.desc||'')} <button class="field-detail-trigger" type="button" aria-label="${esc(s.group)} ${uiLanguage==='en'?'details':'값 상세 보기'}">${uiLanguage==='en'?'Details':'상세 보기'}</button></td></tr>`;
+      <td class="m3">${uiLanguage==='en'?esc(FIELD_DESC_EN[s.group]||(s.desc&&!/[가-힣]/.test(s.desc)?String(s.desc).replace(/<[^>]*>/g,''):'No dashboard description. Add this field to dashboard_config.json > schema_groups.')):plain(s.desc||'')} <button class="field-detail-trigger" type="button" aria-label="${esc(s.group)} ${uiLanguage==='en'?'details':'값 상세 보기'}">${uiLanguage==='en'?'Details':'상세 보기'}</button></td></tr>`;
   }).join('');
+  $("#rowstruct").querySelectorAll('tr[data-group]').forEach(row=>{
+    const open=()=>loadFieldProfile(row.dataset.group);
+    row.addEventListener('click',open);
+    row.addEventListener('keydown',e=>{if(e.target===row&&(e.key==='Enter'||e.key===' ')){e.preventDefault();open();}});
+  });
   $("#rowstruct").querySelectorAll('.field-detail-trigger').forEach(button=>{
-    button.addEventListener('click',()=>loadFieldProfile(button.closest('tr').dataset.group));
+    button.addEventListener('click',e=>{e.stopPropagation();loadFieldProfile(button.closest('tr').dataset.group);});
   });
 }
 function fmtProfileNumber(n){return Number.isInteger(n)?String(n):Number(n).toLocaleString(undefined,{maximumFractionDigits:5});}
@@ -269,25 +288,38 @@ const g=id=>document.getElementById(id);
 applyLanguage();
 // 입력 파라미터 = 신호 + 추출 방법(provenance). methods[0]=현재, 그 외=대안(이후).
 const PARAMS=[
-  {k:"image", name:"이미지", methods:["원본 사진 (jpg)"], on:false},
-  {k:"lat,lon", name:"좌표", methods:["EXIF GPS"], on:true},
-  {k:"timestamp", name:"촬영 시각", methods:["EXIF DateTimeOriginal"], on:false},
-  {k:"ocr_text", name:"OCR 텍스트", methods:["Vision VNRecognizeTextRequest","Tesseract (이후)","Google Vision (이후)"], on:true},
-  {k:"vlm_caption", name:"VLM 설명", methods:["FastVLM-0.5B","LLaVA (이후)"], on:false},
-  {k:"nearby_candidates", name:"주변 후보", methods:["MapKit MKLocalPointsOfInterest","Google Places (이후)","Kakao Local (이후)"], on:true, topk:[3,5,10,"전체"]},
-  {k:"city,country,address", name:"역지오코딩", methods:["Apple CLGeocoder","Google Geocoding (이후)"], on:false},
+  {k:"image", en:"Image", ko:"이미지", methods:["Original photo (jpg)"], on:false},
+  {k:"lat,lon", en:"Coordinates", ko:"좌표", methods:["EXIF GPS"], on:true},
+  {k:"timestamp", en:"Capture time", ko:"촬영 시각", methods:["EXIF DateTimeOriginal"], on:false},
+  {k:"ocr_text", en:"OCR text", ko:"OCR 텍스트", methods:["Vision VNRecognizeTextRequest","Tesseract (later)","Google Vision (later)"], on:true},
+  {k:"vlm_caption", en:"VLM caption", ko:"VLM 설명", methods:["FastVLM-0.5B","LLaVA (later)"], on:false},
+  {k:"nearby_candidates", en:"Nearby candidates", ko:"주변 후보", methods:["MapKit MKLocalPointsOfInterest","Google Places (later)","Kakao Local (later)"], on:true, topk:[3,5,10,"all"]},
+  {k:"city,country,address", en:"Reverse geocoding", ko:"역지오코딩", methods:["Apple CLGeocoder","Google Geocoding (later)"], on:false},
 ];
+const paramName=p=>uiLanguage==='ko'?p.ko:p.en;
+const methodLabel=m=>uiLanguage==='ko'?m.replace('Original photo','원본 사진').replace(' (later)',' (추후)'):m;
 function methodOf(i){const s=document.querySelector(`.prow[data-pi="${i}"] select[data-mi]`);return s?s.value:PARAMS[i].methods[0];}
 function renderParams(){
+  const previous=[...document.querySelectorAll('.prow')].map(row=>({
+    checked:row.querySelector('input')?.checked,
+    method:row.querySelector('select[data-mi]')?.value,
+    topk:row.querySelector('.topk')?.value
+  }));
   g('params').innerHTML='<div class="plist">'+PARAMS.map((p,i)=>{
     const method=p.methods.length>1
-      ? `<select data-mi="${i}">${p.methods.map((m,j)=>`<option${j===0?' selected':''}>${m}</option>`).join('')}</select>`
-      : `<span class="m">${p.methods[0]}</span>`;
-    const topk=p.topk?`<select class="topk" data-ti="${i}" title="후보 상위 몇 개를 함수에 넘길지 · 괄호는 그 안에 든 GT 비율(MapKit 실측 검색 상한)">${p.topk.map(nn=>{const cv=(window.COVERAGE&&window.COVERAGE[nn]!=null)?` · GT ${window.COVERAGE[nn]}%`:'';return `<option value="top ${nn}"${nn===5?' selected':''}>top ${nn}${cv}</option>`;}).join('')}</select>`:'';
+      ? `<select data-mi="${i}">${p.methods.map((m,j)=>`<option value="${esc(m)}"${j===0?' selected':''}>${esc(methodLabel(m))}</option>`).join('')}</select>`
+      : `<span class="m">${esc(methodLabel(p.methods[0]))}</span>`;
+    const topk=p.topk?`<select class="topk" data-ti="${i}" title="${bi('Number of candidates passed to the function; GT% is measured MapKit retrieval coverage.','함수에 전달할 후보 수입니다. GT%는 MapKit의 실측 검색 범위입니다.')}">${p.topk.map(nn=>{const cv=(window.COVERAGE&&window.COVERAGE[nn==='all'?'전체':nn]!=null)?` · GT ${window.COVERAGE[nn==='all'?'전체':nn]}%`:'';return `<option value="top ${nn}"${nn===5?' selected':''}>top ${nn==='all'?bi('all','전체'):nn}${cv}</option>`;}).join('')}</select>`:'';
     return `<label class="prow" data-pi="${i}"><input type="checkbox" data-k="${p.k}"${p.on?' checked':''}>
-      <span class="nm">${p.name}${p.warn?` <span class="warn2">${p.warn}</span>`:''}</span>
+      <span class="nm">${paramName(p)}${p.warn?` <span class="warn2">${p.warn}</span>`:''}</span>
       <span class="pk">${p.k}</span><span class="mcell">${method}${topk}</span></label>`;
   }).join('')+'</div>';
+  previous.forEach((state,i)=>{
+    const row=g('params').querySelector(`.prow[data-pi="${i}"]`); if(!row)return;
+    if(state.checked!=null)row.querySelector('input').checked=state.checked;
+    if(state.method!=null&&row.querySelector('select[data-mi]'))row.querySelector('select[data-mi]').value=state.method;
+    if(state.topk!=null&&row.querySelector('.topk'))row.querySelector('.topk').value=state.topk;
+  });
   g('params').querySelectorAll('input,select').forEach(el=>el.onchange=updSig);
   updSig();
 }
@@ -306,28 +338,28 @@ function updSig(){
   rows.forEach(r=>{
     const i=+r.dataset.pi,p=PARAMS[i],tk=r.querySelector('.topk');
     const a=ACC[p.k]||[p.k.split(',')[0],`case["${p.k}"]`];
-    lines.push(`    ${a[0]} = ${a[1]}`.padEnd(40)+`# ${p.name}`);
+    lines.push(`    ${a[0]} = ${a[1]}`.padEnd(40)+`# ${paramName(p)}`);
     const method=methodOf(i)+(tk?` · ${tk.value}`:'');
     cfg.push(`#   ${(p.k+':').padEnd(22)}${method}`);
   });
-  const header=cfg.length?`# ── run config (드롭다운 선택 · 하네스가 이 설정으로 case 번들 생성) ──\n${cfg.join('\n')}\n`:'';
-  g('loadsnippet').textContent=`${header}def predict(case):\n${lines.join('\n')||'    pass'}\n    # TODO: 예측 로직\n    return { "prediction": ..., "reason": ... }`;
+  const header=cfg.length?`# ── ${bi('run config (the harness builds each case from these selections)','실행 설정(선택한 값으로 평가 입력을 구성합니다)')} ──\n${cfg.join('\n')}\n`:'';
+  g('loadsnippet').textContent=`${header}def predict(case):\n${lines.join('\n')||'    pass'}\n    # TODO: ${bi('prediction logic','예측 로직')}\n    return { "prediction": ..., "reason": ... }`;
 }
 function updVer(){
   const nm=g('tname').value.trim(), ex=REG[nm];
   g('verstat').innerHTML = (ex&&ex.length)
-    ? `기존 존재: v${ex.join(' · v')} → 자동 저장 시 <span class="bg">v${Math.max(...ex)+1}</span> · 또는 저장 모드에서 특정 버전 덮어쓰기`
-    : `새 테스트 → <span class="bg">v1</span>`;
+    ? bi(`Versions v${ex.join(' · v')} exist. Automatic save will create <span class="bg">v${Math.max(...ex)+1}</span>.`,`v${ex.join(' · v')}이 있습니다. 자동 저장 시 <span class="bg">v${Math.max(...ex)+1}</span>이 생성됩니다.`)
+    : bi(`New run → <span class="bg">v1</span>`,`새 실행 → <span class="bg">v1</span>`);
 }
 function renderRuns(){
   g('runsbody').innerHTML=runsList.length ? runsList.map(r=>
-    `<tr><td class="name">${esc(r.name)}</td><td><code>v${esc(r.version)}</code></td><td><code>${esc(r.lang||'—')}</code></td><td><code>${esc((r.params||[]).length+'개')}</code></td><td>${esc(r.scope)}</td><td>${esc(r.accuracy_pct)}%</td><td><span class="stt ok">저장됨</span></td></tr>`).join('') : '<tr><td colspan="7" style="color:var(--ink3);font-size:12px">아직 제출된 알고리즘 실행 결과가 없습니다. 후보검색 평가는 ③ 탭의 실제 GT/MapKit rank만 표시합니다.</td></tr>';
+    `<tr><td class="name">${esc(r.name)}</td><td><code>v${esc(r.version)}</code></td><td><code>${esc(r.lang||'—')}</code></td><td><code>${esc((r.params||[]).length+' '+bi('inputs','개'))}</code></td><td>${esc(r.scope)}</td><td>${esc(r.accuracy_pct)}%</td><td><span class="stt ok">${bi('Saved','저장됨')}</span></td></tr>`).join('') : `<tr><td colspan="7" style="color:var(--ink3);font-size:12px">${bi('No algorithm runs have been submitted.','제출된 알고리즘 실행 결과가 없습니다.')}</td></tr>`;
 }
 let scriptName='',scriptText='',scriptLang='python';
 const LANG_BY_EXT={py:'python',c:'c',cpp:'cpp',rs:'rust',js:'node',sh:'sh'};
 g('scriptfile').onchange=e=>{
   const f=e.target.files[0]; scriptName=f?f.name:''; scriptText='';
-  g('filelabel').textContent=f?`📎 ${f.name} 첨부됨`:'📎 predict 계약을 구현한 스크립트를 첨부 — 클릭 또는 드롭';
+  g('filelabel').textContent=f?`📎 ${f.name} ${bi('attached','첨부됨')}`:bi('📎 Upload a script that implements predict — click or drop','📎 predict를 구현한 스크립트를 클릭하거나 끌어다 놓으세요');
   document.querySelector('.filedrop').classList.toggle('has',!!f);
   if(f){
     scriptLang=LANG_BY_EXT[(f.name.split('.').pop()||'').toLowerCase()]||'python';
@@ -340,11 +372,11 @@ g('loadExample').onclick=async()=>{
     const res=await fetch('/examples/baseline_nearest.py',{cache:'no-store'});
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     scriptText=await res.text(); scriptName='baseline_nearest.py'; scriptLang='python';
-    g('filelabel').textContent='📎 baseline_nearest.py 예시 코드가 준비됨';
+    g('filelabel').textContent=bi('📎 baseline_nearest.py example loaded','📎 baseline_nearest.py 예시 코드를 불러왔습니다');
     document.querySelector('.filedrop').classList.add('has');
     g('tname').value='baseline-nearest'; updVer();
-    hint.textContent='예시 코드 준비 완료. 데이터셋이 있으면 실행할 수 있습니다.';
-  }catch(err){ hint.textContent=`예시 코드 로드 실패: ${err.message}`; }
+    hint.textContent=bi('Example ready. You can run it when a dataset is available.','예시 코드가 준비되었습니다. 데이터셋이 있으면 실행할 수 있습니다.');
+  }catch(err){ hint.textContent=`${bi('Could not load example','예시 코드를 불러오지 못했습니다')}: ${err.message}`; }
 };
 const uploadZip=g('uploadZip');
 if(uploadZip){
@@ -352,15 +384,15 @@ if(uploadZip){
     const f=e.target.files[0];
     const status=g('uploadStatus');
     if(!f) return;
-    status.textContent=`검증 중: ${f.name}`;
+    status.textContent=`${bi('Validating','검증 중')}: ${f.name}`;
     try{
       const res=await fetch('/api/validate-upload-package',{method:'POST',body:f,headers:{'Content-Type':'application/zip'}});
       const data=await res.json();
       const errs=(data.errors||[]).slice(0,5).map(x=>`${x.code||'error'}${x.row?` row ${x.row}`:''}: ${x.message}`).join(' / ');
       status.textContent=data.ok
-        ? `검증 성공: ${data.row_count||0}개 행, ${data.image_count||0}개 사진. 다음 단계에서 EXIF·지역·provider를 자동 추출한다.`
-        : `검증 실패: ${errs||data.error||'업로드 패키지를 확인하세요.'}`;
-    }catch(err){ status.textContent=`검증 요청 실패: ${err.message}`; }
+        ? bi(`Valid: ${data.row_count||0} rows and ${data.image_count||0} images. EXIF, location, and provider data will be extracted during ingestion.`,`검증 완료: 행 ${data.row_count||0}개, 사진 ${data.image_count||0}개. 추가할 때 EXIF, 위치, 제공자 데이터를 추출합니다.`)
+        : `${bi('Validation failed','검증 실패')}: ${errs||data.error||bi('Check the upload package.','업로드 파일을 확인하세요.')}`;
+    }catch(err){ status.textContent=`${bi('Validation request failed','검증 요청 실패')}: ${err.message}`; }
   };
 }
 g('tname').oninput=updVer;
@@ -374,37 +406,37 @@ function selectedCandidateLimit(){
   const row=[...document.querySelectorAll('.prow')].find(r=>PARAMS[+r.dataset.pi].k==='nearby_candidates');
   if(!row||!row.querySelector('input').checked)return null;
   const raw=(row.querySelector('.topk')?.value||'').replace('top ','');
-  return raw==='전체'||!raw?null:Number(raw);
+  return raw==='all'||raw==='전체'||!raw?null:Number(raw);
 }
 g('runbtn').onclick=async()=>{
-  if(!scriptText){ g('runhint').textContent='먼저 predict() 스크립트를 첨부하세요.'; return; }
+  if(!scriptText){ g('runhint').textContent=bi('Upload a predict() script first.','먼저 predict() 스크립트를 업로드하세요.'); return; }
   const name=(g('tname').value||'').trim()||'algorithm';
   const scope=g('rscope').value, save=g('savemode').value;
   const body={name,scope,mode:'exact',save_mode:save,lang:scriptLang,params:selectedParams(),candidate_limit:selectedCandidateLimit(),script_text:scriptText};
-  g('runbtn').disabled=true; g('runhint').textContent=`실행 중: ${name} (${scope}) …`;
+  g('runbtn').disabled=true; g('runhint').textContent=`${bi('Running','실행 중')}: ${name} (${scope}) …`;
   try{
     const res=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const data=await res.json();
     if(data.ok){
       const m=data.metrics||{};
-      g('runhint').textContent=`완료: ${data.name} v${data.version} · 식별 정확도 ${m.accuracy_pct}% (${m.correct}/${m.n_eligible}, 예측 없음 ${m.abstained}, 오류 ${m.errored})`;
+      g('runhint').textContent=bi(`Completed: ${data.name} v${data.version} · accuracy ${m.accuracy_pct}% (${m.correct}/${m.n_eligible}, no prediction ${m.abstained}, errors ${m.errored})`,`완료: ${data.name} v${data.version} · 정확도 ${m.accuracy_pct}% (${m.correct}/${m.n_eligible}, 예측 없음 ${m.abstained}, 오류 ${m.errored})`);
       await loadRuns();
     }else{
-      g('runhint').textContent=`실패: ${data.error||'실행 오류'}`;
+      g('runhint').textContent=`${bi('Failed','실패')}: ${data.error||bi('Run error','실행 오류')}`;
     }
-  }catch(err){ g('runhint').textContent=`요청 실패: ${err.message}`; }
+  }catch(err){ g('runhint').textContent=`${bi('Request failed','요청 실패')}: ${err.message}`; }
   finally{ g('runbtn').disabled=false; }
 };
 // live runs from /api/runs → 최근 실행 표 + 식별 정확도 막대(알고리즘별, 이름당 최신 버전)
 function runKey(r){return `${r.name}__v${r.version}`}
 function renderRunManager(){
- const host=g('runManagerList');if(!host)return;g('compareHint').textContent=`${comparedRunIds.size} / 4 선택`;
- host.innerHTML=runsList.length?runsList.map(r=>{const k=runKey(r),dups=runsList.filter(x=>x.script_sha256===r.script_sha256).length;return `<div class="runrow ${k===selectedRunId?'sel':''}" data-rkey="${esc(k)}"><div class="rt"><span>${esc(r.name)} v${r.version}</span><b>${r.accuracy_pct}%</b></div><div class="rm">${esc(r.created_at||'')} · ${esc(r.scope)} · ${esc((r.params||[]).join(', ')||'추가 신호 없음')} · 후보 ${r.candidate_limit==null?'전체':r.candidate_limit}${dups>1?' · 동일 코드 '+dups+'회':''}</div><label class="compare" style="margin:7px 0 0"><input type="checkbox" data-compare="${esc(k)}" ${comparedRunIds.has(k)?'checked':''}> 비교에 포함</label></div>`}).join(''):'<div style="color:var(--ink3);font-size:12px;padding:10px">저장된 실행이 없습니다.</div>';
+ const host=g('runManagerList');if(!host)return;g('compareHint').textContent=`${comparedRunIds.size} / 4 ${bi('selected','선택')}`;
+ host.innerHTML=runsList.length?runsList.map(r=>{const k=runKey(r),dups=runsList.filter(x=>x.script_sha256===r.script_sha256).length;return `<div class="runrow ${k===selectedRunId?'sel':''}" data-rkey="${esc(k)}"><div class="rt"><span>${esc(r.name)} v${r.version}</span><b>${r.accuracy_pct}%</b></div><div class="rm">${esc(r.created_at||'')} · ${esc(r.scope)} · ${esc((r.params||[]).join(', ')||bi('no additional signals','추가 신호 없음'))} · ${bi('candidates','후보')} ${r.candidate_limit==null?bi('all','전체'):r.candidate_limit}${dups>1?` · ${bi(`same code × ${dups}`,`동일 코드 ${dups}회`)}`:''}</div><label class="compare" style="margin:7px 0 0"><input type="checkbox" data-compare="${esc(k)}" ${comparedRunIds.has(k)?'checked':''}> ${bi('Include in comparison','비교에 포함')}</label></div>`}).join(''):`<div style="color:var(--ink3);font-size:12px;padding:10px">${bi('No saved runs.','저장된 실행이 없습니다.')}</div>`;
  host.querySelectorAll('[data-rkey]').forEach(el=>el.onclick=e=>{if(!e.target.matches('input'))selectRun(el.dataset.rkey)});
- host.querySelectorAll('[data-compare]').forEach(el=>el.onchange=e=>{const k=e.target.dataset.compare;if(e.target.checked&&!comparedRunIds.has(k)&&comparedRunIds.size>=4){e.target.checked=false;alert('비교는 최대 4개 실행까지 선택할 수 있습니다.');return}e.target.checked?comparedRunIds.add(k):comparedRunIds.delete(k);renderRunManager();drawCompareBars()});drawCompareBars();
+ host.querySelectorAll('[data-compare]').forEach(el=>el.onchange=e=>{const k=e.target.dataset.compare;if(e.target.checked&&!comparedRunIds.has(k)&&comparedRunIds.size>=4){e.target.checked=false;alert(bi('You can compare up to four runs.','실행은 최대 4개까지 비교할 수 있습니다.'));return}e.target.checked?comparedRunIds.add(k):comparedRunIds.delete(k);renderRunManager();drawCompareBars()});drawCompareBars();
 }
-function drawCompareBars(){const svg=g('compareBars');if(!svg)return;const rs=runsList.filter(r=>comparedRunIds.has(runKey(r))),W=580,H=210,pl=42,pr=14,pt=15,pb=42;if(!rs.length){svg.innerHTML=`<text x="290" y="105" text-anchor="middle" fill="var(--ink3)" font-size="12" font-family="var(--mono)">실행을 1개 이상 비교 선택하세요</text>`;return}const y=v=>pt+(H-pt-pb)*(1-v/100),step=(W-pl-pr)/rs.length,bw=Math.min(95,step*.6);let out='';for(let v=0;v<=100;v+=25)out+=`<line x1="${pl}" y1="${y(v)}" x2="${W-pr}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"/><text x="${pl-6}" y="${y(v)+4}" text-anchor="end" fill="var(--ink3)" font-size="10">${v}</text>`;rs.forEach((r,i)=>{const cx=pl+step*(i+.5),a=Number(r.accuracy_pct)||0,n=Number(r.n_eligible)||0;out+=`<rect x="${cx-bw/2}" y="${y(a)}" width="${bw}" height="${y(0)-y(a)}" rx="4" fill="var(--cyan)"/><text x="${cx}" y="${y(a)-6}" text-anchor="middle" fill="var(--ink)" font-size="11">${a}%</text>`;let x=cx-bw/2;[[r.correct,'var(--green)'],[r.abstained,'var(--orange)'],[r.errored,'var(--red)'],[Math.max(0,n-(r.correct||0)-(r.abstained||0)-(r.errored||0)),'var(--pink)']].forEach(([v,c])=>{const w=n?bw*v/n:0;out+=`<rect x="${x}" y="179" width="${w}" height="8" fill="${c}"/>`;x+=w});out+=`<text x="${cx}" y="199" text-anchor="middle" fill="var(--ink2)" font-size="10">${esc(r.name)} v${r.version}</text>`});svg.innerHTML=out}
-async function selectRun(k){const r=runsList.find(x=>runKey(x)===k);if(!r)return;selectedRunId=k;runFailureDataset='all';runFailureKind='all';runFailurePage=0;renderRunManager();g('runDetail').textContent='실행 상세를 불러오는 중…';try{const d=await apiJSON(`/api/runs?name=${encodeURIComponent(r.name)}&version=${r.version}`,'run-detail');selectedRun=d.run;renderRunDetail()}catch(e){g('runDetail').textContent='실행 상세를 불러오지 못했습니다.'}}
+function drawCompareBars(){const svg=g('compareBars');if(!svg)return;const rs=runsList.filter(r=>comparedRunIds.has(runKey(r))),W=580,H=210,pl=42,pr=14,pt=15,pb=42;if(!rs.length){svg.innerHTML=`<text x="290" y="105" text-anchor="middle" fill="var(--ink3)" font-size="12" font-family="var(--mono)">${bi('Select at least one run to compare.','비교할 실행을 하나 이상 선택하세요.')}</text>`;return}const y=v=>pt+(H-pt-pb)*(1-v/100),step=(W-pl-pr)/rs.length,bw=Math.min(95,step*.6);let out='';for(let v=0;v<=100;v+=25)out+=`<line x1="${pl}" y1="${y(v)}" x2="${W-pr}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"/><text x="${pl-6}" y="${y(v)+4}" text-anchor="end" fill="var(--ink3)" font-size="10">${v}</text>`;rs.forEach((r,i)=>{const cx=pl+step*(i+.5),a=Number(r.accuracy_pct)||0,n=Number(r.n_eligible)||0;out+=`<rect x="${cx-bw/2}" y="${y(a)}" width="${bw}" height="${y(0)-y(a)}" rx="4" fill="var(--cyan)"/><text x="${cx}" y="${y(a)-6}" text-anchor="middle" fill="var(--ink)" font-size="11">${a}%</text>`;let x=cx-bw/2;[[r.correct,'var(--green)'],[r.abstained,'var(--orange)'],[r.errored,'var(--red)'],[Math.max(0,n-(r.correct||0)-(r.abstained||0)-(r.errored||0)),'var(--pink)']].forEach(([v,c])=>{const w=n?bw*v/n:0;out+=`<rect x="${x}" y="179" width="${w}" height="8" fill="${c}"/>`;x+=w});out+=`<text x="${cx}" y="199" text-anchor="middle" fill="var(--ink2)" font-size="10">${esc(r.name)} v${r.version}</text>`});svg.innerHTML=out}
+async function selectRun(k){const r=runsList.find(x=>runKey(x)===k);if(!r)return;selectedRunId=k;runFailureDataset='all';runFailureKind='all';runFailurePage=0;renderRunManager();g('runDetail').textContent=bi('Loading run details…','실행 상세를 불러오는 중…');try{const d=await apiJSON(`/api/runs?name=${encodeURIComponent(r.name)}&version=${r.version}`,'run-detail');selectedRun=d.run;renderRunDetail()}catch(e){g('runDetail').textContent=bi('Could not load run details.','실행 상세를 불러오지 못했습니다.')}}
 function showRunCode(){
   if(!selectedRun)return;
   const L=uiLanguage==='ko', r=selectedRun, hash=r.script_sha256||'';
@@ -439,7 +471,7 @@ function renderRunDetail(){
   g('failurePrev').onclick=()=>{runFailurePage--;renderRunDetail()};
   g('failureNext').onclick=()=>{runFailurePage++;renderRunDetail()};
 }
-async function deleteSelectedRun(r){if(!confirm(`실행 "${r.name}" v${r.version}을 영구 삭제할까요?\n\n저장된 실행 JSON과 케이스 결과만 삭제됩니다.`))return;try{const res=await fetch(`/api/runs?name=${encodeURIComponent(r.name)}&version=${r.version}`,{method:'DELETE'}),d=await res.json();if(!res.ok||!d.ok)throw Error(d.error||`HTTP ${res.status}`);comparedRunIds.delete(runKey(r));selectedRunId=null;selectedRun=null;g('runDetail').textContent='실행이 삭제되었습니다.';await loadRuns()}catch(e){alert('실행 삭제 실패: '+e.message)}}
+async function deleteSelectedRun(r){if(!confirm(bi(`Permanently delete "${r.name}" v${r.version}?\n\nThis removes the saved run and its case results.`,`"${r.name}" v${r.version}을 영구 삭제할까요?\n\n저장된 실행과 사례 결과가 삭제됩니다.`)))return;try{const res=await fetch(`/api/runs?name=${encodeURIComponent(r.name)}&version=${r.version}`,{method:'DELETE'}),d=await res.json();if(!res.ok||!d.ok)throw Error(d.error||`HTTP ${res.status}`);comparedRunIds.delete(runKey(r));selectedRunId=null;selectedRun=null;g('runDetail').textContent=bi('Run deleted.','실행이 삭제되었습니다.');await loadRuns()}catch(e){alert(`${bi('Could not delete run','실행을 삭제하지 못했습니다')}: ${e.message}`)}}
 
 async function loadRuns(){
   let payload;
@@ -465,6 +497,36 @@ let _dsData=null, _jobTimer=null, _watchJob=null, _pollBusy=false;
 const _shownWarnings=new Set();
 // step -> ① 신호 파이프라인 row label to annotate while running
 const STEP_PIPELINE={ocr:'Vision OCR', mapkit_nearby:'MapKit 베이스라인', gt_mapkit:'MapKit 정규명(GT)'};
+const jobStatusLabel=status=>uiLanguage==='ko'?({queued:'대기',running:'실행 중',done:'완료',error:'실패',cancelled:'취소됨'}[status]||status):status;
+const STEP_LABELS={
+  en:{exif:'EXIF coordinates and capture time',ocr:'OCR text',geocode:'Reverse geocoding',mapkit_nearby:'MapKit nearby candidates',gt_mapkit:'MapKit canonical name (GT)',gt_kakao:'Kakao canonical name (GT)',vlm_caption:'VLM caption',ingest:'Dataset ingestion',delete_dataset:'Delete dataset',pipeline:'Post-ingestion pipeline'},
+  ko:{exif:'EXIF 좌표 및 촬영 시각',ocr:'OCR 텍스트',geocode:'역지오코딩',mapkit_nearby:'MapKit 주변 후보',gt_mapkit:'MapKit 정규명(GT)',gt_kakao:'Kakao 정규명(GT)',vlm_caption:'VLM 설명',ingest:'데이터셋 추가',delete_dataset:'데이터셋 삭제',pipeline:'추가 후 처리'}
+};
+const hasKorean=value=>/[가-힣]/.test(String(value||''));
+const humanizeCode=value=>String(value||'').replace(/[_-]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+const stepLabel=(step,fallback='')=>{
+  const known=STEP_LABELS[uiLanguage][step];
+  if(known) return known;
+  if(uiLanguage==='en'&&hasKorean(fallback)) return humanizeCode(step)||'Unknown step';
+  return fallback||humanizeCode(step)||'';
+};
+const SIGNAL_STATUS_LABELS={
+  en:{ok:'Available','미구현':'Not implemented',disabled:'Disabled',unavailable:'Unavailable',error:'Error'},
+  ko:{ok:'사용 가능','미구현':'미구현',disabled:'비활성','사용 불가':'사용 불가',unavailable:'사용 불가',error:'오류'}
+};
+const signalStatusLabel=status=>SIGNAL_STATUS_LABELS[uiLanguage][status]||(uiLanguage==='en'&&hasKorean(status)?'Unavailable':(status||''));
+const SIGNAL_RESULT_LABELS_EN={'텍스트 검출':'Text detected','후보 검출':'Candidates detected'};
+const signalResultLabel=label=>uiLanguage==='en'?(SIGNAL_RESULT_LABELS_EN[label]||'Result detected'):(label||'결과 검출');
+const MAPKIT_GT_LABELS={
+  en:{canonical:'Canonical',similar:'Similar',not_found:'Unregistered'},
+  ko:{canonical:'정규명',similar:'유사명',not_found:'미등록'}
+};
+const warningMessage=w=>{
+  if(uiLanguage==='ko') return w.message||'';
+  if(w.code==='exif_gps_missing') return `${w.count}/${w.targets} source photos have no EXIF GPS coordinates. Coordinate-based steps have no input.`;
+  if(w.code==='exif_timestamp_missing') return `${w.count}/${w.targets} source photos have no EXIF capture time.`;
+  return hasKorean(w.message)?'The job completed with a warning.':(w.message||'The job completed with a warning.');
+};
 
 async function loadDatasets(){
   let d; try{ d=await apiJSON('/api/datasets','datasets'); }catch(e){ return; }
@@ -473,15 +535,30 @@ async function loadDatasets(){
   gid('dsTable').innerHTML=(d.datasets||[]).map(ds=>{
     const bars=Object.values(ds.signals||{}).map(s=>{
       const dis=s.status&&s.status!=='ok';
-      const col=dis?'#333c66':(s.pct>=90?'var(--green)':(s.pct===0?'var(--ink3)':'var(--orange)'));
-      return `<div class="fb2" title="${esc(s.label)} ${s.fill}/${ds.count}${dis?' · '+esc(s.status):''}"><span class="mp2" style="width:96px;text-align:left;color:var(--ink3)">${esc(s.label)}</span><div class="mt2"><div class="mf2" style="width:${s.pct}%;background:${col}"></div></div><span class="mp2">${dis?'—':s.pct+'%'}</span></div>`;
+      const metric=(label,count,pct,kind='')=>`<div class="signal-metric ${kind}${pct===0?' empty':''}" title="${esc(label)}: ${count}/${ds.count} (${pct}%)"><div class="signal-metric-head"><span class="signal-metric-label">${esc(label)}</span><span class="signal-metric-value"><span class="signal-metric-count">${count} / ${ds.count}</span><strong class="signal-metric-pct">${pct}%</strong></span></div><div class="signal-track" aria-hidden="true"><div class="signal-fill" style="width:${pct}%"></div></div></div>`;
+      if(s.processed!=null&&!dis){
+        return `<div class="signal-status"><div class="signal-title">${esc(stepLabel(s.step,s.label))}</div><div class="signal-metrics">${metric(bi('Processed','처리 완료'),s.processed,s.processed_pct,'processed')}${metric(signalResultLabel(s.result_label),s.fill,s.pct,'detected')}</div></div>`;
+      }
+      const label=stepLabel(s.step,s.label), status=signalStatusLabel(s.status);
+      if(s.label_breakdown&&!dis){
+        const breakdown=s.label_breakdown, labels=MAPKIT_GT_LABELS[uiLanguage];
+        const items=(breakdown.items||[]).map(item=>({...item,label:labels[item.key]||item.key}));
+        const segments=items.map(item=>`<span class="gt-segment ${esc(item.key)}" style="width:${item.pct}%" title="${esc(item.label)}: ${item.count}/${breakdown.total} (${item.pct}%)"></span>`).join('');
+        const legend=items.map(item=>`<span class="gt-label-item ${esc(item.key)}"><i></i><span>${esc(item.label)}</span><b>${item.pct}%</b><small>${item.count} / ${breakdown.total}</small></span>`).join('');
+        const excluded=breakdown.excluded||{}, excludedText=[];
+        if(excluded.kor)excludedText.push(`KOR ${excluded.kor}`);
+        if(excluded.empty)excludedText.push(`${bi('empty','빈 값')} ${excluded.empty}`);
+        const note=excludedText.length?`<span class="gt-excluded">${bi('Outside 3 labels','3개 라벨 외')} · ${excludedText.join(' · ')}</span>`:'';
+        return `<div class="signal-status"><div class="signal-title">${esc(label)}</div><div class="gt-breakdown"><div class="gt-stacked-track" aria-label="${esc(label)}">${segments}</div><div class="gt-label-legend">${legend}</div>${note}</div></div>`;
+      }
+      return `<div class="signal-status"><div class="signal-title">${esc(label)}</div>${dis?`<div class="signal-unavailable">${esc(status)}</div>`:`<div class="signal-metrics single">${metric(bi('Result available','결과 보유'),s.fill,s.pct,'detected')}</div>`}</div>`;
     }).join('');
-    return `<tr><td class="nm3">${esc(ds.key)}${ds.known?'':' <span style="color:var(--orange)" title="config sources 없음">⚠</span>'}<div style="color:var(--ink3);font-size:11px">${esc(ds.label||'')}</div></td><td class="m3">${ds.count}</td><td><div style="display:flex;flex-direction:column;gap:4px">${bars}</div></td><td><button class="btn" data-del="${esc(ds.key)}" style="border-color:rgba(255,107,92,.45);background:rgba(255,107,92,.10);color:#ffb3aa">삭제</button></td></tr>`;
-  }).join('')||'<tr><td colspan="4" style="color:var(--ink3)">데이터셋 없음</td></tr>';
+    return `<tr><td class="nm3">${esc(ds.key)}${ds.known?'':` <span style="color:var(--orange)" title="${bi('Missing config source','설정 출처 없음')}">⚠</span>`}</td><td class="m3">${ds.count}</td><td><div class="dataset-signals">${bars}</div></td><td><button class="btn" data-del="${esc(ds.key)}" style="border-color:rgba(255,107,92,.45);background:rgba(255,107,92,.10);color:#ffb3aa">${bi('Delete','삭제')}</button></td></tr>`;
+  }).join('')||`<tr><td colspan="4" style="color:var(--ink3)">${bi('No datasets.','데이터셋이 없습니다.')}</td></tr>`;
   gid('rerunDataset').innerHTML=(d.datasets||[]).map(ds=>`<option value="${esc(ds.key)}">${esc(ds.key)}</option>`).join('');
   gid('rerunStep').innerHTML=Object.entries(sig).map(([name,s])=>{
     const dis=s.status&&s.status!=='ok';
-    return `<option value="${esc(s.step||name)}"${dis?' disabled':''}>${esc(s.label)}${dis?' · '+esc(s.status):''}</option>`;
+    return `<option value="${esc(s.step||name)}"${dis?' disabled':''}>${esc(stepLabel(s.step||name,s.label))}${dis?' · '+esc(signalStatusLabel(s.status)):''}</option>`;
   }).join('');
   const hasData=(d.datasets||[]).length>0;
   gid('rerunDataset').disabled=!hasData;
@@ -489,9 +566,9 @@ async function loadDatasets(){
   gid('rerunBtn').disabled=!hasData;
   g('runbtn').disabled=!hasData;
   if(!hasData){
-    gid('rerunHint').textContent='먼저 데이터셋을 추가하세요.';
-    g('runhint').textContent='등록된 데이터셋이 없어 실행할 수 없습니다. 예시 코드는 미리 불러올 수 있습니다.';
-  }else if(g('runhint').textContent.startsWith('등록된 데이터셋이 없어')){
+    gid('rerunHint').textContent=bi('Add a dataset first.','먼저 데이터셋을 추가하세요.');
+    g('runhint').textContent=bi('No dataset is available. You can still load the example code.','등록된 데이터셋이 없어 실행할 수 없습니다. 예시 코드는 미리 불러올 수 있습니다.');
+  }else if(g('runhint').textContent===bi('No dataset is available. You can still load the example code.','등록된 데이터셋이 없어 실행할 수 없습니다. 예시 코드는 미리 불러올 수 있습니다.')){
     g('runhint').textContent='';
   }
   gid('dsTable').querySelectorAll('button[data-del]').forEach(b=>b.onclick=()=>deleteDataset(b.dataset.del));
@@ -501,35 +578,35 @@ async function deleteDataset(key){
   const ds=(_dsData&&_dsData.datasets||[]).find(x=>x.key===key)||{count:'?'};
   const fullCleanup=ds.source_type==='upload';
   const detail=fullCleanup
-    ? 'CSV 행과 업로드한 사진 파일, 업로드 config 항목을 모두 제거합니다. 동일 이름으로 다시 업로드할 수 있습니다.'
-    : 'CSV에서 행만 제거합니다(백업 자동 생성). 기존 사진 파일과 config 항목은 공유 자산일 수 있어 유지합니다.';
-  if(!confirm(`데이터셋 "${key}" (${ds.count}행) 삭제?\n\n${detail}\n\n이 작업은 되돌릴 수 없습니다.`)) return;
+    ? bi('CSV rows, uploaded images, and the upload configuration will be removed.','CSV 행, 업로드한 사진, 업로드 설정을 모두 삭제합니다.')
+    : bi('Only CSV rows will be removed and backed up. Shared image files and configuration will remain.','CSV 행만 삭제하고 백업합니다. 공유될 수 있는 사진과 설정은 유지합니다.');
+  if(!confirm(bi(`Delete dataset "${key}" (${ds.count} rows)?\n\n${detail}\n\nThis cannot be undone.`,`데이터셋 "${key}"(행 ${ds.count}개)을 삭제할까요?\n\n${detail}\n\n이 작업은 되돌릴 수 없습니다.`))) return;
   try{
     const res=await fetch(`/api/jobs?step=delete_dataset&dataset=${encodeURIComponent(key)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delete_photos:fullCleanup,remove_config_source:fullCleanup})});
     const d=await res.json();
-    if(!d.ok){ alert('삭제 실패: '+(res.status===409?'다른 작업 실행중':(d.error||res.status))); return; }
+    if(!d.ok){ alert(`${bi('Delete failed','삭제 실패')}: `+(res.status===409?bi('Another job is running','다른 작업이 실행 중입니다'):(d.error||res.status))); return; }
     watchJob(d.job_id);
-  }catch(e){ alert('삭제 요청 실패: '+e.message); }
+  }catch(e){ alert(`${bi('Delete request failed','삭제 요청 실패')}: ${e.message}`); }
 }
 
 async function doRerun(){
   const step=gid('rerunStep').value, dataset=gid('rerunDataset').value;
   const onlyEmpty=gid('rerunOnlyEmpty').checked?1:0, hint=gid('rerunHint'); hint.textContent='';
-  if(!step){ hint.textContent='단계를 선택하세요'; return; }
+  if(!step){ hint.textContent=bi('Select a step.','단계를 선택하세요.'); return; }
   try{
     const res=await fetch(`/api/jobs?step=${encodeURIComponent(step)}&dataset=${encodeURIComponent(dataset)}&only_empty=${onlyEmpty}`,{method:'POST'});
     const d=await res.json();
-    if(!d.ok){ hint.textContent=res.status===409?'다른 작업 실행중':(res.status===501?'미구현 단계':(d.error||'실패')); if(res.status===409) pollJobs(); return; }
-    hint.textContent=`시작됨 (${d.job_id})`; watchJob(d.job_id);
-  }catch(e){ hint.textContent='요청 실패: '+e.message; }
+    if(!d.ok){ hint.textContent=res.status===409?bi('Another job is running.','다른 작업이 실행 중입니다.'):(res.status===501?bi('This step is not implemented.','아직 지원하지 않는 단계입니다.'):(d.error||bi('Failed','실패'))); if(res.status===409) pollJobs(); return; }
+    hint.textContent=`${bi('Started','시작됨')} (${d.job_id})`; watchJob(d.job_id);
+  }catch(e){ hint.textContent=`${bi('Request failed','요청 실패')}: ${e.message}`; }
 }
 
 function watchJob(id){ _watchJob=id; startJobPolling(); }
 
 function fmtResult(r){
   if(!r) return '';
-  if(r.step==='delete_dataset') return `삭제 ${r.removed_rows}행 · backup`;
-  const p=[]; if(r.filled!=null)p.push(`채움 ${r.filled}/${r.targets!=null?r.targets:'?'}`);
+  if(r.step==='delete_dataset') return bi(`Deleted ${r.removed_rows} rows · backup created`,`행 ${r.removed_rows}개 삭제 · 백업 생성`);
+  const p=[]; if(r.processed!=null)p.push(`${bi('Processed','처리')} ${r.processed}/${r.targets!=null?r.targets:'?'}`); if(r.detected!=null)p.push(`${bi('Detected','검출')} ${r.detected}/${r.targets!=null?r.targets:'?'}`); else if(r.filled!=null)p.push(`${bi('Filled','채움')} ${r.filled}/${r.targets!=null?r.targets:'?'}`);
   if(r.counts)p.push(Object.entries(r.counts).map(([k,v])=>`${k}:${v}`).join(' '));
   return p.join(' · ')||(r.ok?'ok':'');
 }
@@ -538,14 +615,14 @@ async function pollJobs(){
   let d; try{ d=await apiJSON('/api/jobs','jobs'); }catch(e){ return null; }
   const active=(d.jobs||[]).find(j=>j.job_id===d.active);
   const ab=gid('jobActive');
-  if(ab){ if(active){ const pr=active.progress, subs=pr&&pr.substeps; const bars=subs?`<div style="display:grid;gap:5px;margin-top:8px">${Object.entries(subs).map(([name,x])=>{const pct=x.total?Math.round(100*x.done/x.total):0;const retry=x.retries?` · 재시도 ${x.retries}${x.retry_reason?': '+esc(x.retry_reason):''}`:'';return `<div><span style="display:inline-block;width:150px">${esc(name)} · ${esc(x.step||x.status||'')}</span><span style="display:inline-block;width:150px;height:6px;background:#333c66;vertical-align:middle"><i style="display:block;width:${pct}%;height:100%;background:var(--orange)"></i></span> ${x.done}/${x.total}${retry}</div>`}).join('')}</div>`:''; ab.innerHTML=`<span style="color:var(--orange)">● 실행중</span> ${esc(active.step)}${active.params&&active.params.dataset?' · '+esc(active.params.dataset):''} · ${active.elapsed_s||0}s${pr?` · ${pr.done}/${pr.total}`:''}${bars}`; } else ab.textContent='실행 중인 작업 없음.'; }
+  if(ab){ if(active){ const pr=active.progress, subs=pr&&pr.substeps; const bars=subs?`<div style="display:grid;gap:5px;margin-top:8px">${Object.entries(subs).map(([name,x])=>{const pct=x.total?Math.round(100*x.done/x.total):0;const retry=x.retries?` · ${bi('retries','재시도')} ${x.retries}${x.retry_reason?': '+esc(x.retry_reason):''}`:'';return `<div><span style="display:inline-block;width:150px">${esc(stepLabel(name,name))} · ${esc(x.step?stepLabel(x.step):jobStatusLabel(x.status||''))}</span><span style="display:inline-block;width:150px;height:6px;background:#333c66;vertical-align:middle"><i style="display:block;width:${pct}%;height:100%;background:var(--orange)"></i></span> ${x.done}/${x.total}${retry}</div>`}).join('')}</div>`:''; ab.innerHTML=`<span style="color:var(--orange)">● ${bi('Running','실행 중')}</span> ${esc(stepLabel(active.step))}${active.params&&active.params.dataset?' · '+esc(active.params.dataset):''} · ${active.elapsed_s||0}s${pr?` · ${pr.done}/${pr.total}`:''}${bars}`; } else ab.textContent=bi('No active job.','실행 중인 작업이 없습니다.'); }
   const jl=gid('jobList');
   if(jl){
     const jobs=(d.jobs||[]).slice().sort((a,b)=>(b.started||0)-(a.started||0)).slice(0,8);
     jl.innerHTML=jobs.map(j=>{
       const sc=j.status==='done'?'stt ok':(j.status==='error'?'stt':'stt run2');
       const est=j.status==='error'?'background:rgba(255,107,92,.15);color:var(--red)':'';
-      return `<tr><td class="name">${esc(j.step)}</td><td>${esc((j.params&&j.params.dataset)||'전체')}${j.params&&j.params.only_empty?' · 빈행':''}</td><td><span class="${sc}" style="${est}">${esc(j.status)}</span></td><td class="m3">${j.elapsed_s!=null?j.elapsed_s+'s':''}</td><td style="font-family:var(--mono);font-size:11px;color:var(--ink2)">${esc(fmtResult(j.result)||j.error||'')}</td></tr>`;
+      return `<tr><td class="name">${esc(stepLabel(j.step))}</td><td>${esc((j.params&&j.params.dataset)||bi('All','전체'))}${j.params&&j.params.only_empty?` · ${bi('unprocessed rows','미처리 행')}`:''}</td><td><span class="${sc}" style="${est}">${esc(jobStatusLabel(j.status))}</span></td><td class="m3">${j.elapsed_s!=null?j.elapsed_s+'s':''}</td><td style="font-family:var(--mono);font-size:11px;color:var(--ink2)">${esc(fmtResult(j.result)||j.error||'')}</td></tr>`;
     }).join('');
   }
   if(_watchJob){ const wj=(d.jobs||[]).find(j=>j.job_id===_watchJob); const lg=gid('jobLog'); if(wj&&lg){ lg.style.display='block'; lg.textContent=(wj.log_tail||[]).join('\n'); } }
@@ -553,8 +630,8 @@ async function pollJobs(){
     const key=`${j.job_id}:${w.code}`; if(_shownWarnings.has(key)) return;
     _shownWarnings.add(key);
     if(w.code==='exif_gps_missing' || w.code==='exif_timestamp_missing'){
-      const st=gid('uploadStatus'); if(st) st.textContent=`⚠ ${w.message}`;
-      alert(`업로드 경고\n\n${w.message}`);
+      const message=warningMessage(w), st=gid('uploadStatus'); if(st) st.textContent=`⚠ ${message}`;
+      alert(`${bi('Upload warning','업로드 경고')}\n\n${message}`);
     }
   }));
   return d;
@@ -573,10 +650,10 @@ function stopJobPolling(){ if(_jobTimer){ clearInterval(_jobTimer); _jobTimer=nu
 
 function annotatePipeline(job){
   if(!job) return; const lbl=STEP_PIPELINE[job.step]; if(!lbl) return;
-  const pr=job.progress, badge=` · 실행중${pr?` ${pr.done}/${pr.total}`:''} ${job.elapsed_s||0}s`;
+  const pr=job.progress, badge=` · ${bi('running','실행 중')}${pr?` ${pr.done}/${pr.total}`:''} ${job.elapsed_s||0}s`;
   document.querySelectorAll('#pipelinebars .pl').forEach(pl=>{
     const l=pl.querySelector('.lbl');
-    if(l&&l.textContent.trim()===lbl){ const st=pl.querySelector('.st'); if(st){ st.textContent='진행중'+badge; st.style.color='var(--orange)'; } const seg=pl.querySelector('.seg'); if(seg) seg.style.background='var(--orange)'; }
+    if(l&&l.textContent.trim()===(uiLanguage==='en'?(PIPELINE_LABELS_EN[lbl]||lbl):lbl)){ const st=pl.querySelector('.st'); if(st){ st.textContent=bi('In progress','진행 중')+badge; st.style.color='var(--orange)'; } const seg=pl.querySelector('.seg'); if(seg) seg.style.background='var(--orange)'; }
   });
 }
 
@@ -584,13 +661,13 @@ const _rerunBtn=gid('rerunBtn'); if(_rerunBtn) _rerunBtn.addEventListener('click
 const _ingestZip=gid('ingestZip');
 if(_ingestZip) _ingestZip.onchange=async e=>{
   const f=e.target.files[0]; if(!f) return; const st=gid('uploadStatus');
-  st.textContent=`추가 중 (ingest): ${f.name} … 업로드`;
+  st.textContent=bi(`Adding dataset: uploading ${f.name}…`,`데이터셋 추가 중: ${f.name} 업로드…`);
   try{
     const res=await fetch('/api/ingest',{method:'POST',body:f,headers:{'Content-Type':'application/zip'}});
     const d=await res.json();
-    if(!d.ok){ st.textContent='추가 실패: '+(res.status===409?'다른 작업 실행중':(d.error||res.status)); if(res.status===409) pollJobs(); }
-    else { st.textContent=`ingest 잡 시작됨 (${d.job_id}) — 작업 패널·① 개요에서 진행 확인`; watchJob(d.job_id); }
-  }catch(err){ st.textContent='추가 요청 실패: '+err.message; }
+    if(!d.ok){ st.textContent=`${bi('Could not add dataset','데이터셋 추가 실패')}: `+(res.status===409?bi('Another job is running','다른 작업이 실행 중입니다'):(d.error||res.status)); if(res.status===409) pollJobs(); }
+    else { st.textContent=bi(`Ingestion started (${d.job_id}). Track progress under Jobs and Overview.`,`데이터 추가를 시작했습니다(${d.job_id}). 작업과 개요에서 진행 상황을 확인하세요.`); watchJob(d.job_id); }
+  }catch(err){ st.textContent=`${bi('Add request failed','추가 요청 실패')}: ${err.message}`; }
   e.target.value='';
 };
 loadDatasets();
