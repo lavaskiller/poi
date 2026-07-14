@@ -15,6 +15,7 @@ sys.path.insert(0, _HERE)
 import rerun_common as rc  # noqa: E402
 
 COL = "caption_ondevice"
+PROCESSED_COL = "ocr_processed"
 
 
 def main() -> int:
@@ -28,7 +29,15 @@ def main() -> int:
     if COL not in fieldnames:
         raise SystemExit(f"CSV has no {COL} column")
 
-    targets = rc.select_rows(rows, args.dataset, rep_col=COL, only_empty=args.only_empty)
+    # A non-empty legacy OCR value proves that the row was processed. Persist
+    # that fact when this worker next commits; empty results need an explicit
+    # marker and must not be selected forever by --only-empty.
+    rc.ensure_column(fieldnames, rows, PROCESSED_COL)
+    for row in rows:
+        if (row.get(COL) or "").strip():
+            row[PROCESSED_COL] = "1"
+    targets = rc.select_rows(rows, args.dataset, rep_col=COL,
+                             only_empty=args.only_empty, processed_col=PROCESSED_COL)
 
     dd = rc.data_dir()
     resolved = []          # (row, abspath)
@@ -51,8 +60,10 @@ def main() -> int:
                         "targets": len(targets), "resolved": len(resolved)})
         return 0
     if not resolved:
+        backup = rc.persist_processed_backfill(PROCESSED_COL, (COL,))
         rc.emit_result({"ok": True, "step": "ocr", "dataset": args.dataset,
-                        "targets": 0, "filled": 0, "skipped_no_photo": skipped_no_photo})
+                        "targets": 0, "filled": 0, "skipped_no_photo": skipped_no_photo,
+                        "backup": backup})
         return 0
 
     in_tsv = os.path.join(dd, "rerun_ocr_input.tsv")
@@ -60,33 +71,47 @@ def main() -> int:
     # ocr_all.swift reads EVERY line as `name<TAB>path` (no header).
     with open(in_tsv, "w", encoding="utf-8") as f:
         for row, p in resolved:
-            f.write(f"{rc.sanitize(row.get('photo'))}\t{p}\n")
+            f.write(f"{rc.sanitize(rc.row_key(row))}\t{p}\n")
     print(f"[ocr] running ocr_all.swift over {len(resolved)} photos ...")
     rc.run_swift("ocr_all.swift", in_tsv, out_tsv)
 
-    text_by_photo = {}
+    text_by_key = {}
     with open(out_tsv, encoding="utf-8") as f:
         for i, line in enumerate(f):
             parts = line.rstrip("\n").split("\t")
             if i == 0 and parts and parts[0] == "photo":
                 continue  # header `photo\tocr_text`
             if len(parts) >= 2:
-                text_by_photo[parts[0]] = parts[1]
+                text_by_key[parts[0]] = parts[1]
 
     n = len(resolved)
     # Re-read under the shared commit lock: other parallel workers may have
     # replaced the CSV while Vision was running.
     with rc.common.csv_write_lock(rc.ms.CSV_PATH):
         fieldnames, rows = rc.read_csv(rc.ms.CSV_PATH)
+        rc.ensure_column(fieldnames, rows, PROCESSED_COL)
+        for row in rows:
+            if (row.get(COL) or "").strip():
+                row[PROCESSED_COL] = "1"
         backup = rc.backup_csv(rc.ms.CSV_PATH)
         filled = 0
-        for i, row in enumerate(rows, 1):
-            val = text_by_photo.get((row.get("photo") or "").strip(), "")
-            if val and rc.merge_cell(row, COL, val, args.only_empty): filled += 1
+        processed = 0
+        for row in rows:
+            key = rc.row_key(row)
+            if key not in text_by_key:
+                continue
+            # Probe output is authoritative even when it is empty: a full
+            # rerun must be able to clear a stale OCR value.
+            val = (text_by_key[key] or "").strip()
+            row[COL] = val
+            row[PROCESSED_COL] = "1"
+            processed += 1
+            filled += int(bool(val))
         rc.write_csv(rc.ms.CSV_PATH, fieldnames, rows)
     rc.progress(n, n)
     rc.emit_result({"ok": True, "step": "ocr", "dataset": args.dataset,
-                    "only_empty": args.only_empty, "targets": n, "filled": filled,
+                    "only_empty": args.only_empty, "targets": n,
+                    "processed": processed, "detected": filled, "filled": filled,
                     "skipped_no_photo": skipped_no_photo, "backup": backup})
     return 0
 

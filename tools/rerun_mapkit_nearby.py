@@ -18,6 +18,7 @@ sys.path.insert(0, _HERE)
 import rerun_common as rc  # noqa: E402
 
 RANK, NWIDE, DIST, TOP1 = "app_poi_rank", "app_nearby_n_wide", "app_poi_dist_m", "app_nearby_top1"
+PROCESSED_COL = "mapkit_nearby_processed"
 
 
 def main() -> int:
@@ -32,7 +33,14 @@ def main() -> int:
         if c not in fieldnames:
             raise SystemExit(f"CSV has no {c} column")
 
-    targets = rc.select_rows(rows, args.dataset, rep_col=RANK, only_empty=args.only_empty)
+    rc.ensure_column(fieldnames, rows, PROCESSED_COL)
+    # Any legacy MapKit cell proves a prior query, including MISS and zero
+    # candidates; it must not be queried again indefinitely.
+    for row in rows:
+        if any((row.get(c) or "").strip() for c in (RANK, NWIDE, DIST, TOP1)):
+            row[PROCESSED_COL] = "1"
+    targets = rc.select_rows(rows, args.dataset, rep_col=RANK,
+                             only_empty=args.only_empty, processed_col=PROCESSED_COL)
     targets = [(i, r) for (i, r) in targets
                if (r.get("capture_lat") or "").strip() and (r.get("capture_lon") or "").strip()]
     print(f"[mapkit_nearby] dataset={args.dataset} targets={len(targets)}")
@@ -43,8 +51,10 @@ def main() -> int:
                         "only_empty": args.only_empty, "dry_run": True, "targets": len(targets)})
         return 0
     if not targets:
+        backup = rc.persist_processed_backfill(
+            PROCESSED_COL, (RANK, NWIDE, DIST, TOP1))
         rc.emit_result({"ok": True, "step": "mapkit_nearby", "dataset": args.dataset,
-                        "targets": 0, "filled": 0})
+                        "targets": 0, "filled": 0, "backup": backup})
         return 0
 
     dd = rc.data_dir()
@@ -55,7 +65,7 @@ def main() -> int:
         f.write("photo\tlat\tlon\tkw\n")
         for _idx, row in targets:
             f.write("%s\t%s\t%s\t%s\n" % (
-                rc.sanitize(row.get("photo")),
+                rc.sanitize(rc.row_key(row)),
                 rc.sanitize(row.get("capture_lat")),
                 rc.sanitize(row.get("capture_lon")),
                 rc.sanitize(rc.ms.input_place_name(row))))
@@ -80,17 +90,32 @@ def main() -> int:
     # Commit only our app_* cells onto the newest CSV under the shared lock.
     with rc.common.csv_write_lock(rc.ms.CSV_PATH):
         fieldnames, rows = rc.read_csv(rc.ms.CSV_PATH)
+        rc.ensure_column(fieldnames, rows, PROCESSED_COL)
+        for row in rows:
+            if any((row.get(c) or "").strip() for c in (RANK, NWIDE, DIST, TOP1)):
+                row[PROCESSED_COL] = "1"
         backup = rc.backup_csv(rc.ms.CSV_PATH)
         filled = 0
+        processed = 0
         for row in rows:
-            vals = res.get((row.get("photo") or "").strip())
+            vals = res.get(rc.row_key(row))
             if vals:
-                changed = any(rc.merge_cell(row, col, v, args.only_empty) for col, v in vals.items())
-                filled += int(changed)
+                # Persist completion independently of candidate detection, and
+                # accept empty cells as the authoritative latest probe result.
+                for col, value in vals.items():
+                    row[col] = (value or "").strip()
+                row[PROCESSED_COL] = "1"
+                processed += 1
+                try:
+                    candidate_count = int((vals.get(NWIDE) or "0").strip())
+                except ValueError:
+                    candidate_count = 0
+                filled += int(candidate_count > 0 or bool((vals.get(TOP1) or "").strip()))
         rc.write_csv(rc.ms.CSV_PATH, fieldnames, rows)
     rc.progress(n, n)
     rc.emit_result({"ok": True, "step": "mapkit_nearby", "dataset": args.dataset,
-                    "only_empty": args.only_empty, "targets": n, "filled": filled,
+                    "only_empty": args.only_empty, "targets": n,
+                    "processed": processed, "detected": filled, "filled": filled,
                     "backup": backup})
     return 0
 

@@ -1,26 +1,67 @@
 // ---------- language ----------
-// Retain an explicit previous choice, but make English the first-visit default.
-let uiLanguage=localStorage.getItem('poi-ui-language')||'en';
+// Retain a valid previous choice, but make English the first-visit default.
+const SUPPORTED_LANGUAGES=new Set(['en','ko']);
+const LANGUAGE_STORAGE_KEY='poi-ui-language';
+function normalizeLanguage(value){return SUPPORTED_LANGUAGES.has(value)?value:'en';}
+function storedLanguage(){try{return normalizeLanguage(localStorage.getItem(LANGUAGE_STORAGE_KEY));}catch(_){return 'en';}}
+function storeLanguage(value){try{localStorage.setItem(LANGUAGE_STORAGE_KEY,value);}catch(_){/* Storage can be unavailable in privacy contexts. */}}
+let uiLanguage=storedLanguage();
 const I18N={
   en:{
     appSubtitle:'Check data health → run an algorithm → inspect results and failures',tabOverview:'Overview',tabRun:'Run algorithm',tabResults:'Run results',tabData:'Dataset management',
     retry:'Retry',totalRows:'Total rows',rowsWithGt:'Rows with GT labels',rowsWithPhotos:'Rows with photo references',countries:'Countries',overviewEmpty:'<b>No dataset has been added yet.</b> The API is connected. Validate and add a ZIP under Dataset management to enable evaluation.',provenance:'Provenance',confidenceTier:'Confidence tier (scoring)',signalPipeline:'Signal pipeline',rowStructure:'Row structure — label columns, coverage, and input vector',coverageByDataset:'Coverage by dataset',field:'Field',role:'Role',coverage:'Coverage',extractionMethod:'Extraction method',coverageHelp:'<b>Coverage determines algorithm-input availability.</b> Selecting sparse signals reduces eligible rows and the performance ceiling.',
     runIntro:'Upload a script that implements one prediction function. It runs against the evaluation set and saves the scored result under Run results.',runSettings:'Run settings',runName:'Run name',saveModeScope:'Save mode and scope',saveAuto:'Automatic (next version)',overwriteV1:'Overwrite v1',overwriteV2:'Overwrite v2',selectInputs:'Select inputs',selectInputsHelp:'— values passed to the function, extraction method, and candidate limit',usage:'Usage',usageHelp:'— access the selected inputs in your script',predictionFunction:'Prediction function',attachFileTypes:'— upload .py, .c, .cpp, .rs, .js, or .sh',attachScript:'📎 Upload a script that implements predict — click or drop',loadExample:'Load example code',downloadExample:'Download example .py',exampleHelp:'Minimal example that returns the nearest candidate',contract:'Contract',otherLanguages:'other languages read JSON from stdin and write the prediction to stdout',runAction:'▶ Run',recentRuns:'Recent runs',versioningHelp:'— matching names are versioned automatically',name:'Name',version:'Version',script:'Script',inputs:'Inputs',scope:'Scope',all:'All',status:'Status',
     resultsIntro:'Manage persisted results here. Select a run to inspect it, compare up to four runs, or delete it.',savedRuns:'Saved runs',compareSelect:'Compare (up to 4)',runDetailEmpty:'Select a run on the left to view its configuration, metrics, and failures.',selectedCompare:'Compare selected runs',compareHelp:'Bars show accuracy. The strip below each bar shows correct, no-prediction, error, and wrong cases.',retrievalDiagnostics:'Retrieval diagnostics',retrievalDiagnosticsHelp:'— candidate-provider coverage, separate from algorithm results',matching:'Matching',candidateRank1:'Candidate rank 1 · GT is first',candidateTop3:'Candidate top 3 · includes GT',candidateTop5:'Candidate top 5 · includes GT',candidateTop10:'Candidate top 10 · includes GT',candidateTop20:'Candidate top 20 · includes GT',candidateTop50:'Candidate top 50 · includes GT',candidateMiss:'Miss · GT absent from candidates',retrievalCoverage:'Retrieval coverage — top N by candidate provider',currentProvider:'current provider',curveAxes:'y = GT present in top-N candidates<br>x = N (measured ranks)',retrievalNote:'<b>Retrieval only.</b> This measures whether the provider returned the GT place. It is a coverage ceiling, not algorithm accuracy.',selectionAccuracy:'Selection accuracy by algorithm',selectionNote:'<b>Each bar is a submitted algorithm.</b> It shows exact-match accuracy for the latest version of each run name.',caseAnalysis:'Case analysis — retrieval success and failure',caseAnalysisHelp:'· live data · provider rank',selectCase:'Select a case on the left.',caseHelp:'<b>Retrieval failure</b> means GT is absent from all candidates. <b>Rank &gt; 1</b> means GT was returned but was not first.',
-    datasetIntro:'Review datasets, rerun extraction steps, or add and remove data.',datasets:'Datasets',datasetCoverageHelp:'— processing and result coverage',dataset:'Dataset',rows:'Rows',signalCoverage:'Processing and detection',loading:'Loading…',rerunStepTitle:'Rerun extraction',rerunStepHelp:'— process rows not yet attempted',step:'Step',emptyRowsOnly:'Unprocessed rows only',rerun:'▶ Rerun',jobLimitHelp:'Only one data job can run at a time. Unavailable steps are disabled.',jobs:'Jobs',jobsHelp:'— progress and logs',noActiveJob:'No active job.',elapsed:'Elapsed',result:'Result',addDataset:'Add a dataset',addDatasetHelp:'— upload a ZIP and track ingestion above',downloadTemplate:'Download template ZIP',validateZip:'Validate ZIP',ingestDataset:'＋ Add dataset',uploadHelp:'Validate a ZIP before adding it. Ingestion runs as a job; derived signals can be filled afterward with Rerun extraction.',footer:'POI evaluation dashboard',submittedCode:'Submitted algorithm code',close:'Close'
+    datasetIntro:'Review datasets, rerun extraction steps, or add and remove data.',datasets:'Datasets',datasetCoverageHelp:'— processing and result coverage',dataset:'Dataset',rows:'Rows',signalCoverage:'Processing and detection',loading:'Loading…',rerunStepTitle:'Rerun extraction',rerunStepHelp:'— process rows not yet attempted',step:'Step',emptyRowsOnly:'Unprocessed rows only',rerun:'▶ Rerun',jobLimitHelp:'Only one data job can run at a time. Unavailable steps are disabled.',jobs:'Jobs',jobsHelp:'— progress and logs',noActiveJob:'No active job.',elapsed:'Elapsed',result:'Result',addDataset:'Add a dataset',addDatasetHelp:'— upload a ZIP and track ingestion above',downloadTemplate:'Download template ZIP',validateZip:'Validate ZIP',ingestDataset:'＋ Add dataset',uploadHelp:'Validate a ZIP before adding it. Ingestion runs as a job; derived signals can be filled afterward with Rerun extraction.',footer:'POI evaluation dashboard',submittedCode:'Submitted algorithm code',close:'Close',dataConnectionError:'Data connection error',dataLoadError:'Some data could not be loaded. Check that the server is running, then try again.',apiConnectedEmpty:'API connected · no data',liveDataConnected:'Live data connected'
   },
   ko:{
     appSubtitle:'데이터 상태 확인 → 알고리즘 실행 → 결과 및 실패 사례 확인',tabOverview:'개요',tabRun:'알고리즘 실행',tabResults:'실행 결과',tabData:'데이터셋 관리',
     retry:'다시 시도',totalRows:'전체 행',rowsWithGt:'정답 라벨이 있는 행',rowsWithPhotos:'사진이 있는 행',countries:'국가',overviewEmpty:'<b>등록된 데이터셋이 없습니다.</b> 데이터셋 관리에서 ZIP을 검증하고 추가하면 평가를 시작할 수 있습니다.',provenance:'데이터 출처',confidenceTier:'신뢰도 등급',signalPipeline:'신호 처리 단계',rowStructure:'행 구조 — 라벨, 입력값, 데이터 채움률',coverageByDataset:'데이터셋별 채움률',field:'필드',role:'역할',coverage:'채움률',extractionMethod:'추출 방법',coverageHelp:'<b>채움률은 알고리즘이 사용할 수 있는 입력의 비율입니다.</b> 채움률이 낮은 신호를 선택하면 평가 가능한 행이 줄어듭니다.',
     runIntro:'예측 함수가 포함된 스크립트를 업로드하세요. 평가 데이터 전체에 실행한 뒤 채점 결과를 실행 결과에 저장합니다.',runSettings:'실행 설정',runName:'실행 이름',saveModeScope:'저장 방식 및 범위',saveAuto:'자동(다음 버전)',overwriteV1:'v1 덮어쓰기',overwriteV2:'v2 덮어쓰기',selectInputs:'입력 선택',selectInputsHelp:'— 함수에 전달할 값, 추출 방법, 후보 수',usage:'사용 방법',usageHelp:'— 스크립트에서 선택한 입력에 접근하는 방법',predictionFunction:'예측 함수',attachFileTypes:'— .py, .c, .cpp, .rs, .js, .sh 업로드',attachScript:'📎 predict를 구현한 스크립트를 클릭하거나 끌어다 놓으세요',loadExample:'예시 코드 불러오기',downloadExample:'예시 .py 다운로드',exampleHelp:'가장 가까운 후보를 반환하는 간단한 예시',contract:'입출력 규약',otherLanguages:'그 외 언어는 stdin으로 JSON을 읽고 stdout으로 예측값을 출력',runAction:'▶ 실행',recentRuns:'최근 실행',versioningHelp:'— 같은 이름은 자동으로 버전이 올라갑니다',name:'이름',version:'버전',script:'스크립트',inputs:'입력',scope:'범위',all:'전체',status:'상태',
     resultsIntro:'저장된 실행을 확인하고, 최대 4개까지 비교하거나 삭제할 수 있습니다.',savedRuns:'저장된 실행',compareSelect:'비교할 실행 선택(최대 4개)',runDetailEmpty:'왼쪽에서 실행을 선택하면 설정, 지표, 실패 사례를 볼 수 있습니다.',selectedCompare:'선택한 실행 비교',compareHelp:'막대는 정확도를, 아래 띠는 정답·예측 없음·오류·오답의 비율을 나타냅니다.',retrievalDiagnostics:'후보 검색 진단',retrievalDiagnosticsHelp:'— 알고리즘 결과와 별도로 후보 제공 범위를 확인합니다',matching:'일치 기준',candidateRank1:'후보 1위 · 정답이 첫 번째',candidateTop3:'상위 3개 후보 · 정답 포함',candidateTop5:'상위 5개 후보 · 정답 포함',candidateTop10:'상위 10개 후보 · 정답 포함',candidateTop20:'상위 20개 후보 · 정답 포함',candidateTop50:'상위 50개 후보 · 정답 포함',candidateMiss:'검색 실패 · 후보에 정답 없음',retrievalCoverage:'후보 검색 범위 — 제공자별 상위 N개',currentProvider:'현재 후보 제공자',curveAxes:'y = 상위 N개 후보에 정답이 있는 비율<br>x = N(실측 순위)',retrievalNote:'<b>후보 검색 지표입니다.</b> 제공자가 정답 장소를 반환했는지 보여 주며, 알고리즘 정확도가 아니라 선택 가능한 범위의 상한입니다.',selectionAccuracy:'알고리즘별 선택 정확도',selectionNote:'<b>막대 하나가 제출한 알고리즘 하나를 나타냅니다.</b> 실행 이름별 최신 버전의 완전 일치 정확도입니다.',caseAnalysis:'사례 분석 — 후보 검색 성공 및 실패',caseAnalysisHelp:'· 실제 데이터 · 후보 순위',selectCase:'왼쪽에서 사례를 선택하세요.',caseHelp:'<b>검색 실패</b>는 전체 후보에 정답이 없다는 뜻입니다. <b>순위 2위 이하</b>는 정답이 후보에 있지만 첫 번째가 아니라는 뜻입니다.',
-    datasetIntro:'데이터셋을 확인하고 추출 단계를 다시 실행하거나 데이터를 추가·삭제할 수 있습니다.',datasets:'데이터셋',datasetCoverageHelp:'— 처리율·결과 검출률 및 관리',dataset:'데이터셋',rows:'행',signalCoverage:'처리 상태와 결과 검출',loading:'불러오는 중…',rerunStepTitle:'추출 다시 실행',rerunStepHelp:'— 아직 처리하지 않은 행 실행',step:'단계',emptyRowsOnly:'미처리 행만',rerun:'▶ 다시 실행',jobLimitHelp:'데이터 작업은 한 번에 하나만 실행할 수 있습니다. 사용할 수 없는 단계는 비활성화됩니다.',jobs:'작업',jobsHelp:'— 진행 상황 및 로그',noActiveJob:'실행 중인 작업이 없습니다.',elapsed:'경과 시간',result:'결과',addDataset:'새 데이터셋 추가',addDatasetHelp:'— ZIP을 업로드하고 위에서 진행 상황 확인',downloadTemplate:'템플릿 ZIP 다운로드',validateZip:'ZIP 검증',ingestDataset:'＋ 데이터셋 추가',uploadHelp:'추가하기 전에 ZIP을 검증하세요. 데이터 추가는 작업으로 실행되며, 파생 신호는 이후 추출 다시 실행에서 채울 수 있습니다.',footer:'POI 평가 대시보드',submittedCode:'제출한 알고리즘 코드',close:'닫기'
+    datasetIntro:'데이터셋을 확인하고 추출 단계를 다시 실행하거나 데이터를 추가·삭제할 수 있습니다.',datasets:'데이터셋',datasetCoverageHelp:'— 처리율·결과 검출률 및 관리',dataset:'데이터셋',rows:'행',signalCoverage:'처리 상태와 결과 검출',loading:'불러오는 중…',rerunStepTitle:'추출 다시 실행',rerunStepHelp:'— 아직 처리하지 않은 행 실행',step:'단계',emptyRowsOnly:'미처리 행만',rerun:'▶ 다시 실행',jobLimitHelp:'데이터 작업은 한 번에 하나만 실행할 수 있습니다. 사용할 수 없는 단계는 비활성화됩니다.',jobs:'작업',jobsHelp:'— 진행 상황 및 로그',noActiveJob:'실행 중인 작업이 없습니다.',elapsed:'경과 시간',result:'결과',addDataset:'새 데이터셋 추가',addDatasetHelp:'— ZIP을 업로드하고 위에서 진행 상황 확인',downloadTemplate:'템플릿 ZIP 다운로드',validateZip:'ZIP 검증',ingestDataset:'＋ 데이터셋 추가',uploadHelp:'추가하기 전에 ZIP을 검증하세요. 데이터 추가는 작업으로 실행되며, 파생 신호는 이후 추출 다시 실행에서 채울 수 있습니다.',footer:'POI 평가 대시보드',submittedCode:'제출한 알고리즘 코드',close:'닫기',dataConnectionError:'데이터 연결 오류',dataLoadError:'일부 데이터를 불러오지 못했습니다. 서버가 실행 중인지 확인한 뒤 다시 시도하세요.',apiConnectedEmpty:'API 연결됨 · 데이터 없음',liveDataConnected:'실데이터 연결됨'
   }
 };
 const tr=(key,fallback='')=>I18N[uiLanguage]?.[key]??I18N.en[key]??fallback;
+const LABELS={
+  en:{
+    outcome:{correct:'rank 1',selection:'rank > 1',retrieval:'retrieval miss',non_poi:'not a POI',deferred:'deferred',no_gt:'no GT',other:'other',all:'All'},
+    pipelineStatus:{done:'Done',run:'In progress',waiting:'Waiting'}, role:{in:'Input signal',gt:'Ground truth',bl:'Baseline',mt:'Metadata'},
+    fieldKind:{coordinate:'Coordinate',number:'Number',date:'Date/time',asset:'File/URL',identifier:'Identifier',category:'Category',text:'Text',ocr:'OCR text'},
+    jobStatus:{queued:'Queued',running:'Running',done:'Done',error:'Failed',cancelled:'Cancelled'},
+    step:{exif:'EXIF coordinates and capture time',ocr:'OCR text',geocode:'Reverse geocoding',mapkit_nearby:'MapKit nearby candidates',gt_mapkit:'MapKit canonical name (GT)',gt_kakao:'Kakao canonical name (GT)',vlm_caption:'VLM caption',ingest:'Dataset ingestion',delete_dataset:'Delete dataset',pipeline:'Post-ingestion pipeline'},
+    signalStatus:{ok:'Available','미구현':'Not implemented',disabled:'Disabled',unavailable:'Unavailable',error:'Error'},
+    mapkitGt:{canonical:'Canonical',similar:'Similar',not_found:'Unregistered'}
+  },
+  ko:{
+    outcome:{correct:'1위 일치',selection:'2위 이하',retrieval:'검색 실패',non_poi:'POI 아님',deferred:'보류',no_gt:'GT 없음',other:'기타',all:'전체'},
+    pipelineStatus:{done:'완료',run:'진행 중',waiting:'대기'}, role:{in:'입력 신호',gt:'정답',bl:'기준 결과',mt:'메타데이터'},
+    fieldKind:{coordinate:'좌표',number:'숫자',date:'날짜/시간',asset:'파일/URL',identifier:'식별자',category:'범주',text:'텍스트',ocr:'OCR 텍스트'},
+    jobStatus:{queued:'대기',running:'실행 중',done:'완료',error:'실패',cancelled:'취소됨'},
+    step:{exif:'EXIF 좌표 및 촬영 시각',ocr:'OCR 텍스트',geocode:'역지오코딩',mapkit_nearby:'MapKit 주변 후보',gt_mapkit:'MapKit 정규명(GT)',gt_kakao:'Kakao 정규명(GT)',vlm_caption:'VLM 설명',ingest:'데이터셋 추가',delete_dataset:'데이터셋 삭제',pipeline:'추가 후 처리'},
+    signalStatus:{ok:'사용 가능','미구현':'미구현',disabled:'비활성','사용 불가':'사용 불가',unavailable:'사용 불가',error:'오류'},
+    mapkitGt:{canonical:'정규명',similar:'유사명',not_found:'미등록'}
+  }
+};
+const tl=(group,key,fallback='')=>LABELS[uiLanguage]?.[group]?.[key]??LABELS.en[group]?.[key]??fallback;
+// Transitional helper for interpolated copy. New fixed labels belong in I18N.
 const bi=(en,ko)=>uiLanguage==='ko'?ko:en;
-function applyLanguage(){document.documentElement.lang=uiLanguage;document.querySelectorAll('[data-i18n]').forEach(el=>{const value=I18N[uiLanguage][el.dataset.i18n];if(value!==undefined)el.innerHTML=value});document.querySelectorAll('[data-lang]').forEach(b=>b.classList.toggle('on',b.dataset.lang===uiLanguage));setApiState('language',null);if(selectedRun)renderRunDetail();if(_rowstruct){const open=_openFieldGroup;renderRowStruct();if(open)loadFieldProfile(open);}loadOverviewSummary();}
-document.querySelectorAll('[data-lang]').forEach(b=>b.onclick=()=>{uiLanguage=b.dataset.lang;localStorage.setItem('poi-ui-language',uiLanguage);applyLanguage();renderParams();renderRuns();renderRunManager();drawCompareBars();renderChips();renderCaseList();if(curCaseIdx!=null)showCase(curCaseIdx);loadDatasets();pollJobs()});
+function applyStaticLanguage(){
+  document.documentElement.lang=uiLanguage;
+  document.querySelectorAll('[data-i18n]').forEach(el=>{const value=tr(el.dataset.i18n);if(value!==undefined)el.innerHTML=value});
+  document.querySelectorAll('[data-lang]').forEach(b=>b.classList.toggle('on',b.dataset.lang===uiLanguage));
+  setApiState('language',null);
+}
+function renderLocalizedUI(){
+  applyStaticLanguage();
+  if(selectedRun)renderRunDetail();
+  if(_rowstruct){const open=_openFieldGroup;renderRowStruct();if(open)loadFieldProfile(open);}
+  renderParams();renderRuns();renderRunManager();drawCompareBars();renderChips();renderCaseList();
+  if(curCaseIdx!=null)showCase(curCaseIdx);
+  loadOverviewSummary();loadDatasets();pollJobs();
+}
+function setLanguage(value){uiLanguage=normalizeLanguage(value);storeLanguage(uiLanguage);renderLocalizedUI();}
+document.querySelectorAll('[data-lang]').forEach(b=>b.onclick=()=>setLanguage(b.dataset.lang));
 
 // ---------- tabs ----------
 document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
@@ -36,11 +77,11 @@ function setApiState(key,error){
   if(error) apiFailures.add(key); else apiFailures.delete(key);
   const health=$('#apiHealth'), box=$('#apiError'), text=$('#apiErrorText');
   if(apiFailures.size){
-    health.className='health err'; health.textContent=uiLanguage==='en'?'Data connection error':'데이터 연결 오류';
-    box.classList.add('on'); text.textContent=uiLanguage==='en'?'Some data could not be loaded. Check that the server is running, then try again.':'일부 데이터를 불러오지 못했습니다. 서버가 실행 중인지 확인한 뒤 다시 시도하세요.';
+    health.className='health err'; health.textContent=tr('dataConnectionError');
+    box.classList.add('on'); text.textContent=tr('dataLoadError');
   }else{
     health.className='health ok';
-    health.textContent=storeDataState==='empty'?(uiLanguage==='en'?'API connected · no data':'API 연결됨 · 데이터 없음'):(uiLanguage==='en'?'Live data connected':'실데이터 연결됨');
+    health.textContent=tr(storeDataState==='empty'?'apiConnectedEmpty':'liveDataConnected');
     box.classList.remove('on');
   }
 }
@@ -100,7 +141,7 @@ function drawBars(algos){
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const plain=s=>esc(String(s==null?'':s).replace(/<[^>]*>/g,''));
 let CASES=[],curOutcome='all',curCaseIdx=null;
-const outcomeLabel=o=>(uiLanguage==='ko'?{correct:'1위 일치',selection:'2위 이하',retrieval:'검색 실패',non_poi:'POI 아님',deferred:'보류',no_gt:'GT 없음',other:'기타',all:'전체'}:{correct:'rank 1',selection:'rank > 1',retrieval:'retrieval miss',non_poi:'not a POI',deferred:'deferred',no_gt:'no GT',other:'other',all:'All'})[o]||o;
+const outcomeLabel=o=>tl('outcome',o,o);
 const OC_ORDER=['all','correct','selection','retrieval','non_poi','deferred','no_gt'];
 const providerExactEq=(a,b)=>{a=(a||'').trim();b=(b||'').trim();return !!(a&&b&&a===b);};
 async function loadCases(){
@@ -181,7 +222,7 @@ async function loadOverviewSummary(){
     by('sourcebars').innerHTML=(d.sources||[]).map(x=>`<div class="src"><span class="dot" style="background:${color(x.color)}"></span><span>${esc(x.key)}</span><b>${x.count}</b></div>`).join('');
     by('confidencebars').innerHTML=(d.confidence||[]).map(x=>`<div class="bar"><span class="lbl">${esc(x.key)}</span><div class="track"><div class="fill" style="width:${pct(x.count)}%;background:${color(x.color)}"></div></div><span class="v">${x.count}</span></div>`).join('');
     by('countrybars').innerHTML=(d.countries||[]).map((x,i)=>`<div class="bar"><span class="lbl">${esc(x.flag||'·')} ${esc(x.key)}</span><div class="track"><div class="fill" style="width:${pct(x.count)}%;background:${['var(--blue)','var(--pink)','var(--cyan)','var(--violet)','var(--orange)'][i%5]}"></div></div><span class="v">${x.count}</span></div>`).join('');
-    by('pipelinebars').innerHTML=(d.pipeline||[]).map(x=>{const p=total?Math.round(100*(x.merged||x.extracted||0)/total):0;const st=x.status==='done'?(uiLanguage==='en'?'Done':'완료'):(x.status==='run'?(uiLanguage==='en'?'In progress':'진행중'):(uiLanguage==='en'?'Waiting':'대기'));const label=uiLanguage==='en'?(PIPELINE_LABELS_EN[x.label]||x.label):x.label;const col=x.status==='done'?'var(--green)':(x.status==='run'?'var(--orange)':'#333c66');return `<div class="pl"><span class="lbl">${esc(label)}</span><div class="track"><div class="seg" style="width:${p}%;background:${col}"></div></div><span class="st ${x.status}">${st}</span></div>`}).join('');
+    by('pipelinebars').innerHTML=(d.pipeline||[]).map(x=>{const p=total?Math.round(100*(x.merged||x.extracted||0)/total):0;const st=tl('pipelineStatus',x.status==='done'?'done':(x.status==='run'?'run':'waiting'));const label=uiLanguage==='en'?(PIPELINE_LABELS_EN[x.label]||x.label):x.label;const col=x.status==='done'?'var(--green)':(x.status==='run'?'var(--orange)':'#333c66');return `<div class="pl"><span class="lbl">${esc(label)}</span><div class="track"><div class="seg" style="width:${p}%;background:${col}"></div></div><span class="st ${x.status}">${st}</span></div>`}).join('');
   }catch(e){ console.warn('overview load failed',e); }
 }
 // Row structure is rendered live from /api/overview `schema` (config-driven).
@@ -190,8 +231,7 @@ async function loadOverviewSummary(){
 let _rowstruct=null;
 let _openFieldGroup=null;
 const FIELD_DESC_EN={'capture_lat/lon':'Photo EXIF GPS coordinates.','caption_ondevice':'Text extracted from photos with Vision OCR.','photo_url / photo':'S3 URL and local filename; input for FastVLM and OCR.','timestamp':'Capture time retained only for the local dataset.','input_place_name':'Raw user input before provider normalization.','gt_mapkit':'Canonical MapKit answer for non-Korean rows; used for scoring.','gt_kakao':'Canonical Kakao answer for Korean rows; held out until Kakao data is available.','gt_confidence':'Label confidence tier.','category':'POI type used for failure analysis.','city / country / address':'Reverse-geocoded strings supplied by exports.','app_poi_rank':'Rank of the correct answer in the current app MapKit search.','app_nearby_top1':'Nearest result within a 250 m MapKit radius.','app_nearby_n_wide':'Number of candidates within the wider MapKit radius.','app_poi_dist_m':'Distance to the matched POI, in metres.','baseline_place_title':'Title attached by the app.','poi_match_keyword':'Keyword used to find the answer in MapKit results.','poi_list_match':'Answer-match detail and annotations.','dataset / notes / username':'Source, author, and manual notes.','caption_oracle':'Strong vision-model captions deliberately removed to prevent circularity.'};
-const ROLE_EN={in:'Input signal',gt:'Ground truth',bl:'Baseline',mt:'Metadata'};
-const FIELD_KIND_LABEL={en:{coordinate:'Coordinate',number:'Number',date:'Date/time',asset:'File/URL',category:'Category',text:'Text'},ko:{coordinate:'좌표',number:'숫자',date:'날짜·시간',asset:'파일·URL',category:'범주',text:'텍스트'}};
+
 async function loadRowStruct(){
   try{_rowstruct=await apiJSON('/api/overview','overview');}catch(e){_rowstruct={};}
   const sel=$("#rowstruct-src");
@@ -217,7 +257,7 @@ function renderRowStruct(){
     const color=pct>=90?'var(--green)':(pct===0?'var(--ink3)':'var(--orange)');
     const rcolor=RC[s.role_key]||'var(--ink3)';
     return `<tr data-group="${esc(s.group)}" tabindex="0" aria-label="${esc(s.group)} ${uiLanguage==='en'?'details':'값 상세 보기'}"><td class="nm3">${esc(s.group)}</td>
-      <td class="rl" style="color:${rcolor}">${esc(uiLanguage==='en'?(ROLE_EN[s.role_key]||s.role_key||''):(s.role_label||s.role_key||''))}</td>
+      <td class="rl" style="color:${rcolor}">${esc(tl('role',s.role_key,s.role_key||''))}</td>
       <td><div class="fb2"><div class="mt2"><div class="mf2" style="width:${pct}%;background:${color}"></div></div><span class="mp2">${pct}%</span></div></td>
       <td class="m3">${uiLanguage==='en'?esc(FIELD_DESC_EN[s.group]||(s.desc&&!/[가-힣]/.test(s.desc)?String(s.desc).replace(/<[^>]*>/g,''):'No dashboard description. Add this field to dashboard_config.json > schema_groups.')):plain(s.desc||'')} <button class="field-detail-trigger" type="button" aria-label="${esc(s.group)} ${uiLanguage==='en'?'details':'값 상세 보기'}">${uiLanguage==='en'?'Details':'상세 보기'}</button></td></tr>`;
   }).join('');
@@ -238,7 +278,7 @@ function profileBars(items){
 function profileCompleteness(p,total){
   const L=uiLanguage==='en';
   const pct=total?Math.round(100*p.present/total):0, circumference=251.2, dash=(circumference*pct/100).toFixed(1);
-  const kind=(FIELD_KIND_LABEL[uiLanguage]||FIELD_KIND_LABEL.en)[p.kind]||p.kind_label;
+  const kind=tl('fieldKind',p.kind,p.kind_label);
   return `<div class="profile-summary"><svg class="profile-completeness" viewBox="0 0 100 100" aria-label="${pct}% ${L?'populated':'채워짐'}"><circle class="base" cx="50" cy="50" r="40"/><circle class="value" cx="50" cy="50" r="40" transform="rotate(-90 50 50)" stroke-dasharray="${dash} ${circumference}"></circle><text x="50" y="55" text-anchor="middle">${pct}%</text></svg><div class="profile-overview"><b>${p.present} ${L?'populated':'채워짐'} · ${p.missing} ${L?'missing':'비어 있음'}</b><span>${p.unique} ${L?`distinct value${p.unique===1?'':'s'}`:'고유값'} · ${esc(kind)}</span>${p.numeric?`<span>${L?'Range':'범위'} ${fmtProfileNumber(p.numeric.min)} — ${fmtProfileNumber(p.numeric.max)} · ${L?'median':'중앙값'} ${fmtProfileNumber(p.numeric.median)}</span>`:''}${p.text?`<span>${L?'Text length':'텍스트 길이'}: ${p.text.min_length} — ${p.text.max_length} · ${L?'median':'중앙값'} ${p.text.median_length}</span>`:''}</div></div>`;
 }
 function profileHistogram(items){
@@ -285,7 +325,7 @@ let runFailureDataset='all', runFailureKind='all', runFailurePage=0;
 const RUN_FAILURE_PAGE_SIZE=12;
 const comparedRunIds=new Set();
 const g=id=>document.getElementById(id);
-applyLanguage();
+applyStaticLanguage();
 // 입력 파라미터 = 신호 + 추출 방법(provenance). methods[0]=현재, 그 외=대안(이후).
 const PARAMS=[
   {k:"image", en:"Image", ko:"이미지", methods:["Original photo (jpg)"], on:false},
@@ -388,10 +428,10 @@ if(uploadZip){
     try{
       const res=await fetch('/api/validate-upload-package',{method:'POST',body:f,headers:{'Content-Type':'application/zip'}});
       const data=await res.json();
-      const errs=(data.errors||[]).slice(0,5).map(x=>`${x.code||'error'}${x.row?` row ${x.row}`:''}: ${x.message}`).join(' / ');
+      const errs=(data.errors||[]).slice(0,5).map(x=>`${x.code||'error'}${x.row?` row ${x.row}`:''}: ${safeServerMessage(x.message,bi('Invalid upload data.','업로드 데이터가 올바르지 않습니다.'))}`).join(' / ');
       status.textContent=data.ok
         ? bi(`Valid: ${data.row_count||0} rows and ${data.image_count||0} images. EXIF, location, and provider data will be extracted during ingestion.`,`검증 완료: 행 ${data.row_count||0}개, 사진 ${data.image_count||0}개. 추가할 때 EXIF, 위치, 제공자 데이터를 추출합니다.`)
-        : `${bi('Validation failed','검증 실패')}: ${errs||data.error||bi('Check the upload package.','업로드 파일을 확인하세요.')}`;
+        : `${bi('Validation failed','검증 실패')}: ${errs||apiErrorMessage(data,'invalid_request')}`;
     }catch(err){ status.textContent=`${bi('Validation request failed','검증 요청 실패')}: ${err.message}`; }
   };
 }
@@ -422,7 +462,7 @@ g('runbtn').onclick=async()=>{
       g('runhint').textContent=bi(`Completed: ${data.name} v${data.version} · accuracy ${m.accuracy_pct}% (${m.correct}/${m.n_eligible}, no prediction ${m.abstained}, errors ${m.errored})`,`완료: ${data.name} v${data.version} · 정확도 ${m.accuracy_pct}% (${m.correct}/${m.n_eligible}, 예측 없음 ${m.abstained}, 오류 ${m.errored})`);
       await loadRuns();
     }else{
-      g('runhint').textContent=`${bi('Failed','실패')}: ${data.error||bi('Run error','실행 오류')}`;
+      g('runhint').textContent=`${bi('Failed','실패')}: ${apiErrorMessage(data,'run_failed')}`;
     }
   }catch(err){ g('runhint').textContent=`${bi('Request failed','요청 실패')}: ${err.message}`; }
   finally{ g('runbtn').disabled=false; }
@@ -471,7 +511,7 @@ function renderRunDetail(){
   g('failurePrev').onclick=()=>{runFailurePage--;renderRunDetail()};
   g('failureNext').onclick=()=>{runFailurePage++;renderRunDetail()};
 }
-async function deleteSelectedRun(r){if(!confirm(bi(`Permanently delete "${r.name}" v${r.version}?\n\nThis removes the saved run and its case results.`,`"${r.name}" v${r.version}을 영구 삭제할까요?\n\n저장된 실행과 사례 결과가 삭제됩니다.`)))return;try{const res=await fetch(`/api/runs?name=${encodeURIComponent(r.name)}&version=${r.version}`,{method:'DELETE'}),d=await res.json();if(!res.ok||!d.ok)throw Error(d.error||`HTTP ${res.status}`);comparedRunIds.delete(runKey(r));selectedRunId=null;selectedRun=null;g('runDetail').textContent=bi('Run deleted.','실행이 삭제되었습니다.');await loadRuns()}catch(e){alert(`${bi('Could not delete run','실행을 삭제하지 못했습니다')}: ${e.message}`)}}
+async function deleteSelectedRun(r){if(!confirm(bi(`Permanently delete "${r.name}" v${r.version}?\n\nThis removes the saved run and its case results.`,`"${r.name}" v${r.version}을 영구 삭제할까요?\n\n저장된 실행과 사례 결과가 삭제됩니다.`)))return;try{const res=await fetch(`/api/runs?name=${encodeURIComponent(r.name)}&version=${r.version}`,{method:'DELETE'}),d=await res.json();if(!res.ok||!d.ok)throw Error(apiErrorMessage(d,res.status===404?'not_found':'request_failed'));comparedRunIds.delete(runKey(r));selectedRunId=null;selectedRun=null;g('runDetail').textContent=bi('Run deleted.','실행이 삭제되었습니다.');await loadRuns()}catch(e){alert(`${bi('Could not delete run','실행을 삭제하지 못했습니다')}: ${e.message}`)}}
 
 async function loadRuns(){
   let payload;
@@ -497,30 +537,37 @@ let _dsData=null, _jobTimer=null, _watchJob=null, _pollBusy=false;
 const _shownWarnings=new Set();
 // step -> ① 신호 파이프라인 row label to annotate while running
 const STEP_PIPELINE={ocr:'Vision OCR', mapkit_nearby:'MapKit 베이스라인', gt_mapkit:'MapKit 정규명(GT)'};
-const jobStatusLabel=status=>uiLanguage==='ko'?({queued:'대기',running:'실행 중',done:'완료',error:'실패',cancelled:'취소됨'}[status]||status):status;
-const STEP_LABELS={
-  en:{exif:'EXIF coordinates and capture time',ocr:'OCR text',geocode:'Reverse geocoding',mapkit_nearby:'MapKit nearby candidates',gt_mapkit:'MapKit canonical name (GT)',gt_kakao:'Kakao canonical name (GT)',vlm_caption:'VLM caption',ingest:'Dataset ingestion',delete_dataset:'Delete dataset',pipeline:'Post-ingestion pipeline'},
-  ko:{exif:'EXIF 좌표 및 촬영 시각',ocr:'OCR 텍스트',geocode:'역지오코딩',mapkit_nearby:'MapKit 주변 후보',gt_mapkit:'MapKit 정규명(GT)',gt_kakao:'Kakao 정규명(GT)',vlm_caption:'VLM 설명',ingest:'데이터셋 추가',delete_dataset:'데이터셋 삭제',pipeline:'추가 후 처리'}
+const jobStatusLabel=status=>tl('jobStatus',status,status);
+const API_ERROR_MESSAGES={
+  en:{busy:'Another data job is already running.',disabled:'This operation is disabled.',not_implemented:'This step is not implemented.',unknown_step:'Unknown extraction step.',not_found:'The requested item was not found.',invalid_request:'The request is invalid.',invalid_provider:'The selected provider is invalid.',upload_save_failed:'The upload could not be saved.',run_failed:'The algorithm run failed.',internal_error:'The server could not complete the request.',request_failed:'The request could not be completed.'},
+  ko:{busy:'다른 데이터 작업이 이미 실행 중입니다.',disabled:'이 작업은 현재 사용할 수 없습니다.',not_implemented:'아직 지원하지 않는 단계입니다.',unknown_step:'알 수 없는 추출 단계입니다.',not_found:'요청한 항목을 찾을 수 없습니다.',invalid_request:'요청이 올바르지 않습니다.',invalid_provider:'선택한 제공자가 올바르지 않습니다.',upload_save_failed:'업로드 파일을 저장하지 못했습니다.',run_failed:'알고리즘 실행에 실패했습니다.',internal_error:'서버에서 요청을 처리하지 못했습니다.',request_failed:'요청을 완료하지 못했습니다.'}
 };
+function apiErrorMessage(payload,fallbackCode='request_failed'){
+  const data=payload&&typeof payload==='object'?payload:{};
+  const code=data.error_code||fallbackCode;
+  const localized=(API_ERROR_MESSAGES[uiLanguage]||API_ERROR_MESSAGES.en)[code];
+  if(localized)return localized;
+  const raw=String(data.error||'').trim();
+  if(raw&&((uiLanguage==='en'&&!hasKorean(raw))||(uiLanguage==='ko'&&hasKorean(raw))))return raw;
+  return API_ERROR_MESSAGES[uiLanguage][fallbackCode]||API_ERROR_MESSAGES[uiLanguage].request_failed;
+}
 const hasKorean=value=>/[가-힣]/.test(String(value||''));
+const safeServerMessage=(value,fallback='')=>{
+  const raw=String(value||'').trim();
+  if(!raw)return fallback;
+  return uiLanguage==='en'&&hasKorean(raw)?fallback:raw;
+};
 const humanizeCode=value=>String(value||'').replace(/[_-]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 const stepLabel=(step,fallback='')=>{
-  const known=STEP_LABELS[uiLanguage][step];
+  const known=tl('step',step);
   if(known) return known;
   if(uiLanguage==='en'&&hasKorean(fallback)) return humanizeCode(step)||'Unknown step';
   return fallback||humanizeCode(step)||'';
 };
-const SIGNAL_STATUS_LABELS={
-  en:{ok:'Available','미구현':'Not implemented',disabled:'Disabled',unavailable:'Unavailable',error:'Error'},
-  ko:{ok:'사용 가능','미구현':'미구현',disabled:'비활성','사용 불가':'사용 불가',unavailable:'사용 불가',error:'오류'}
-};
-const signalStatusLabel=status=>SIGNAL_STATUS_LABELS[uiLanguage][status]||(uiLanguage==='en'&&hasKorean(status)?'Unavailable':(status||''));
-const SIGNAL_RESULT_LABELS_EN={'텍스트 검출':'Text detected','후보 검출':'Candidates detected'};
+const signalStatusLabel=status=>tl('signalStatus',status,uiLanguage==='en'&&hasKorean(status)?'Unavailable':(status||''));
+const SIGNAL_RESULT_LABELS_EN={'텍스트 검출':'Text detected','후보 검출':'Candidates detected','좌표 보유':'Coordinates available','촬영 시각 보유':'Capture time available'};
 const signalResultLabel=label=>uiLanguage==='en'?(SIGNAL_RESULT_LABELS_EN[label]||'Result detected'):(label||'결과 검출');
-const MAPKIT_GT_LABELS={
-  en:{canonical:'Canonical',similar:'Similar',not_found:'Unregistered'},
-  ko:{canonical:'정규명',similar:'유사명',not_found:'미등록'}
-};
+
 const warningMessage=w=>{
   if(uiLanguage==='ko') return w.message||'';
   if(w.code==='exif_gps_missing') return `${w.count}/${w.targets} source photos have no EXIF GPS coordinates. Coordinate-based steps have no input.`;
@@ -536,13 +583,17 @@ async function loadDatasets(){
     const bars=Object.values(ds.signals||{}).map(s=>{
       const dis=s.status&&s.status!=='ok';
       const metric=(label,count,pct,kind='')=>`<div class="signal-metric ${kind}${pct===0?' empty':''}" title="${esc(label)}: ${count}/${ds.count} (${pct}%)"><div class="signal-metric-head"><span class="signal-metric-label">${esc(label)}</span><span class="signal-metric-value"><span class="signal-metric-count">${count} / ${ds.count}</span><strong class="signal-metric-pct">${pct}%</strong></span></div><div class="signal-track" aria-hidden="true"><div class="signal-fill" style="width:${pct}%"></div></div></div>`;
+      if(s.coverage_metrics?.length&&!dis){
+        const metrics=s.coverage_metrics.map(item=>metric(signalResultLabel(item.label),item.count,item.pct,'detected')).join('');
+        return `<div class="signal-status"><div class="signal-title">${esc(stepLabel(s.step,s.label))}</div><div class="signal-metrics">${metrics}</div></div>`;
+      }
       if(s.processed!=null&&!dis){
         return `<div class="signal-status"><div class="signal-title">${esc(stepLabel(s.step,s.label))}</div><div class="signal-metrics">${metric(bi('Processed','처리 완료'),s.processed,s.processed_pct,'processed')}${metric(signalResultLabel(s.result_label),s.fill,s.pct,'detected')}</div></div>`;
       }
       const label=stepLabel(s.step,s.label), status=signalStatusLabel(s.status);
       if(s.label_breakdown&&!dis){
-        const breakdown=s.label_breakdown, labels=MAPKIT_GT_LABELS[uiLanguage];
-        const items=(breakdown.items||[]).map(item=>({...item,label:labels[item.key]||item.key}));
+        const breakdown=s.label_breakdown;
+        const items=(breakdown.items||[]).map(item=>({...item,label:tl('mapkitGt',item.key,item.key)}));
         const segments=items.map(item=>`<span class="gt-segment ${esc(item.key)}" style="width:${item.pct}%" title="${esc(item.label)}: ${item.count}/${breakdown.total} (${item.pct}%)"></span>`).join('');
         const legend=items.map(item=>`<span class="gt-label-item ${esc(item.key)}"><i></i><span>${esc(item.label)}</span><b>${item.pct}%</b><small>${item.count} / ${breakdown.total}</small></span>`).join('');
         const excluded=breakdown.excluded||{}, excludedText=[];
@@ -584,7 +635,7 @@ async function deleteDataset(key){
   try{
     const res=await fetch(`/api/jobs?step=delete_dataset&dataset=${encodeURIComponent(key)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delete_photos:fullCleanup,remove_config_source:fullCleanup})});
     const d=await res.json();
-    if(!d.ok){ alert(`${bi('Delete failed','삭제 실패')}: `+(res.status===409?bi('Another job is running','다른 작업이 실행 중입니다'):(d.error||res.status))); return; }
+    if(!d.ok){ alert(`${bi('Delete failed','삭제 실패')}: ${apiErrorMessage(d,res.status===409?'busy':'request_failed')}`); return; }
     watchJob(d.job_id);
   }catch(e){ alert(`${bi('Delete request failed','삭제 요청 실패')}: ${e.message}`); }
 }
@@ -596,7 +647,7 @@ async function doRerun(){
   try{
     const res=await fetch(`/api/jobs?step=${encodeURIComponent(step)}&dataset=${encodeURIComponent(dataset)}&only_empty=${onlyEmpty}`,{method:'POST'});
     const d=await res.json();
-    if(!d.ok){ hint.textContent=res.status===409?bi('Another job is running.','다른 작업이 실행 중입니다.'):(res.status===501?bi('This step is not implemented.','아직 지원하지 않는 단계입니다.'):(d.error||bi('Failed','실패'))); if(res.status===409) pollJobs(); return; }
+    if(!d.ok){ hint.textContent=apiErrorMessage(d,res.status===409?'busy':(res.status===501?'not_implemented':'request_failed')); if(res.status===409) pollJobs(); return; }
     hint.textContent=`${bi('Started','시작됨')} (${d.job_id})`; watchJob(d.job_id);
   }catch(e){ hint.textContent=`${bi('Request failed','요청 실패')}: ${e.message}`; }
 }
@@ -622,7 +673,7 @@ async function pollJobs(){
     jl.innerHTML=jobs.map(j=>{
       const sc=j.status==='done'?'stt ok':(j.status==='error'?'stt':'stt run2');
       const est=j.status==='error'?'background:rgba(255,107,92,.15);color:var(--red)':'';
-      return `<tr><td class="name">${esc(stepLabel(j.step))}</td><td>${esc((j.params&&j.params.dataset)||bi('All','전체'))}${j.params&&j.params.only_empty?` · ${bi('unprocessed rows','미처리 행')}`:''}</td><td><span class="${sc}" style="${est}">${esc(jobStatusLabel(j.status))}</span></td><td class="m3">${j.elapsed_s!=null?j.elapsed_s+'s':''}</td><td style="font-family:var(--mono);font-size:11px;color:var(--ink2)">${esc(fmtResult(j.result)||j.error||'')}</td></tr>`;
+      return `<tr><td class="name">${esc(stepLabel(j.step))}</td><td>${esc((j.params&&j.params.dataset)||bi('All','전체'))}${j.params&&j.params.only_empty?` · ${bi('unprocessed rows','미처리 행')}`:''}</td><td><span class="${sc}" style="${est}">${esc(jobStatusLabel(j.status))}</span></td><td class="m3">${j.elapsed_s!=null?j.elapsed_s+'s':''}</td><td style="font-family:var(--mono);font-size:11px;color:var(--ink2)">${esc(fmtResult(j.result)||(j.error?safeServerMessage(j.error,API_ERROR_MESSAGES[uiLanguage].internal_error):''))}</td></tr>`;
     }).join('');
   }
   if(_watchJob){ const wj=(d.jobs||[]).find(j=>j.job_id===_watchJob); const lg=gid('jobLog'); if(wj&&lg){ lg.style.display='block'; lg.textContent=(wj.log_tail||[]).join('\n'); } }
@@ -665,7 +716,7 @@ if(_ingestZip) _ingestZip.onchange=async e=>{
   try{
     const res=await fetch('/api/ingest',{method:'POST',body:f,headers:{'Content-Type':'application/zip'}});
     const d=await res.json();
-    if(!d.ok){ st.textContent=`${bi('Could not add dataset','데이터셋 추가 실패')}: `+(res.status===409?bi('Another job is running','다른 작업이 실행 중입니다'):(d.error||res.status)); if(res.status===409) pollJobs(); }
+    if(!d.ok){ st.textContent=`${bi('Could not add dataset','데이터셋 추가 실패')}: ${apiErrorMessage(d,res.status===409?'busy':'request_failed')}`; if(res.status===409) pollJobs(); }
     else { st.textContent=bi(`Ingestion started (${d.job_id}). Track progress under Jobs and Overview.`,`데이터 추가를 시작했습니다(${d.job_id}). 작업과 개요에서 진행 상황을 확인하세요.`); watchJob(d.job_id); }
   }catch(err){ st.textContent=`${bi('Add request failed','추가 요청 실패')}: ${err.message}`; }
   e.target.value='';

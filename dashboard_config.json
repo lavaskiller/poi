@@ -12,11 +12,11 @@
 
   "_signals_note": "자동 채움 신호 레지스트리. tab ④의 재실행 단계 드롭다운과 /api/datasets 신호 채움을 구동. step은 STEP_REGISTRY(server.py)의 실행 매핑과 연결. status:미구현이면 UI 회색·서버 501.",
   "signals": {
-    "exif":          { "label": "EXIF 좌표/시각",   "cols": ["capture_lat", "capture_lon", "timestamp"], "step": "exif", "status": "미구현" },
-    "ocr":           { "label": "OCR 텍스트",       "cols": ["caption_ondevice"], "step": "ocr" },
+    "exif":          { "label": "EXIF 좌표/시각",   "cols": ["capture_lat", "capture_lon", "timestamp"], "step": "exif", "coverage_metrics": [{ "key": "coordinates", "label": "좌표 보유", "cols": ["capture_lat", "capture_lon"], "require": "all" }, { "key": "timestamp", "label": "촬영 시각 보유", "cols": ["timestamp"], "require": "all" }] },
+    "ocr":           { "label": "OCR 텍스트",       "cols": ["caption_ondevice"], "step": "ocr", "processed_col": "ocr_processed", "result_label": "텍스트 검출" },
     "geocode":       { "label": "역지오코딩",       "cols": ["city", "country", "address"], "step": "geocode", "status": "미구현" },
-    "mapkit_nearby": { "label": "MapKit 주변후보",  "cols": ["app_poi_rank", "app_nearby_top1", "app_nearby_n_wide", "app_poi_dist_m"], "step": "mapkit_nearby" },
-    "gt_mapkit":     { "label": "MapKit 정규명(GT)", "cols": ["gt_mapkit"], "step": "gt_mapkit" },
+    "mapkit_nearby": { "label": "MapKit 주변후보",  "cols": ["app_poi_rank", "app_nearby_top1", "app_nearby_n_wide", "app_poi_dist_m"], "step": "mapkit_nearby", "processed_col": "mapkit_nearby_processed", "result_label": "후보 검출", "result_rule": "mapkit_candidates" },
+    "gt_mapkit":     { "label": "MapKit 정규명(GT)", "cols": ["gt_mapkit"], "step": "gt_mapkit", "result_rule": "mapkit_gt_labels" },
     "gt_kakao":      { "label": "Kakao 정규명(GT)",  "cols": ["gt_kakao"], "step": "gt_kakao" },
     "vlm_caption":   { "label": "VLM 캡션",         "cols": ["vlm_caption"], "step": "vlm_caption", "status": "미구현" }
   },
@@ -80,6 +80,7 @@
     { "group": "poi_match_keyword", "role": "bl", "cols": ["poi_match_keyword"], "desc": "정답을 MapKit 결과에서 찾을 매칭 키워드 (예: Safeway)." },
     { "group": "poi_list_match", "role": "bl", "cols": ["poi_list_match"], "desc": "정답 매칭 상세·주석 (예: Safeway | 1790 Decoto…, n/a in-flight). 일부 행만." },
     { "group": "dataset / notes / username", "role": "mt", "cols": ["dataset", "notes", "username"], "desc": "출처·작성자·수기 메모." },
+    { "group": "ocr_processed / mapkit_nearby_processed", "role": "mt", "cols": ["ocr_processed", "mapkit_nearby_processed"], "desc": "OCR 및 MapKit 조회의 처리 완료 상태. 결과 검출 여부와 별도로 유지." },
     { "group": "caption_oracle", "role": "mt", "cols": ["caption_oracle"], "desc": "<s>강한 비전모델 캡션</s> — 순환참조라 <b>전량 삭제</b>(의도적 0%)." }
   ],
 

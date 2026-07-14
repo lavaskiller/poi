@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Shared helpers for signal re-run jobs (OCR, MapKit-nearby).
 
-Each re-run worker: select a dataset's rows (optionally only rows whose target
-column is empty), run the existing Swift probe over their photos/coords, merge
+Each re-run worker: select a dataset's rows (optionally only rows not previously
+processed), run the existing Swift probe over their photos/coords, merge
 the result back into eval_set_reconciled.csv (fill-empty-only by default), and
 print `RESULT {json}` (final) + `PROGRESS {json}` (live) lines the server tails.
 
@@ -41,15 +41,59 @@ def photo_dir_for(dataset: str) -> Optional[str]:
             "union-city": "union-city-trip"}.get(dataset)
 
 
-def select_rows(rows, dataset, rep_col=None, only_empty=False) -> List[Tuple[int, dict]]:
-    """(idx,row) for rows in `dataset` (all if None); if only_empty, skip rows
-    whose representative column `rep_col` is already filled."""
+def is_processed(value) -> bool:
+    """Return whether a persisted processing marker represents true."""
+    return str(value or "").strip().lower() in {"1", "true", "yes", "done"}
+
+
+def ensure_column(fieldnames, rows, col: str) -> None:
+    """Add a processing-state column without disturbing the existing schema."""
+    if col not in fieldnames:
+        fieldnames.append(col)
+        for row in rows:
+            row[col] = ""
+
+
+def persist_processed_backfill(processed_col: str, evidence_cols) -> Optional[str]:
+    """Persist legacy completion evidence when a worker has no probe targets."""
+    with common.csv_write_lock(ms.CSV_PATH):
+        fieldnames, rows = read_csv(ms.CSV_PATH)
+        changed = processed_col not in fieldnames
+        ensure_column(fieldnames, rows, processed_col)
+        for row in rows:
+            if (not is_processed(row.get(processed_col)) and
+                    any((row.get(col) or "").strip() for col in evidence_cols)):
+                row[processed_col] = "1"
+                changed = True
+        if not changed:
+            return None
+        backup = backup_csv(ms.CSV_PATH)
+        write_csv(ms.CSV_PATH, fieldnames, rows)
+        return backup
+
+
+def row_key(row) -> str:
+    """Stable probe identifier; photo names are only unique within a dataset."""
+    return f"{(row.get('dataset') or '').strip()}/{(row.get('photo') or '').strip()}"
+
+
+def select_rows(rows, dataset, rep_col=None, only_empty=False,
+                processed_col=None) -> List[Tuple[int, dict]]:
+    """Return rows in ``dataset``.
+
+    For state-aware workers, ``only_empty`` means *not processed*, rather than
+    "the result happens to be empty". ``rep_col`` remains as a compatibility
+    fallback for workers that do not yet persist processing state.
+    """
     out = []
     for i, r in enumerate(rows):
         if dataset and (r.get("dataset") or "").strip() != dataset:
             continue
-        if only_empty and rep_col and (r.get(rep_col) or "").strip():
-            continue
+        if only_empty:
+            if processed_col and is_processed(r.get(processed_col)):
+                continue
+            if not processed_col and rep_col and (r.get(rep_col) or "").strip():
+                continue
         out.append((i, r))
     return out
 

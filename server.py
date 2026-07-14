@@ -632,52 +632,164 @@ def build_overview():
 
 
 def build_field_profile(group, dataset="__all"):
-    """Return an on-demand, local-only profile of a schema field group."""
+    """Return a compact semantic health profile, never a raw-value dump."""
+    import re
+    from urllib.parse import urlparse
+
     cfg = load_config()
     cols, all_rows = read_eval_csv()
     spec = next((g for g in cfg["schema_groups"] if g["group"] == group), None)
     selected_cols = ([c for c in spec["cols"] if c in cols] if spec else ([group] if group in cols else []))
     if not selected_cols:
         raise ValueError("unknown field group")
-    rows = all_rows if dataset in ("", "__all", "all") else [r for r in all_rows if (r.get("dataset") or "").strip() == dataset]
-    def clipped(value, limit=220):
-        value = str(value)
-        return value if len(value) <= limit else value[:limit - 1] + "…"
+    rows = all_rows if dataset in ("", "__all", "all") else [
+        r for r in all_rows if (r.get("dataset") or "").strip() == dataset]
+
+    def clipped(value, limit=90):
+        value = " ".join(str(value).split())
+        return value if len(value) <= limit else value[:limit - 1].rstrip() + "…"
+
     def as_numbers(values):
-        try: return [float(v) for v in values]
-        except (TypeError, ValueError): return None
+        try:
+            return [float(v) for v in values]
+        except (TypeError, ValueError):
+            return None
+
     def bins(numbers):
-        if not numbers: return []
+        if not numbers:
+            return []
         lo, hi = min(numbers), max(numbers)
-        if lo == hi: return [{"label": f"{lo:g}", "count": len(numbers)}]
-        count = min(10, max(4, int(math.sqrt(len(numbers)))))
+        if lo == hi:
+            return [{"label": f"{lo:g}", "count": len(numbers)}]
+        count = min(8, max(4, int(math.sqrt(len(numbers)))))
         width, result = (hi - lo) / count, [0] * count
-        for value in numbers: result[min(count - 1, int((value - lo) / width))] += 1
-        return [{"label": f"{lo + i * width:.4g}–{lo + (i + 1) * width:.4g}", "count": n} for i, n in enumerate(result)]
+        for value in numbers:
+            result[min(count - 1, int((value - lo) / width))] += 1
+        return [{"label": f"{lo + i * width:.4g}–{lo + (i + 1) * width:.4g}", "count": n}
+                for i, n in enumerate(result)]
+
+    def semantic_kind(col, values, numbers):
+        lower = col.lower()
+        if lower == "caption_ondevice" or "ocr" in lower:
+            return "ocr", "OCR text"
+        if lower in {"capture_lat", "capture_lon", "lat", "lon", "lng", "latitude", "longitude"}:
+            return "coordinate", "Coordinate"
+        if any(part in lower for part in ("photo", "image", "url", "file", "path")):
+            return "asset", "File/URL"
+        if any(part in lower for part in ("timestamp", "date", "time")):
+            return "date", "Date/time"
+        if lower == "id" or lower.endswith("_id") or lower in {"photo", "dataset"}:
+            return "identifier", "Identifier"
+        if numbers is not None:
+            return "number", "Number"
+        unique = len(set(values))
+        if unique <= min(24, max(4, len(values) // 3)):
+            return "category", "Category"
+        return "text", "Text"
+
     profiles = []
     for col in selected_cols:
         present = [(r.get(col) or "").strip() for r in rows]
         present = [v for v in present if v]
-        counts, numbers, lower = Counter(present), as_numbers(present) if present else None, col.lower()
-        is_coordinate = lower in {"capture_lat", "capture_lon", "lat", "lon", "lng", "latitude", "longitude"}
-        is_asset = any(part in lower for part in ("photo", "image", "url", "file", "path"))
-        is_date = any(part in lower for part in ("timestamp", "date", "time"))
-        if is_coordinate: kind, kind_label = "coordinate", "Coordinate"
-        elif numbers is not None: kind, kind_label = "number", "Number"
-        elif is_date: kind, kind_label = "date", "Date/time"
-        elif is_asset: kind, kind_label = "asset", "File/URL"
-        elif len(counts) <= min(20, max(4, len(present) // 3)): kind, kind_label = "category", "Category"
-        else: kind, kind_label = "text", "Text"
-        profile = {"column": col, "kind": kind, "kind_label": kind_label, "present": len(present), "missing": len(rows) - len(present), "unique": len(counts), "samples": [clipped(v) for v in present[:5]], "top": [{"value": clipped(v, 100), "count": n} for v, n in counts.most_common(8)]}
-        if numbers is not None:
-            ordered = sorted(numbers)
-            profile["numeric"] = {"min": min(numbers), "median": ordered[len(numbers) // 2], "max": max(numbers), "histogram": bins(numbers)}
-        if kind == "text":
+        counts = Counter(present)
+        numbers = as_numbers(present) if present else None
+        kind, kind_label = semantic_kind(col, present, numbers)
+        profile = {
+            "column": col, "kind": kind, "kind_label": kind_label,
+            "present": len(present), "missing": len(rows) - len(present),
+            "unique": len(counts),
+        }
+
+        if kind == "ocr":
+            token_rows = []
+            useful_terms = Counter()
+            noisy = 0
+            for value in present:
+                tokens = [x.strip() for x in value.split("|") if x.strip()]
+                if not tokens:
+                    tokens = [value]
+                clean = []
+                for token in tokens:
+                    token = " ".join(token.split())
+                    alnum = re.sub(r"[^\w]+", "", token, flags=re.UNICODE)
+                    letters = sum(ch.isalpha() for ch in token)
+                    if len(alnum) < 2 or not letters or len(token) > 48:
+                        continue
+                    clean.append(token)
+                    if len(token) >= 3:
+                        useful_terms[token.casefold()] += 1
+                if not clean:
+                    noisy += 1
+                token_rows.append(len(clean))
+            ordered = sorted(token_rows)
+            profile["ocr"] = {
+                "detected": len(present),
+                "no_text_or_unprocessed": len(rows) - len(present),
+                "median_useful_tokens": ordered[len(ordered) // 2] if ordered else 0,
+                "no_useful_tokens": noisy,
+                "terms": [{"value": clipped(term, 42), "count": n}
+                          for term, n in useful_terms.most_common(6) if n > 1],
+            }
+            profile["samples"] = [clipped(v, 80) for v in present[:3]]
+
+        elif kind == "coordinate":
+            if numbers:
+                ordered = sorted(numbers)
+                profile["numeric"] = {"min": min(numbers), "median": ordered[len(ordered) // 2],
+                                      "max": max(numbers), "histogram": bins(numbers)}
+
+        elif kind == "number":
+            ordered = sorted(numbers or [])
+            if ordered:
+                profile["numeric"] = {"min": ordered[0], "median": ordered[len(ordered) // 2],
+                                      "max": ordered[-1], "histogram": bins(ordered)}
+
+        elif kind == "date":
+            dates = sorted(v[:10] for v in present if len(v) >= 10)
+            profile["date"] = {"earliest": dates[0] if dates else "", "latest": dates[-1] if dates else ""}
+            profile["date_counts"] = [{"value": v, "count": n}
+                                      for v, n in Counter(d[:7] for d in dates).most_common(8)]
+
+        elif kind == "asset":
+            urls = [v for v in present if urlparse(v).scheme in {"http", "https"} and urlparse(v).netloc]
+            domains = Counter(urlparse(v).netloc.lower() for v in urls)
+            profile["asset"] = {"valid_urls": len(urls), "other_references": len(present) - len(urls),
+                                "domains": [{"value": d, "count": n} for d, n in domains.most_common(5)]}
+
+        elif kind == "identifier":
+            profile["identifier"] = {"duplicate_rows": len(present) - len(counts),
+                                     "unique_rate": round(100 * len(counts) / len(present), 1) if present else 0}
+
+        elif kind == "category":
+            shown = counts.most_common(7)
+            profile["top"] = [{"value": clipped(v, 48), "count": n} for v, n in shown]
+            profile["other"] = len(present) - sum(n for _, n in shown)
+
+        else:
             lengths = sorted(len(v) for v in present)
-            profile["text"] = {"min_length": lengths[0] if lengths else 0, "median_length": lengths[len(lengths) // 2] if lengths else 0, "max_length": lengths[-1] if lengths else 0}
-        if kind == "date": profile["date_counts"] = [{"value": v, "count": n} for v, n in Counter(v[:10] for v in present).most_common(8)]
+            profile["text"] = {"median_length": lengths[len(lengths) // 2] if lengths else 0}
+            words = Counter()
+            for value in present:
+                words.update(w.casefold() for w in re.findall(r"[^\W\d_][\w'-]{2,}", value, re.UNICODE))
+            profile["terms"] = [{"value": w, "count": n} for w, n in words.most_common(6) if n > 1]
+            profile["samples"] = [clipped(v, 72) for v in present[:3]]
         profiles.append(profile)
-    return {"group": group, "dataset": dataset, "total": len(rows), "columns": profiles}
+
+    group_summary = None
+    if {"capture_lat", "capture_lon"}.issubset(selected_cols):
+        pairs = []
+        for row in rows:
+            try:
+                pairs.append((float(row.get("capture_lat") or ""), float(row.get("capture_lon") or "")))
+            except ValueError:
+                pass
+        if pairs:
+            lats, lons = zip(*pairs)
+            group_summary = {"kind": "geo_extent", "paired": len(pairs),
+                             "north": max(lats), "south": min(lats),
+                             "east": max(lons), "west": min(lons)}
+    return {"group": group, "dataset": dataset, "total": len(rows),
+            "group_summary": group_summary, "columns": profiles}
 
 def build_datasets():
     """One entry per dataset for tab ④: label, count, per-signal fill, photo dir.
@@ -703,10 +815,67 @@ def build_datasets():
         for name, meta in signals.items():
             scols = meta.get("cols") or ([meta["col"]] if meta.get("col") else [])
             rep = scols[0] if scols else None
-            fill = sum(1 for r in drows if rep and (r.get(rep) or "").strip()) if rep else 0
+            processed_col = meta.get("processed_col")
+            label_breakdown = None
+            coverage_metrics = []
+            for metric in meta.get("coverage_metrics") or []:
+                metric_cols = metric.get("cols") or []
+                require_all = metric.get("require", "all") == "all"
+
+                def has_coverage(r):
+                    values = [bool((r.get(col) or "").strip()) for col in metric_cols]
+                    return bool(values) and (all(values) if require_all else any(values))
+
+                count = sum(1 for r in drows if has_coverage(r))
+                coverage_metrics.append({
+                    "key": metric.get("key", ""),
+                    "label": metric.get("label", "결과 보유"),
+                    "count": count,
+                    "pct": round(100 * count / total) if total else 0,
+                })
+            if meta.get("result_rule") == "mapkit_candidates":
+                def has_result(r):
+                    try:
+                        n = int((r.get("app_nearby_n_wide") or "0").strip())
+                    except ValueError:
+                        n = 0
+                    return n > 0 or bool((r.get("app_nearby_top1") or "").strip())
+                fill = sum(1 for r in drows if has_result(r))
+            else:
+                fill = sum(1 for r in drows if rep and (r.get(rep) or "").strip()) if rep else 0
+            if meta.get("result_rule") == "mapkit_gt_labels":
+                values = [(r.get(rep) or "").strip() for r in drows]
+                category_counts = {
+                    "canonical": sum(1 for value in values if value and value not in
+                                     {"KOR", "SIM_MAPKIT", "NON_MAPKIT"}),
+                    "similar": sum(1 for value in values if value == "SIM_MAPKIT"),
+                    "not_found": sum(1 for value in values if value == "NON_MAPKIT"),
+                }
+                label_breakdown = {
+                    "total": total,
+                    "items": [
+                        {"key": key, "count": count,
+                         "pct": round(100 * count / total) if total else 0}
+                        for key, count in category_counts.items()
+                    ],
+                    "excluded": {
+                        "kor": sum(1 for value in values if value == "KOR"),
+                        "empty": sum(1 for value in values if not value),
+                    },
+                }
+            processed = (sum(1 for r in drows if str(r.get(processed_col) or "").strip().lower()
+                             in {"1", "true", "yes", "done"})
+                         if processed_col else None)
             sig[name] = {"label": meta.get("label", name), "col": rep, "cols": scols,
                          "fill": fill, "empty": total - fill,
                          "pct": round(100 * fill / total) if total else 0,
+                         "processed": processed,
+                         "unprocessed": ((total - processed) if processed is not None else None),
+                         "processed_pct": ((round(100 * processed / total) if total else 0)
+                                           if processed is not None else None),
+                         "coverage_metrics": coverage_metrics,
+                         "label_breakdown": label_breakdown,
+                         "result_label": meta.get("result_label", "결과 채움"),
                          "step": meta.get("step"), "status": meta.get("status", "ok")}
         src = sources.get(ds) or {}
         out.append({"key": ds, "label": src.get("label", ""), "count": total,
@@ -902,6 +1071,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    _API_ERROR_TEXT = {
+        "busy": "another data job is already running",
+        "disabled": "this operation is disabled",
+        "not_implemented": "this operation is not implemented",
+        "unknown_step": "unknown extraction step",
+        "not_found": "requested item was not found",
+        "invalid_request": "invalid request",
+        "invalid_provider": "invalid provider",
+        "upload_save_failed": "upload could not be saved",
+        "run_failed": "algorithm run failed",
+        "internal_error": "server could not complete the request",
+    }
+
+    def _send_api_error(self, error_code, http_status, *, detail=None, **extra):
+        """Send a stable code for localization and a legacy English message."""
+        payload = {"ok": False, "error_code": error_code,
+                   "error": self._API_ERROR_TEXT.get(error_code, "request failed"),
+                   **extra}
+        if detail:
+            payload["detail"] = str(detail)
+        self._send_json(payload, code=http_status)
+
     def do_GET(self):
         route = self.path.split("?")[0]
         if route == "/":
@@ -917,17 +1108,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             try:
                 if name or version_raw:
                     if not name or not version_raw:
-                        self._send_json({"error": "name and version are required together"}, code=400)
+                        self._send_api_error("invalid_request", 400, detail="name and version are required together")
                     else:
                         self._send_json({"run": enrich_run_cases(get_run(RUNS_DIR, name, int(version_raw)))})
                 else:
                     self._send_json({"runs": list_runs(RUNS_DIR)})
             except RunError as e:
-                self._send_json({"error": str(e)}, code=404)
+                self._send_api_error("not_found", 404, detail=e)
             except (TypeError, ValueError):
-                self._send_json({"error": "version must be a positive integer"}, code=400)
+                self._send_api_error("invalid_request", 400, detail="version must be a positive integer")
             except Exception as e:
-                self._send_json({"error": str(e)}, code=500)
+                self.log_error("API request failed: %s", e)
+                self._send_api_error("internal_error", 500)
             return
         if route == "/api/records":
             from urllib.parse import urlparse, parse_qs
@@ -936,7 +1128,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             try:
                 self._send_json(build_records(ds))
             except Exception as e:
-                self._send_json({"error": str(e)}, code=500)
+                self.log_error("API request failed: %s", e)
+                self._send_api_error("internal_error", 500)
             return
         if route == "/api/matchrate":
             from urllib.parse import urlparse, parse_qs
@@ -946,13 +1139,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             try:
                 self._send_json(build_matchrate(ds, mode))
             except Exception as e:
-                self._send_json({"error": str(e)}, code=500)
+                self.log_error("API request failed: %s", e)
+                self._send_api_error("internal_error", 500)
             return
         if route == "/api/overview":
             try:
                 self._send_json(build_overview())
             except Exception as e:
-                self._send_json({"error": str(e)}, code=500)
+                self.log_error("API request failed: %s", e)
+                self._send_api_error("internal_error", 500)
             return
         if route == "/api/field-profile":
             from urllib.parse import urlparse, parse_qs
@@ -961,15 +1156,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             try:
                 self._send_json(build_field_profile(group, dataset))
             except ValueError as e:
-                self._send_json({"error": str(e)}, code=400)
+                self._send_api_error("invalid_request", 400, detail=e)
             except Exception as e:
-                self._send_json({"error": str(e)}, code=500)
+                self.log_error("API request failed: %s", e)
+                self._send_api_error("internal_error", 500)
             return
         if route == "/api/datasets":
             try:
                 self._send_json(build_datasets())
             except Exception as e:
-                self._send_json({"error": str(e)}, code=500)
+                self.log_error("API request failed: %s", e)
+                self._send_api_error("internal_error", 500)
             return
         if route in ("/api/jobs/status", "/api/gt/classify/status"):
             from urllib.parse import urlparse, parse_qs
@@ -977,7 +1174,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             job_id = (q.get("job_id", [""])[0]).strip()
             job = _jobs.get(job_id)
             if not job:
-                self._send_json({"ok": False, "error": "unknown job_id"}, code=404)
+                self._send_api_error("not_found", 404, detail="unknown job_id")
                 return
             self._send_json({"ok": True, **_job_public(job)})
             return
@@ -992,13 +1189,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
-            self._send_json({"ok": False, "error": "invalid Content-Length"}, code=400)
+            self._send_api_error("invalid_request", 400, detail="invalid Content-Length")
             return None
         if content_length <= 0:
-            self._send_json({"ok": False, "error": "empty request body"}, code=400)
+            self._send_api_error("invalid_request", 400, detail="empty request body")
             return None
         if content_length > max_bytes:
-            self._send_json({"ok": False, "error": "request body is too large", "max_bytes": max_bytes}, code=413)
+            self._send_api_error("invalid_request", 413, detail="request body is too large", max_bytes=max_bytes)
             return None
         return self.rfile.read(content_length)
 
@@ -1006,23 +1203,24 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         from urllib.parse import urlparse, parse_qs
         route = self.path.split("?")[0]
         if route != "/api/runs":
-            self._send_json({"error": "not found"}, code=404)
+            self._send_api_error("not_found", 404)
             return
         q = parse_qs(urlparse(self.path).query)
         name = (q.get("name", [""])[0]).strip()
         version_raw = (q.get("version", [""])[0]).strip()
         if not name or not version_raw:
-            self._send_json({"error": "name and version are required"}, code=400)
+            self._send_api_error("invalid_request", 400, detail="name and version are required")
             return
         try:
             deleted = delete_run(RUNS_DIR, name, int(version_raw))
             self._send_json({"ok": True, "deleted": deleted})
         except RunError as e:
-            self._send_json({"ok": False, "error": str(e)}, code=404)
+            self._send_api_error("not_found", 404, detail=e)
         except (TypeError, ValueError):
-            self._send_json({"ok": False, "error": "version must be a positive integer"}, code=400)
+            self._send_api_error("invalid_request", 400, detail="version must be a positive integer")
         except Exception as e:
-            self._send_json({"ok": False, "error": str(e)}, code=500)
+            self.log_error("API request failed: %s", e)
+            self._send_api_error("internal_error", 500)
 
     def do_POST(self):
         route = self.path.split("?")[0]
@@ -1055,7 +1253,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except ValidationError as e:
             self._send_json({"ok": False, "errors": [{"code": "invalid_zip", "message": str(e)}], "warnings": [], "row_flags": []}, code=400)
         except Exception as e:
-            self._send_json({"ok": False, "error": str(e)}, code=500)
+            self.log_error("API request failed: %s", e)
+            self._send_api_error("internal_error", 500)
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 os.unlink(tmp_path)
@@ -1066,8 +1265,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         """reserve → respond+flush → launch. Shared by generic + shim handlers."""
         job_id, err = reserve(step, params)
         if err:
-            self._send_json({"ok": False, "error": err[1], "step": step},
-                            code=self._JOB_ERR_CODE.get(err[0], 400))
+            self._send_api_error(err[0], self._JOB_ERR_CODE.get(err[0], 400),
+                                 detail=err[1], step=step)
             return False
         resp = {"ok": True, "job_id": job_id, "step": step, "status": "running",
                 "status_url": f"/api/jobs/status?job_id={job_id}"}
@@ -1127,7 +1326,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     os.unlink(zip_path)
                 except OSError:
                     pass
-            self._send_json({"ok": False, "error": f"could not save upload: {e}"}, code=500)
+            self.log_error("could not save upload: %s", e)
+            self._send_api_error("upload_save_failed", 500)
             return
         q = parse_qs(urlparse(self.path).query)
         dataset = (q.get("dataset", [""])[0]).strip() or None
@@ -1158,7 +1358,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 pass
         step = {"mapkit": "gt_mapkit", "kakao": "gt_kakao"}.get(provider)
         if not step:
-            self._send_json({"ok": False, "error": f"unknown provider {provider!r} (use 'mapkit' or 'kakao')"}, code=400)
+            self._send_api_error("invalid_provider", 400,
+                                 detail=f"unknown provider {provider!r}")
             return
         self._start_job(step, {}, extra_resp={"provider": provider})
 
@@ -1169,16 +1370,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         try:
             req = json.loads(body.decode("utf-8"))
         except Exception as e:
-            self._send_json({"ok": False, "error": f"invalid JSON body: {e}"}, code=400)
+            self._send_api_error("invalid_request", 400, detail=f"invalid JSON body: {e}")
             return
         if not isinstance(req, dict):
-            self._send_json({"ok": False, "error": "JSON body must be an object"}, code=400)
+            self._send_api_error("invalid_request", 400, detail="JSON body must be an object")
             return
         if "params" in req and not isinstance(req["params"], list):
-            self._send_json({"ok": False, "error": "params must be an array"}, code=400)
+            self._send_api_error("invalid_request", 400, detail="params must be an array")
             return
         if "params" in req and not all(isinstance(p, str) for p in req["params"]):
-            self._send_json({"ok": False, "error": "params must contain only string signal keys"}, code=400)
+            self._send_api_error("invalid_request", 400,
+                                 detail="params must contain only string signal keys")
             return
         try:
             result = run_submission(
@@ -1197,9 +1399,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             )
             self._send_json({"ok": True, **result})
         except RunError as e:
-            self._send_json({"ok": False, "error": str(e)}, code=422)
+            self._send_api_error("run_failed", 422, detail=e)
         except Exception as e:
-            self._send_json({"ok": False, "error": str(e)}, code=500)
+            self.log_error("algorithm run failed: %s", e)
+            self._send_api_error("internal_error", 500)
 
 
 if __name__ == "__main__":
