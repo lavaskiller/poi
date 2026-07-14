@@ -66,12 +66,14 @@ def merge_cell(row, col, value, only_empty) -> bool:
 
 def run_swift(swift_file: str, input_tsv: str, out_tsv: str) -> None:
     with open(out_tsv, "w", encoding="utf-8") as out:
-        proc = subprocess.run(["swift", os.path.join(_ROOT, "tools", "swift", swift_file), input_tsv],
-                              stdout=out, stderr=subprocess.PIPE, text=True)
-    if proc.stderr.strip():
-        sys.stderr.write(proc.stderr)
-    if proc.returncode != 0:
-        raise SystemExit(f"swift probe {swift_file} failed (exit {proc.returncode})")
+        proc = subprocess.Popen(["swift", os.path.join(_ROOT, "tools", "swift", swift_file), input_tsv],
+                                stdout=out, stderr=subprocess.PIPE, text=True, bufsize=1)
+        for line in proc.stderr:
+            # Swift emits machine-readable progress on stderr so TSV stdout stays clean.
+            if line.startswith("PROGRESS "): print(line, end="", flush=True)
+            else: sys.stderr.write(line)
+        rc = proc.wait()
+    if rc != 0: raise SystemExit(f"swift probe {swift_file} failed (exit {rc})")
 
 
 def progress(done: int, total: int) -> None:

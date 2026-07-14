@@ -76,21 +76,19 @@ def main() -> int:
                     top1 = part.rsplit("@", 1)[0].strip() if "@" in part else part
                 res[c[0]] = {RANK: c[5], NWIDE: c[4], DIST: c[6], TOP1: top1}
 
-    backup = rc.backup_csv(rc.ms.CSV_PATH)
-    filled = 0
     n = len(targets)
-    for i, (_idx, row) in enumerate(targets, 1):
-        vals = res.get((row.get("photo") or "").strip())
-        if vals:
-            changed = False
-            for col, v in vals.items():
-                if rc.merge_cell(row, col, v, args.only_empty):
-                    changed = True
-            if changed:
-                filled += 1
-        if i % 10 == 0 or i == n:
-            rc.progress(i, n)
-    rc.write_csv(rc.ms.CSV_PATH, fieldnames, rows)
+    # Commit only our app_* cells onto the newest CSV under the shared lock.
+    with rc.common.csv_write_lock(rc.ms.CSV_PATH):
+        fieldnames, rows = rc.read_csv(rc.ms.CSV_PATH)
+        backup = rc.backup_csv(rc.ms.CSV_PATH)
+        filled = 0
+        for row in rows:
+            vals = res.get((row.get("photo") or "").strip())
+            if vals:
+                changed = any(rc.merge_cell(row, col, v, args.only_empty) for col, v in vals.items())
+                filled += int(changed)
+        rc.write_csv(rc.ms.CSV_PATH, fieldnames, rows)
+    rc.progress(n, n)
     rc.emit_result({"ok": True, "step": "mapkit_nearby", "dataset": args.dataset,
                     "only_empty": args.only_empty, "targets": n, "filled": filled,
                     "backup": backup})

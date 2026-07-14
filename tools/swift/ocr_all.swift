@@ -13,7 +13,10 @@ func ocr(_ path: String) -> String {
 }
 let raw = (try? String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8)) ?? ""
 print("photo\tocr_text")
-for line in raw.split(separator: "\n") {
+let inputLines = raw.split(separator: "\n")
+let total = inputLines.count
+for (i, line) in inputLines.enumerated() {
     let c = line.components(separatedBy: "\t"); if c.count < 2 { continue }
     print("\(c[0])\t\(ocr(c[1]))")
+    FileHandle.standardError.write("PROGRESS {\"done\":\(i + 1),\"total\":\(total),\"step\":\"recognizing text\"}\n".data(using: .utf8)!)
 }

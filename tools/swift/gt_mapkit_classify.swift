@@ -74,14 +74,14 @@ setbuf(stdout, nil)
 Task {
     print("rid\tn\tcandidates")
     var cache = [String: [String]]()
-    for r in rows {
+    for (rowIndex, r) in rows.enumerated() {
         let key = String(format: "%@|%.4f,%.4f", r.query, r.lat, r.lon)
         let coord = CLLocationCoordinate2D(latitude: r.lat, longitude: r.lon)
         if cache[key] == nil {
             var names = await search(r.query, coord)
             var used = 0
             while names.isEmpty && used < RETRY_WAITS.count {
-                FileHandle.standardError.write("  empty \"\(r.query)\" @\(r.lat),\(r.lon) retry \(used+1)\n".data(using: .utf8)!)
+                FileHandle.standardError.write("PROGRESS {\"done\":\(rowIndex),\"total\":\(rows.count),\"step\":\"cooldown\",\"retries\":\(used+1),\"retry_reason\":\"empty MapKit name search\"}\n".data(using: .utf8)!)
                 try? await Task.sleep(nanoseconds: RETRY_WAITS[used])
                 names = await search(r.query, coord)
                 used += 1
@@ -92,6 +92,7 @@ Task {
         let names = cache[key]!
         let joined = names.prefix(TOP_N).map(esc).joined(separator: " ||| ")
         print("\(r.rid)\t\(names.count)\t\(joined)")
+        FileHandle.standardError.write("PROGRESS {\"done\":\(rowIndex + 1),\"total\":\(rows.count),\"step\":\"searching MapKit names\",\"retries\":0}\n".data(using: .utf8)!)
     }
     exit(0)
 }

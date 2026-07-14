@@ -46,13 +46,13 @@ def _write_probe_input(targets, path: str) -> None:
 
 def _run_swift(input_tsv: str, out_tsv: str) -> None:
     with open(out_tsv, "w", encoding="utf-8") as out:
-        proc = subprocess.run(["swift", SWIFT_PROBE, input_tsv],
-                              stdout=out, stderr=subprocess.PIPE, text=True)
-    if proc.returncode != 0:
-        sys.stderr.write(proc.stderr)
-        raise SystemExit(f"swift probe failed (exit {proc.returncode})")
-    if proc.stderr.strip():
-        sys.stderr.write(proc.stderr)
+        proc = subprocess.Popen(["swift", SWIFT_PROBE, input_tsv], stdout=out,
+                                stderr=subprocess.PIPE, text=True, bufsize=1)
+        for line in proc.stderr:
+            if line.startswith("PROGRESS "): print(line, end="", flush=True)
+            else: sys.stderr.write(line)
+        rc = proc.wait()
+    if rc != 0: raise SystemExit(f"swift probe failed (exit {rc})")
 
 
 def _parse_candidates(path: str) -> Dict[str, List[str]]:

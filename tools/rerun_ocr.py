@@ -73,16 +73,18 @@ def main() -> int:
             if len(parts) >= 2:
                 text_by_photo[parts[0]] = parts[1]
 
-    backup = rc.backup_csv(rc.ms.CSV_PATH)
-    filled = 0
     n = len(resolved)
-    for i, (row, _p) in enumerate(resolved, 1):
-        val = text_by_photo.get((row.get("photo") or "").strip(), "")
-        if rc.merge_cell(row, COL, val, args.only_empty):
-            filled += 1
-        if i % 10 == 0 or i == n:
-            rc.progress(i, n)
-    rc.write_csv(rc.ms.CSV_PATH, fieldnames, rows)
+    # Re-read under the shared commit lock: other parallel workers may have
+    # replaced the CSV while Vision was running.
+    with rc.common.csv_write_lock(rc.ms.CSV_PATH):
+        fieldnames, rows = rc.read_csv(rc.ms.CSV_PATH)
+        backup = rc.backup_csv(rc.ms.CSV_PATH)
+        filled = 0
+        for i, row in enumerate(rows, 1):
+            val = text_by_photo.get((row.get("photo") or "").strip(), "")
+            if val and rc.merge_cell(row, COL, val, args.only_empty): filled += 1
+        rc.write_csv(rc.ms.CSV_PATH, fieldnames, rows)
+    rc.progress(n, n)
     rc.emit_result({"ok": True, "step": "ocr", "dataset": args.dataset,
                     "only_empty": args.only_empty, "targets": n, "filled": filled,
                     "skipped_no_photo": skipped_no_photo, "backup": backup})

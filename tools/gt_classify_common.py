@@ -24,6 +24,8 @@ import datetime as _dt
 import json
 import os
 import sys
+import fcntl
+from contextlib import contextmanager
 from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
@@ -116,6 +118,18 @@ def read_csv(path: str) -> Tuple[List[str], List[Dict[str, str]]]:
         return list(reader.fieldnames or []), list(reader)
 
 
+@contextmanager
+def csv_write_lock(path: str):
+    """Cross-process lock for the short read/merge/replace commit transaction."""
+    lock_path = path + ".lock"
+    with open(lock_path, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
 def write_csv(path: str, fieldnames: List[str], rows: List[Dict[str, str]]) -> None:
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8", newline="") as f:
@@ -169,11 +183,14 @@ def run_classification(pcfg: ProviderCfg, fetch: FetchFn, csv_path: str,
     cand_by_rid = fetch(targets)
     print(f"[{pcfg.owns}] candidate rows fetched: {len(cand_by_rid)}")
 
-    backup = backup_csv(csv_path)
+    # Fetching candidates is slow.  Commit under a lock and re-read the latest
+    # CSV inside it, so a concurrent OCR/nearby worker's columns survive.
+    with csv_write_lock(csv_path):
+        fieldnames, rows = read_csv(csv_path)
+        backup = backup_csv(csv_path)
+        stats = classify_rows(rows, cfg, pcfg, cand_by_rid, in_scope)
+        write_csv(csv_path, fieldnames, rows)
     print(f"[{pcfg.owns}] backup: {backup}")
-
-    stats = classify_rows(rows, cfg, pcfg, cand_by_rid, in_scope)
-    write_csv(csv_path, fieldnames, rows)
     print(f"[{pcfg.owns}] wrote {csv_path}")
     print(f"  {pcfg.other_marker}={stats.get('other_marker', 0)} "
           f"exact_copied={stats.get('exact_copied', 0)} "

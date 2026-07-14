@@ -514,7 +514,7 @@ async function pollJobs(){
   let d; try{ d=await apiJSON('/api/jobs','jobs'); }catch(e){ return null; }
   const active=(d.jobs||[]).find(j=>j.job_id===d.active);
   const ab=gid('jobActive');
-  if(ab){ if(active){ const pr=active.progress; ab.innerHTML=`<span style="color:var(--orange)">● 실행중</span> ${esc(active.step)}${active.params&&active.params.dataset?' · '+esc(active.params.dataset):''} · ${active.elapsed_s||0}s${pr?` · ${pr.done}/${pr.total}`:''}`; } else ab.textContent='실행 중인 작업 없음.'; }
+  if(ab){ if(active){ const pr=active.progress, subs=pr&&pr.substeps; const bars=subs?`<div style="display:grid;gap:5px;margin-top:8px">${Object.entries(subs).map(([name,x])=>{const pct=x.total?Math.round(100*x.done/x.total):0;const retry=x.retries?` · 재시도 ${x.retries}${x.retry_reason?': '+esc(x.retry_reason):''}`:'';return `<div><span style="display:inline-block;width:150px">${esc(name)} · ${esc(x.step||x.status||'')}</span><span style="display:inline-block;width:150px;height:6px;background:#333c66;vertical-align:middle"><i style="display:block;width:${pct}%;height:100%;background:var(--orange)"></i></span> ${x.done}/${x.total}${retry}</div>`}).join('')}</div>`:''; ab.innerHTML=`<span style="color:var(--orange)">● 실행중</span> ${esc(active.step)}${active.params&&active.params.dataset?' · '+esc(active.params.dataset):''} · ${active.elapsed_s||0}s${pr?` · ${pr.done}/${pr.total}`:''}${bars}`; } else ab.textContent='실행 중인 작업 없음.'; }
   const jl=gid('jobList');
   if(jl){
     const jobs=(d.jobs||[]).slice().sort((a,b)=>(b.started||0)-(a.started||0)).slice(0,8);

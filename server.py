@@ -1,5 +1,5 @@
 import http.server, socketserver, functools, json, csv, os, sys, tempfile
-import threading, subprocess, uuid, time, math, shutil
+import threading, subprocess, uuid, time, math, shutil, queue
 from collections import Counter
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -250,60 +250,65 @@ def _run_builtin(name, params, log):
 
 
 def _post_ingest_pipeline(params, log):
-    """Run implemented post-upload stages while holding the single CSV lock."""
+    """Run EXIF first, then independent enrichments in parallel with live logs."""
     dataset = (params.get("dataset") or "").strip()
     if not dataset:
         return {"ok": False, "error": "pipeline requires dataset"}
-    stages = [{"step": "geocode", "status": "skipped",
-               "reason": "no CLGeocoder worker is implemented"}]
-    warnings = []
-    sequence = ["exif", "ocr", "mapkit_nearby", "gt_mapkit"]
-    if os.environ.get("KAKAO_REST_API_KEY", "").strip():
-        sequence.append("gt_kakao")
-    else:
-        stages.append({"step": "gt_kakao", "status": "skipped",
-                       "reason": "KAKAO_REST_API_KEY is not set"})
+    stages = [{"step": "geocode", "status": "skipped", "reason": "no CLGeocoder worker is implemented"}]
+    warnings, sequence = [], ["exif", "ocr", "mapkit_nearby", "gt_mapkit"]
+    if os.environ.get("KAKAO_REST_API_KEY", "").strip(): sequence.append("gt_kakao")
+    else: stages.append({"step": "gt_kakao", "status": "skipped", "reason": "KAKAO_REST_API_KEY is not set"})
     env = dict(os.environ); env["POI_DATA_DIR"] = DIRECTORY
-    for pos, step in enumerate(sequence, 1):
-        print(f"[pipeline] {pos}/{len(sequence)} starting {step}", file=log, flush=True)
-        proc = subprocess.run(_job_argv(step, {"dataset": dataset, "only_empty": True}),
-            cwd=REPO_DIR, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, stdin=subprocess.DEVNULL, close_fds=True, start_new_session=True)
-        lines = proc.stdout.splitlines()
-        for line in lines: print(f"[{step}] {line}", file=log)
-        result = None
-        for line in reversed(lines):
-            if line.startswith("RESULT "):
-                try: result = json.loads(line[7:])
-                except json.JSONDecodeError: pass
-                break
-        status = "done" if proc.returncode == 0 else "error"
-        reason = None
-        if status == "done" and result and not result.get("targets", 1):
-            status, reason = "skipped", result.get("skip_reason") or "no eligible rows"
-        stages.append({"step": step, "status": status, "reason": reason,
-                       "returncode": proc.returncode, "result": result})
-        if step == "exif" and result:
-            targets, no_gps = result.get("targets", 0), result.get("no_gps", 0)
-            if targets and no_gps:
-                warning = {"code": "exif_gps_missing", "dataset": dataset,
-                           "count": no_gps, "targets": targets,
-                           "message": f"원본 사진 {no_gps}/{targets}장에 EXIF GPS 좌표가 없습니다. 좌표 기반 단계는 실행 대상이 없습니다."}
-                warnings.append(warning)
-                print("WARNING " + json.dumps(warning, ensure_ascii=False), file=log, flush=True)
-            no_timestamp = result.get("no_timestamp", 0)
-            if targets and no_timestamp:
-                warning = {"code": "exif_timestamp_missing", "dataset": dataset,
-                           "count": no_timestamp, "targets": targets,
-                           "message": f"원본 사진 {no_timestamp}/{targets}장에 EXIF 촬영시각이 없습니다."}
-                warnings.append(warning)
-                print("WARNING " + json.dumps(warning, ensure_ascii=False), file=log, flush=True)
-        print("PROGRESS " + json.dumps({"done": pos, "total": len(sequence), "step": step}), file=log, flush=True)
-    errors = [s["step"] for s in stages if s["status"] == "error"]
-    outcome = {"ok": True, "step": "pipeline", "dataset": dataset, "stages": stages,
-               "warnings": warnings, "partial": bool(errors), "errors": errors}
-    print("RESULT " + json.dumps(outcome, ensure_ascii=False), file=log)
-    return outcome
+
+    def run_batch(steps, completed):
+        procs, lines, events = {}, {x: [] for x in steps}, queue.Queue()
+        def relay(name, stream):
+            for raw in iter(stream.readline, ""): events.put((name, raw.rstrip("\n")))
+            stream.close()
+        for name in steps:
+            print(f"[pipeline] starting {name}", file=log, flush=True)
+            p = subprocess.Popen(_job_argv(name, {"dataset": dataset, "only_empty": True}), cwd=REPO_DIR, env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, stdin=subprocess.DEVNULL,
+                close_fds=True, start_new_session=True)
+            procs[name] = p; threading.Thread(target=relay, args=(name,p.stdout), daemon=True).start()
+        live = {x: {"status":"running", "done":0, "total":0, "step":"starting", "retries":0} for x in steps}
+        while any(p.poll() is None for p in procs.values()) or not events.empty():
+            try: name, line = events.get(timeout=.15)
+            except queue.Empty: continue
+            lines[name].append(line); print(f"[{name}] {line}", file=log, flush=True)
+            if line.startswith("PROGRESS "):
+                try:
+                    ev=json.loads(line[9:]); live[name].update({k:ev[k] for k in ("done","total","step","retries","retry_reason") if k in ev})
+                except (json.JSONDecodeError, TypeError): pass
+                print("PROGRESS "+json.dumps({"done":completed,"total":len(sequence),"step":"parallel","substeps":live}),file=log,flush=True)
+        for p in procs.values(): p.wait()
+        results={}
+        for name,p in procs.items():
+            result=None
+            for line in reversed(lines[name]):
+                if line.startswith("RESULT "):
+                    try: result=json.loads(line[7:])
+                    except json.JSONDecodeError: pass
+                    break
+            status="done" if p.returncode==0 else "error"; reason=None
+            if status=="done" and result and not result.get("targets",1): status,reason="skipped",result.get("skip_reason") or "no eligible rows"
+            live[name]["status"]=status; stages.append({"step":name,"status":status,"reason":reason,"returncode":p.returncode,"result":result}); results[name]=result
+        return results,live
+
+    first,_=run_batch(["exif"],0); exif=first.get("exif") or {}
+    targets,no_gps=exif.get("targets",0),exif.get("no_gps",0)
+    if targets and no_gps:
+        w={"code":"exif_gps_missing","dataset":dataset,"count":no_gps,"targets":targets,"message":f"원본 사진 {no_gps}/{targets}장에 EXIF GPS 좌표가 없습니다. 좌표 기반 단계는 실행 대상이 없습니다."}; warnings.append(w); print("WARNING "+json.dumps(w,ensure_ascii=False),file=log,flush=True)
+    no_timestamp=exif.get("no_timestamp",0)
+    if targets and no_timestamp:
+        w={"code":"exif_timestamp_missing","dataset":dataset,"count":no_timestamp,"targets":targets,"message":f"원본 사진 {no_timestamp}/{targets}장에 EXIF 촬영시각이 없습니다."}; warnings.append(w); print("WARNING "+json.dumps(w,ensure_ascii=False),file=log,flush=True)
+    print("PROGRESS "+json.dumps({"done":1,"total":len(sequence),"step":"exif"}),file=log,flush=True)
+    parallel=["ocr","mapkit_nearby","gt_mapkit"] + (["gt_kakao"] if "gt_kakao" in sequence else [])
+    _,live=run_batch(parallel,1)
+    print("PROGRESS "+json.dumps({"done":len(sequence),"total":len(sequence),"step":"pipeline","substeps":live}),file=log,flush=True)
+    errors=[x["step"] for x in stages if x["status"]=="error"]
+    outcome={"ok":True,"step":"pipeline","dataset":dataset,"stages":stages,"warnings":warnings,"partial":bool(errors),"errors":errors}
+    print("RESULT "+json.dumps(outcome,ensure_ascii=False),file=log,flush=True); return outcome
 
 
 def _delete_dataset(params, log):

@@ -65,7 +65,7 @@ setbuf(stdout, nil)
 Task {
     print("photo\tstrict_n\tstrict_rank\tstrict_dist\twide_n\twide_rank\twide_dist\tretries\ttop3_wide")
     var cacheStrict = [String: [Ranked]](), cacheWide = [String: [Ranked]](), cacheRetries = [String: Int]()
-    for r in rows {
+    for (rowIndex, r) in rows.enumerated() {
         let key = String(format: "%.5f,%.5f", r.lat, r.lon)
         let coord = CLLocationCoordinate2D(latitude: r.lat, longitude: r.lon)
         if cacheWide[key] == nil {
@@ -74,7 +74,7 @@ Task {
             var used = 0
             // Empty wide result is suspect under throttling: cool down and retry.
             while w.isEmpty && used < RETRY_WAITS.count {
-                FileHandle.standardError.write("  empty @\(key), cooldown retry \(used+1)\n".data(using: .utf8)!)
+                FileHandle.standardError.write("PROGRESS {\"done\":\(rowIndex),\"total\":\(rows.count),\"step\":\"cooldown\",\"retries\":\(used+1),\"retry_reason\":\"empty MapKit nearby result\"}\n".data(using: .utf8)!)
                 try? await Task.sleep(nanoseconds: RETRY_WAITS[used])
                 w = await nearby(coord, radius: WIDE_RADIUS)
                 if s.isEmpty { s = await nearby(coord, radius: STRICT_RADIUS) }
@@ -89,6 +89,7 @@ Task {
         let wrDist = wr != nil ? String(format: "%.0f", w[wr!-1].dist) : "-"
         let top3 = w.prefix(3).map { "\($0.name)@\(Int($0.dist))m" }.joined(separator: " | ")
         print("\(r.photo)\t\(s.count)\t\(sr.map(String.init) ?? "MISS")\t\(srDist)\t\(w.count)\t\(wr.map(String.init) ?? "MISS")\t\(wrDist)\t\(cacheRetries[key]!)\t\(top3)")
+        FileHandle.standardError.write("PROGRESS {\"done\":\(rowIndex + 1),\"total\":\(rows.count),\"step\":\"searching nearby POIs\",\"retries\":\(cacheRetries[key]!)}\n".data(using: .utf8)!)
     }
     exit(0)
 }
