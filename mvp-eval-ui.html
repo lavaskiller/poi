@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MVP — POI 평가 UI</title>
+<title>MVP — POI Evaluation</title>
 <style>
   :root{
     --bg:#050A30; --bg2:#080E38; --card:#101744; --card2:#0c123a;
@@ -164,7 +164,8 @@
   .rst .mf2{height:100%;border-radius:4px} .rst .mp2{font-family:var(--mono);font-size:11px;color:var(--ink2);width:34px}
   .fieldprofile{display:none;margin-top:12px;padding:14px;border:1px solid rgba(86,200,255,.28);border-radius:8px;background:rgba(86,200,255,.035);font-size:12px;color:var(--ink2)}
   .fieldprofile.on{display:block}.fieldprofile h3{margin:0 0 10px;color:var(--ink);font-size:14px}.fieldprofile h4{margin:14px 0 7px;font:11px var(--mono);color:var(--cyan)}
-  .rst tr[data-group]{cursor:pointer}.rst tr[data-group]:hover td,.rst tr[data-group].selected td{background:rgba(86,200,255,.06)}.rst tr[data-group]:focus{outline:1px solid var(--cyan);outline-offset:-2px}
+  .fieldprofile-row td{padding:0 0 12px;border-bottom:1px solid rgba(86,200,255,.18)}.fieldprofile-row .fieldprofile{display:block;margin-top:0}.fieldprofile-row section+section{border-top:1px solid rgba(255,255,255,.08);margin-top:14px;padding-top:14px}.profile-summary{display:flex;gap:16px;align-items:center;flex-wrap:wrap}.profile-completeness{width:96px;height:96px;flex:0 0 96px}.profile-completeness circle{fill:none;stroke-width:9}.profile-completeness .base{stroke:rgba(255,255,255,.09)}.profile-completeness .value{stroke:var(--cyan);stroke-linecap:round}.profile-completeness text{fill:var(--ink);font:700 16px var(--mono)}.profile-overview{display:grid;gap:3px}.profile-overview b{color:var(--ink);font:600 13px var(--mono)}.profile-histogram{height:105px;display:flex;gap:4px;align-items:end;border-bottom:1px solid rgba(255,255,255,.14);padding:6px 3px 0}.profile-hist-bin{min-width:0;flex:1;height:100%;display:flex;align-items:end;position:relative}.profile-hist-bin i{display:block;width:100%;background:linear-gradient(180deg,var(--cyan),rgba(86,200,255,.35));border-radius:3px 3px 0 0}.profile-hist-bin span{position:absolute;bottom:-20px;left:50%;transform:translateX(-50%);white-space:nowrap;font:9px var(--mono);color:var(--ink3)}.profile-chart-label{display:flex;justify-content:space-between;margin-top:24px;color:var(--ink3);font:10px var(--mono)}.profile-bars .profile-bar{grid-template-columns:minmax(90px,200px) 1fr 32px}.profile-bars{max-width:760px}.profile-empty{color:var(--ink3);padding:10px 0}.field-detail-trigger{margin-left:5px;padding:1px 5px;border:0;border-radius:3px;background:transparent;color:var(--ink3);font:11px var(--mono);cursor:pointer}.field-detail-trigger:hover,.field-detail-trigger:focus{background:rgba(86,200,255,.12);color:var(--cyan);outline:none}
+  .rst tr[data-group].selected td{background:rgba(86,200,255,.06)}
   .profile-stats{display:flex;flex-wrap:wrap;gap:7px}.profile-stat{padding:5px 7px;background:rgba(255,255,255,.045);border-radius:4px;font-family:var(--mono);font-size:11px}.profile-stat b{color:var(--ink)}
   .profile-bars{display:grid;gap:4px}.profile-bar{display:grid;grid-template-columns:minmax(80px,1fr) minmax(70px,2fr) 34px;gap:7px;align-items:center;font:11px var(--mono)}.profile-bar .track{height:6px}.profile-samples{margin:0;padding-left:18px;display:grid;gap:4px;font:11px var(--mono);color:var(--ink2);word-break:break-word}
   .editor{width:100%;min-height:200px;background:#0a1140;color:#cfe3ff;border:1px solid var(--line);border-radius:10px;padding:14px;font-family:var(--mono);font-size:12.5px;line-height:1.6;resize:vertical;white-space:pre}
@@ -221,8 +222,8 @@
 </head>
 <body>
 <div class="wrap">
-  <header class="apphead"><div><h1>POI Evaluation</h1><p class="sub" data-i18n="appSubtitle">데이터 상태 확인 → 알고리즘 실행 → 결과·실패 케이스 분석</p></div><div class="headtools"><div class="langswitch" aria-label="Language"><button data-lang="ko" class="on">한국어</button><button data-lang="en">EN</button></div><div class="health" id="apiHealth">데이터 연결 확인 중</div></div></header>
-  <div class="apierror" id="apiError" role="alert"><span id="apiErrorText"></span><button id="retryLoad">다시 시도</button></div>
+  <header class="apphead"><div><h1>POI Evaluation</h1><p class="sub" data-i18n="appSubtitle">Check data health → run an algorithm → inspect results and failures</p></div><div class="headtools"><div class="langswitch" aria-label="Language"><button data-lang="ko">한국어</button><button data-lang="en" class="on">EN</button></div><div class="health" id="apiHealth">Checking data connection</div></div></header>
+  <div class="apierror" id="apiError" role="alert"><span id="apiErrorText"></span><button id="retryLoad" data-i18n="retry">Retry</button></div>
 
   <div class="tabs">
     <button data-t="overview" class="on" data-i18n="tabOverview">개요</button>
@@ -234,35 +235,34 @@
   <!-- ================= OVERVIEW ================= -->
   <div class="view on" id="v-overview">
     <div class="kpis">
-      <div class="kpi"><div class="n" id="k-total">–</div><div class="l">총 행</div></div>
-      <div class="kpi"><div class="n" id="k-gt">–</div><div class="l">GT 라벨 있는 행</div></div>
-      <div class="kpi"><div class="n" id="k-photo">–</div><div class="l">사진 참조 있는 행</div></div>
-      <div class="kpi"><div class="n" id="k-country">–</div><div class="l">국가</div></div>
+      <div class="kpi"><div class="n" id="k-total">–</div><div class="l" data-i18n="totalRows">Total rows</div></div>
+      <div class="kpi"><div class="n" id="k-gt">–</div><div class="l" data-i18n="rowsWithGt">Rows with GT labels</div></div>
+      <div class="kpi"><div class="n" id="k-photo">–</div><div class="l" data-i18n="rowsWithPhotos">Rows with photo references</div></div>
+      <div class="kpi"><div class="n" id="k-country">–</div><div class="l" data-i18n="countries">Countries</div></div>
     </div>
-    <div class="note" id="overviewEmpty" style="display:none"><b>아직 등록된 데이터가 없습니다.</b> API는 정상 연결되었습니다. ④ 데이터셋 관리에서 ZIP을 검증하고 추가하면 이 화면과 평가 기능이 활성화됩니다.</div>
+    <div class="note" id="overviewEmpty" style="display:none" data-i18n="overviewEmpty"><b>No dataset has been added yet.</b> The API is connected. Validate and add a ZIP in ④ Dataset management to enable this view and evaluation.</div>
     <div class="grid2" style="margin-top:16px">
       <div class="panel">
-        <h2 style="margin-top:0">출처 (provenance)</h2>
+        <h2 style="margin-top:0" data-i18n="provenance">Provenance</h2>
         <div class="srccard" id="sourcebars"></div>
-        <h2>신뢰등급 (채점 취급)</h2>
+        <h2 data-i18n="confidenceTier">Confidence tier (scoring)</h2>
         <div class="bars" id="confidencebars"></div>
       </div>
       <div class="panel">
-        <h2 style="margin-top:0">국가</h2>
+        <h2 style="margin-top:0" data-i18n="countries">Countries</h2>
         <div class="bars" id="countrybars"></div>
-        <h2>신호 파이프라인</h2>
+        <h2 data-i18n="signalPipeline">Signal pipeline</h2>
         <div class="pipe" id="pipelinebars"></div>
       </div>
     </div>
-    <h2>한 행의 구조 — 라벨 컬럼 · 채움 · 입력벡터</h2>
+    <h2 data-i18n="rowStructure">Row structure — label columns, coverage, and input vector</h2>
     <div class="panel">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-        <span style="font-size:12px;font-family:var(--mono);color:var(--ink3)">출처별 채움</span>
+        <span style="font-size:12px;font-family:var(--mono);color:var(--ink3)" data-i18n="coverageByDataset">Coverage by dataset</span>
         <select id="rowstruct-src"></select>
       </div>
-      <table class="rst"><thead><tr><th>필드</th><th>역할</th><th>채움</th><th>추출 방법</th></tr></thead><tbody id="rowstruct"></tbody></table>
-      <div id="fieldprofile" class="fieldprofile" aria-live="polite"><span>행을 선택하면 실제 값 구성과 분포를 표시합니다.</span></div>
-      <div class="note" style="margin-top:14px"><b>채움률은 알고리즘 입력 가용성입니다.</b> 낮은 채움률의 신호를 선택하면 평가 가능한 행과 성능 상한이 줄어듭니다.</div>
+      <table class="rst"><thead><tr><th data-i18n="field">Field</th><th data-i18n="role">Role</th><th data-i18n="coverage">Coverage</th><th data-i18n="extractionMethod">Extraction method</th></tr></thead><tbody id="rowstruct"></tbody></table>
+      <div class="note" style="margin-top:14px" data-i18n="coverageHelp"><b>Coverage determines algorithm-input availability.</b> Selecting sparse signals reduces eligible rows and the performance ceiling.</div>
     </div>
 
   </div>
@@ -284,7 +284,7 @@
           <option value="v2">v2 덮어쓰기</option>
         </select>
         &nbsp;
-        <select id="rscope"><option value="all">전체</option><option value="linkedspaces">linkedspaces</option><option value="union-city">union-city</option><option value="vancouver">vancouver</option></select>
+        <select id="rscope"><option value="all">All</option><option value="linkedspaces">linkedspaces</option><option value="union-city">union-city</option><option value="vancouver">vancouver</option></select>
       </div>
     </div>
 
@@ -306,7 +306,7 @@
       </label>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
         <button class="btn" type="button" id="loadExample">예시 코드 불러오기</button>
-        <a class="btn" href="examples/baseline_nearest.py" download>예시 .py 다운로드</a>
+        <a class="btn" href="examples/baseline_nearest.py" download data-i18n="downloadExample">Download example .py</a>
         <span style="color:var(--ink3);font-size:11.5px">가장 가까운 주변 후보를 반환하는 최소 동작 예시</span>
       </div>
       <div style="color:var(--ink3);font-size:11.5px;font-family:var(--mono);margin-top:8px">계약: Python <span style="color:var(--cyan)">def predict(case) → str | {"prediction","reason"}</span> · 그 외 언어는 stdin JSON → stdout 예측</div>
@@ -338,7 +338,7 @@
       <div class="inside">
     <div class="controls">
       <div class="ctl">스코프 <select id="scope">
-        <option value="all">전체</option>
+        <option value="all">All</option>
         <option value="linkedspaces">linkedspaces · 실사용자</option>
         <option value="union-city">union-city · 우혁</option>
         <option value="vancouver">vancouver · 인소</option>
@@ -419,7 +419,7 @@
     <h2>새 데이터셋 추가 <span style="color:var(--ink3);text-transform:none;letter-spacing:0">— ZIP 업로드 → ingest 잡 (작업 로그에 추적)</span></h2>
     <div class="panel">
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <a class="btn" href="templates/poi-dataset-upload-template.zip" download>템플릿 ZIP 다운로드</a>
+        <a class="btn" href="templates/poi-dataset-upload-template.zip" download data-i18n="downloadTemplate">Download template ZIP</a>
         <label class="btn" style="cursor:pointer">ZIP 검증<input id="uploadZip" type="file" accept=".zip,application/zip" style="display:none"></label>
         <label class="btn" style="cursor:pointer;border-color:rgba(95,211,123,.5);background:rgba(95,211,123,.12);color:var(--green)">＋ 데이터셋 추가 (ingest)<input id="ingestZip" type="file" accept=".zip,application/zip" style="display:none"></label>
       </div>

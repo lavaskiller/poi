@@ -1,10 +1,11 @@
 // ---------- language ----------
-let uiLanguage=localStorage.getItem('poi-ui-language')||'ko';
+// Retain an explicit previous choice, but make English the first-visit default.
+let uiLanguage=localStorage.getItem('poi-ui-language')||'en';
 const I18N={
-  ko:{appSubtitle:'데이터 상태 확인 → 알고리즘 실행 → 결과·실패 케이스 분석',tabOverview:'개요',tabRun:'알고리즘 실행',tabResults:'실행 결과',tabData:'데이터셋 관리',resultsIntro:'실행 결과는 이곳에서 관리합니다. 실행을 하나 선택해 설정과 실패를 확인하고, 최대 4개 실행을 비교하거나 필요 없는 실행을 삭제하세요.',savedRuns:'저장된 실행',compareSelect:'비교 선택 (최대 4개)',runDetailEmpty:'왼쪽에서 실행을 선택하세요. 설정, 측정 결과, 필터 가능한 실패 케이스를 표시합니다.',selectedCompare:'선택 실행 비교',compareHelp:'막대는 정확도입니다. 아래 색 띠는 정답, 예측 없음(제출값 비어 있음), 오류, 오답의 구성입니다. 예측 없음은 코드가 빈 예측값을 반환한 경우이며, 실행 오류와는 별도로 집계합니다. 같은 코드 해시는 같은 제출 코드의 재실행을 뜻합니다.',retrievalDiagnostics:'후보 검색 진단',retrievalDiagnosticsHelp:'- 알고리즘 실행 결과와 별개인 후보 공급원 상태'},
-  en:{appSubtitle:'Check data health → run an algorithm → inspect results and failures',tabOverview:'Overview',tabRun:'Run algorithm',tabResults:'Run results',tabData:'Dataset management',resultsIntro:'Manage persisted results here. Select one run to inspect its configuration and failures, compare up to four runs, or remove an obsolete result.',savedRuns:'Saved runs',compareSelect:'Compare (up to 4)',runDetailEmpty:'Select a run on the left. Its configuration, measured outcomes, and filterable failures appear here.',selectedCompare:'Compare selected runs',compareHelp:'Bars show accuracy. The colored strip breaks down correct, abstained (no prediction submitted), errored, and wrong cases. Abstentions are distinct from execution errors. Matching code hashes mean the same submission was run again.',retrievalDiagnostics:'Retrieval diagnostics',retrievalDiagnosticsHelp:'- candidate-provider health, separate from algorithm results'}
+  ko:{appSubtitle:'데이터 상태 확인 → 알고리즘 실행 → 결과·실패 케이스 분석',tabOverview:'개요',tabRun:'알고리즘 실행',tabResults:'실행 결과',tabData:'데이터셋 관리',resultsIntro:'실행 결과는 이곳에서 관리합니다. 실행을 하나 선택해 설정과 실패를 확인하고, 최대 4개 실행을 비교하거나 필요 없는 실행을 삭제하세요.',savedRuns:'저장된 실행',compareSelect:'비교 선택 (최대 4개)',runDetailEmpty:'왼쪽에서 실행을 선택하세요. 설정, 측정 결과, 필터 가능한 실패 케이스를 표시합니다.',selectedCompare:'선택 실행 비교',compareHelp:'막대는 정확도입니다. 아래 색 띠는 정답, 예측 없음(제출값 비어 있음), 오류, 오답의 구성입니다. 예측 없음은 코드가 빈 예측값을 반환한 경우이며, 실행 오류와는 별도로 집계합니다. 같은 코드 해시는 같은 제출 코드의 재실행을 뜻합니다.',retrievalDiagnostics:'후보 검색 진단',retrievalDiagnosticsHelp:'- 알고리즘 실행 결과와 별개인 후보 공급원 상태',downloadExample:'예시 .py 다운로드',downloadTemplate:'템플릿 ZIP 다운로드',retry:'다시 시도',totalRows:'총 행',rowsWithGt:'GT 라벨 있는 행',rowsWithPhotos:'사진 참조 있는 행',countries:'국가',overviewEmpty:'<b>아직 등록된 데이터가 없습니다.</b> API는 정상 연결되었습니다. ④ 데이터셋 관리에서 ZIP을 검증하고 추가하면 이 화면과 평가 기능이 활성화됩니다.',provenance:'출처 (provenance)',confidenceTier:'신뢰등급 (채점 취급)',signalPipeline:'신호 파이프라인',rowStructure:'한 행의 구조 — 라벨 컬럼 · 채움 · 입력벡터',coverageByDataset:'출처별 채움',field:'필드',role:'역할',coverage:'채움',extractionMethod:'추출 방법',coverageHelp:'<b>채움률은 알고리즘 입력 가용성입니다.</b> 낮은 채움률의 신호를 선택하면 평가 가능한 행과 성능 상한이 줄어듭니다.'},
+  en:{appSubtitle:'Check data health → run an algorithm → inspect results and failures',tabOverview:'Overview',tabRun:'Run algorithm',tabResults:'Run results',tabData:'Dataset management',resultsIntro:'Manage persisted results here. Select one run to inspect its configuration and failures, compare up to four runs, or remove an obsolete result.',savedRuns:'Saved runs',compareSelect:'Compare (up to 4)',runDetailEmpty:'Select a run on the left. Its configuration, measured outcomes, and filterable failures appear here.',selectedCompare:'Compare selected runs',compareHelp:'Bars show accuracy. The colored strip breaks down correct, abstained (no prediction submitted), errored, and wrong cases. Abstentions are distinct from execution errors. Matching code hashes mean the same submission was run again.',retrievalDiagnostics:'Retrieval diagnostics',retrievalDiagnosticsHelp:'- candidate-provider health, separate from algorithm results',downloadExample:'Download example .py',downloadTemplate:'Download template ZIP',retry:'Retry',totalRows:'Total rows',rowsWithGt:'Rows with GT labels',rowsWithPhotos:'Rows with photo references',countries:'Countries',overviewEmpty:'<b>No dataset has been added yet.</b> The API is connected. Validate and add a ZIP in ④ Dataset management to enable this view and evaluation.',provenance:'Provenance',confidenceTier:'Confidence tier (scoring)',signalPipeline:'Signal pipeline',rowStructure:'Row structure — label columns, coverage, and input vector',coverageByDataset:'Coverage by dataset',field:'Field',role:'Role',coverage:'Coverage',extractionMethod:'Extraction method',coverageHelp:'<b>Coverage determines algorithm-input availability.</b> Selecting sparse signals reduces eligible rows and the performance ceiling.'}
 };
-function applyLanguage(){document.documentElement.lang=uiLanguage;document.querySelectorAll('[data-i18n]').forEach(el=>{el.textContent=I18N[uiLanguage][el.dataset.i18n]||el.textContent});document.querySelectorAll('[data-lang]').forEach(b=>b.classList.toggle('on',b.dataset.lang===uiLanguage));if(selectedRun)renderRunDetail();}
+function applyLanguage(){document.documentElement.lang=uiLanguage;document.querySelectorAll('[data-i18n]').forEach(el=>{const value=I18N[uiLanguage][el.dataset.i18n];if(value!==undefined)el.innerHTML=value});document.querySelectorAll('[data-lang]').forEach(b=>b.classList.toggle('on',b.dataset.lang===uiLanguage));setApiState('language',null);if(selectedRun)renderRunDetail();if(_rowstruct){const open=_openFieldGroup;renderRowStruct();if(open)loadFieldProfile(open);}loadOverviewSummary();}
 document.querySelectorAll('[data-lang]').forEach(b=>b.onclick=()=>{uiLanguage=b.dataset.lang;localStorage.setItem('poi-ui-language',uiLanguage);applyLanguage()});
 
 // ---------- tabs ----------
@@ -21,11 +22,11 @@ function setApiState(key,error){
   if(error) apiFailures.add(key); else apiFailures.delete(key);
   const health=$('#apiHealth'), box=$('#apiError'), text=$('#apiErrorText');
   if(apiFailures.size){
-    health.className='health err'; health.textContent='데이터 연결 오류';
-    box.classList.add('on'); text.textContent='일부 데이터를 불러오지 못했습니다. 서버가 실행 중인지 확인한 뒤 다시 시도하세요.';
+    health.className='health err'; health.textContent=uiLanguage==='en'?'Data connection error':'데이터 연결 오류';
+    box.classList.add('on'); text.textContent=uiLanguage==='en'?'Some data could not be loaded. Check that the server is running, then try again.':'일부 데이터를 불러오지 못했습니다. 서버가 실행 중인지 확인한 뒤 다시 시도하세요.';
   }else{
     health.className='health ok';
-    health.textContent=storeDataState==='empty'?'API 연결됨 · 데이터 없음':'실데이터 연결됨';
+    health.textContent=storeDataState==='empty'?(uiLanguage==='en'?'API connected · no data':'API 연결됨 · 데이터 없음'):(uiLanguage==='en'?'Live data connected':'실데이터 연결됨');
     box.classList.remove('on');
   }
 }
@@ -165,7 +166,8 @@ async function loadOverviewSummary(){
     by('sourcebars').innerHTML=(d.sources||[]).map(x=>`<div class="src"><span class="dot" style="background:${color(x.color)}"></span><span>${esc(x.key)} <span class="prov">· ${esc(x.owner||'')} · ${esc(x.source_type||x.desc||'')}</span></span><b>${x.count}</b></div>`).join('');
     by('confidencebars').innerHTML=(d.confidence||[]).map(x=>`<div class="bar"><span class="lbl">${esc(x.key)}</span><div class="track"><div class="fill" style="width:${pct(x.count)}%;background:${color(x.color)}"></div></div><span class="v">${x.count}</span></div>`).join('');
     by('countrybars').innerHTML=(d.countries||[]).map((x,i)=>`<div class="bar"><span class="lbl">${esc(x.flag||'·')} ${esc(x.key)}</span><div class="track"><div class="fill" style="width:${pct(x.count)}%;background:${['var(--blue)','var(--pink)','var(--cyan)','var(--violet)','var(--orange)'][i%5]}"></div></div><span class="v">${x.count}</span></div>`).join('');
-    by('pipelinebars').innerHTML=(d.pipeline||[]).map(x=>{const p=total?Math.round(100*(x.merged||x.extracted||0)/total):0;const st=x.status==='done'?'완료':(x.status==='run'?'진행중':'대기');const col=x.status==='done'?'var(--green)':(x.status==='run'?'var(--orange)':'#333c66');return `<div class="pl"><span class="lbl">${esc(x.label)}</span><div class="track"><div class="seg" style="width:${p}%;background:${col}"></div></div><span class="st ${x.status}">${st}</span></div>`}).join('');
+    const pipelineLabels={'GPS 좌표':'GPS coordinates','사진 다운로드+변환':'Photo download and conversion','입력 장소명':'Input place name','MapKit 베이스라인':'MapKit baseline','MapKit 정규명(GT)':'MapKit canonical name (GT)','온디바이스 LLM (v2)':'On-device LLM (v2)','FastVLM (이미지)':'FastVLM (image)'};
+    by('pipelinebars').innerHTML=(d.pipeline||[]).map(x=>{const p=total?Math.round(100*(x.merged||x.extracted||0)/total):0;const st=x.status==='done'?(uiLanguage==='en'?'Done':'완료'):(x.status==='run'?(uiLanguage==='en'?'In progress':'진행중'):(uiLanguage==='en'?'Waiting':'대기'));const label=uiLanguage==='en'?(pipelineLabels[x.label]||x.label):x.label;const col=x.status==='done'?'var(--green)':(x.status==='run'?'var(--orange)':'#333c66');return `<div class="pl"><span class="lbl">${esc(label)}</span><div class="track"><div class="seg" style="width:${p}%;background:${col}"></div></div><span class="st ${x.status}">${st}</span></div>`}).join('');
   }catch(e){ console.warn('overview load failed',e); }
 }
 // Row structure is rendered live from /api/overview `schema` (config-driven).
@@ -173,12 +175,15 @@ async function loadOverviewSummary(){
 // The 출처(dataset) dropdown recomputes 채움% from per-dataset fills.
 let _rowstruct=null;
 let _openFieldGroup=null;
+const FIELD_DESC_EN={'capture_lat/lon':'Photo EXIF GPS coordinates.','caption_ondevice':'Text extracted from photos with Vision OCR.','photo_url / photo':'S3 URL and local filename; input for FastVLM and OCR.','timestamp':'Capture time retained only for the local dataset.','input_place_name':'Raw user input before provider normalization.','gt_mapkit':'Canonical MapKit answer for non-Korean rows; used for scoring.','gt_kakao':'Canonical Kakao answer for Korean rows; held out until Kakao data is available.','gt_confidence':'Label confidence tier.','category':'POI type used for failure analysis.','city / country / address':'Reverse-geocoded strings supplied by exports.','app_poi_rank':'Rank of the correct answer in the current app MapKit search.','app_nearby_top1':'Nearest result within a 250 m MapKit radius.','app_nearby_n_wide':'Number of candidates within the wider MapKit radius.','app_poi_dist_m':'Distance to the matched POI, in metres.','baseline_place_title':'Title attached by the app.','poi_match_keyword':'Keyword used to find the answer in MapKit results.','poi_list_match':'Answer-match detail and annotations.','dataset / notes / username':'Source, author, and manual notes.','caption_oracle':'Strong vision-model captions deliberately removed to prevent circularity.'};
+const ROLE_EN={in:'Input signal',gt:'Ground truth',bl:'Baseline',mt:'Metadata'};
+const FIELD_KIND_LABEL={en:{coordinate:'Coordinate',number:'Number',date:'Date/time',asset:'File/URL',category:'Category',text:'Text'},ko:{coordinate:'좌표',number:'숫자',date:'날짜·시간',asset:'파일·URL',category:'범주',text:'텍스트'}};
 async function loadRowStruct(){
   try{_rowstruct=await apiJSON('/api/overview','overview');}catch(e){_rowstruct={};}
   const sel=$("#rowstruct-src");
   if(sel && !sel.dataset.init){
     const dss=_rowstruct.datasets||[];
-    sel.innerHTML='<option value="__all">전체</option>'+dss.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
+    sel.innerHTML=`<option value="__all">${uiLanguage==='en'?'All':'전체'}</option>`+dss.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
     sel.dataset.init='1';
     sel.addEventListener('change',()=>{renderRowStruct(); if(_openFieldGroup) loadFieldProfile(_openFieldGroup);});
   }
@@ -187,6 +192,7 @@ async function loadRowStruct(){
 function renderRowStruct(){
   const d=_rowstruct||{},schema=d.schema||[];
   const sel=$("#rowstruct-src"),src=sel?sel.value:'__all',isAll=src==='__all';
+  if(sel&&sel.options.length)sel.options[0].textContent=uiLanguage==='en'?'All':'전체';
   const total=isAll?Number(d.total||0):Number((d.total_by_dataset||{})[src]||0);
   const fbd=isAll?null:((d.fill_by_dataset||{})[src]||{});
   const RC={in:'var(--blue)',gt:'var(--gold)',bl:'var(--green)',mt:'var(--ink3)'};
@@ -196,15 +202,13 @@ function renderRowStruct(){
     const pct=total?Math.round(100*f/total):0;
     const color=pct>=90?'var(--green)':(pct===0?'var(--ink3)':'var(--orange)');
     const rcolor=RC[s.role_key]||'var(--ink3)';
-    return `<tr data-group="${esc(s.group)}" tabindex="0" role="button" aria-label="${esc(s.group)} 값 상세 보기"><td class="nm3">${esc(s.group)}</td>
-      <td class="rl" style="color:${rcolor}">${esc(s.role_label||s.role_key||'')}</td>
+    return `<tr data-group="${esc(s.group)}"><td class="nm3">${esc(s.group)}</td>
+      <td class="rl" style="color:${rcolor}">${esc(uiLanguage==='en'?(ROLE_EN[s.role_key]||s.role_key||''):(s.role_label||s.role_key||''))}</td>
       <td><div class="fb2"><div class="mt2"><div class="mf2" style="width:${pct}%;background:${color}"></div></div><span class="mp2">${pct}%</span></div></td>
-      <td class="m3">${plain(s.desc||'')} <span style="color:var(--ink3)">· 상세 보기</span></td></tr>`;
+      <td class="m3">${uiLanguage==='en'?esc(FIELD_DESC_EN[s.group]||plain(s.desc||'')):plain(s.desc||'')} <button class="field-detail-trigger" type="button" aria-label="${esc(s.group)} ${uiLanguage==='en'?'details':'값 상세 보기'}">${uiLanguage==='en'?'Details':'상세 보기'}</button></td></tr>`;
   }).join('');
-  $("#rowstruct").querySelectorAll('tr[data-group]').forEach(row=>{
-    const open=()=>loadFieldProfile(row.dataset.group);
-    row.addEventListener('click',open);
-    row.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});
+  $("#rowstruct").querySelectorAll('.field-detail-trigger').forEach(button=>{
+    button.addEventListener('click',()=>loadFieldProfile(button.closest('tr').dataset.group));
   });
 }
 function fmtProfileNumber(n){return Number.isInteger(n)?String(n):Number(n).toLocaleString(undefined,{maximumFractionDigits:5});}
@@ -212,24 +216,44 @@ function profileBars(items){
   const max=Math.max(1,...items.map(x=>x.count||0));
   return `<div class="profile-bars">${items.map(x=>`<div class="profile-bar"><span title="${esc(x.value||x.label)}">${esc(x.value||x.label)}</span><div class="track"><div class="fill" style="width:${Math.round(100*(x.count||0)/max)}%;background:var(--cyan)"></div></div><b>${x.count}</b></div>`).join('')}</div>`;
 }
+function profileCompleteness(p,total){
+  const L=uiLanguage==='en';
+  const pct=total?Math.round(100*p.present/total):0, circumference=251.2, dash=(circumference*pct/100).toFixed(1);
+  const kind=(FIELD_KIND_LABEL[uiLanguage]||FIELD_KIND_LABEL.en)[p.kind]||p.kind_label;
+  return `<div class="profile-summary"><svg class="profile-completeness" viewBox="0 0 100 100" aria-label="${pct}% ${L?'populated':'채워짐'}"><circle class="base" cx="50" cy="50" r="40"/><circle class="value" cx="50" cy="50" r="40" transform="rotate(-90 50 50)" stroke-dasharray="${dash} ${circumference}"></circle><text x="50" y="55" text-anchor="middle">${pct}%</text></svg><div class="profile-overview"><b>${p.present} ${L?'populated':'채워짐'} · ${p.missing} ${L?'missing':'비어 있음'}</b><span>${p.unique} ${L?`distinct value${p.unique===1?'':'s'}`:'고유값'} · ${esc(kind)}</span>${p.numeric?`<span>${L?'Range':'범위'} ${fmtProfileNumber(p.numeric.min)} — ${fmtProfileNumber(p.numeric.max)} · ${L?'median':'중앙값'} ${fmtProfileNumber(p.numeric.median)}</span>`:''}${p.text?`<span>${L?'Text length':'텍스트 길이'}: ${p.text.min_length} — ${p.text.max_length} · ${L?'median':'중앙값'} ${p.text.median_length}</span>`:''}</div></div>`;
+}
+function profileHistogram(items){
+  const max=Math.max(1,...items.map(x=>x.count||0));
+  const L=uiLanguage==='en';
+  return `<div class="profile-histogram">${items.map(x=>`<div class="profile-hist-bin" title="${esc(x.label)}: ${x.count}"><i style="height:${Math.max(3,Math.round(100*x.count/max))}%"></i><span>${esc(x.label)}</span></div>`).join('')}</div><div class="profile-chart-label"><span>${L?'Lower values':'낮은 값'}</span><span>${L?'Higher values':'높은 값'}</span></div>`;
+}
 async function loadFieldProfile(group){
+  const existing=document.querySelector('.fieldprofile-row');
+  if(_openFieldGroup===group && existing){
+    existing.remove(); _openFieldGroup=null;
+    document.querySelectorAll('#rowstruct tr[data-group]').forEach(r=>r.classList.remove('selected'));
+    return;
+  }
   _openFieldGroup=group;
-  const panel=$('#fieldprofile'),src=$('#rowstruct-src')?.value||'__all';
+  const src=$('#rowstruct-src')?.value||'__all', tbody=$('#rowstruct');
   document.querySelectorAll('#rowstruct tr[data-group]').forEach(r=>r.classList.toggle('selected',r.dataset.group===group));
-  panel.classList.add('on'); panel.textContent='실제 값과 분포를 불러오는 중…';
+  document.querySelectorAll('.fieldprofile-row').forEach(r=>r.remove());
+  const anchor=tbody.querySelector(`tr[data-group="${CSS.escape(group)}"]`);
+  if(!anchor)return;
+  const detail=document.createElement('tr'); detail.className='fieldprofile-row'; detail.innerHTML=`<td colspan="4"><div class="fieldprofile" aria-live="polite">${uiLanguage==='en'?'Loading field profile…':'필드 상세 정보를 불러오는 중…'}</div></td>`;
+  anchor.insertAdjacentElement('afterend',detail);
+  const panel=detail.querySelector('.fieldprofile');
   try{
     const d=await apiJSON(`/api/field-profile?group=${encodeURIComponent(group)}&dataset=${encodeURIComponent(src)}`,'field-profile');
     const card=(p)=>{
       const denom=d.total||0, fill=denom?Math.round(100*p.present/denom):0;
-      const stats=[`유형 <b>${esc(p.kind_label)}</b>`,`채움 <b>${p.present}/${denom} (${fill}%)</b>`,`결측 <b>${p.missing}</b>`,`고유값 <b>${p.unique}</b>`];
-      if(p.numeric)stats.push(`최소 <b>${fmtProfileNumber(p.numeric.min)}</b>`,`중앙 <b>${fmtProfileNumber(p.numeric.median)}</b>`,`최대 <b>${fmtProfileNumber(p.numeric.max)}</b>`);
-      if(p.text)stats.push(`길이 <b>${p.text.min_length} · ${p.text.median_length} · ${p.text.max_length}자</b>`);
       const distribution=p.numeric?.histogram || p.date_counts || p.top;
-      const title=p.numeric?'값 구간 분포':(p.kind==='text'?'반복된 값 (OCR/자유 텍스트는 대개 고유)':p.kind==='date'?'날짜별 값':'상위 값');
-      return `<section><h4>${esc(p.column)} · ${esc(p.kind_label)}</h4><div class="profile-stats">${stats.map(x=>`<span class="profile-stat">${x}</span>`).join('')}</div>${distribution.length?`<h4>${title}</h4>${profileBars(distribution)}`:''}${p.samples.length?`<h4>실제 값 예시 (최대 5개)</h4><ul class="profile-samples">${p.samples.map(v=>`<li>${esc(v)}</li>`).join('')}</ul>`:''}</section>`;
+      const L=uiLanguage==='en', title=p.numeric?(L?'Distribution':'분포'):(p.kind==='text'?(L?'Most repeated values':'반복된 값'):(p.kind==='date'?(L?'Values by date':'날짜별 값'):(L?'Most frequent values':'자주 나타나는 값')));
+      const chart=p.numeric?profileHistogram(distribution):(distribution.length?profileBars(distribution):`<div class="profile-empty">${L?'No populated values in this selection.':'선택한 범위에 채워진 값이 없습니다.'}</div>`);
+      return `<section><h4>${esc(p.column)}</h4>${profileCompleteness(p,denom)}<h4>${title}</h4>${chart}${p.samples.length?`<h4>${L?'Example values':'예시 값'}</h4><ul class="profile-samples">${p.samples.map(v=>`<li>${esc(v)}</li>`).join('')}</ul>`:''}</section>`;
     };
-    panel.innerHTML=`<h3>${esc(group)} <span style="font:11px var(--mono);color:var(--ink3)">· ${src==='__all'?'전체':esc(src)} · ${d.total}행</span></h3>${d.columns.map(card).join('')}`;
-  }catch(e){panel.textContent=`상세 값을 불러오지 못했습니다: ${e.message}`;}
+    panel.innerHTML=`<h3>${esc(group)} <span style="font:11px var(--mono);color:var(--ink3)">· ${src==='__all'?(uiLanguage==='en'?'All datasets':'전체 데이터셋'):esc(src)} · ${d.total}${uiLanguage==='en'?' rows':'행'}</span></h3>${d.columns.map(card).join('')}`;
+  }catch(e){panel.textContent=uiLanguage==='en'?`Could not load the field profile: ${e.message}`:`필드 상세 정보를 불러올 수 없습니다: ${e.message}`;}
 }
 loadOverviewSummary();
 loadRowStruct();

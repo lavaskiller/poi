@@ -662,12 +662,12 @@ def build_field_profile(group, dataset="__all"):
         is_coordinate = lower in {"capture_lat", "capture_lon", "lat", "lon", "lng", "latitude", "longitude"}
         is_asset = any(part in lower for part in ("photo", "image", "url", "file", "path"))
         is_date = any(part in lower for part in ("timestamp", "date", "time"))
-        if is_coordinate: kind, kind_label = "coordinate", "좌표"
-        elif numbers is not None: kind, kind_label = "number", "숫자"
-        elif is_date: kind, kind_label = "date", "날짜·시간"
-        elif is_asset: kind, kind_label = "asset", "파일·URL"
-        elif len(counts) <= min(20, max(4, len(present) // 3)): kind, kind_label = "category", "범주"
-        else: kind, kind_label = "text", "텍스트"
+        if is_coordinate: kind, kind_label = "coordinate", "Coordinate"
+        elif numbers is not None: kind, kind_label = "number", "Number"
+        elif is_date: kind, kind_label = "date", "Date/time"
+        elif is_asset: kind, kind_label = "asset", "File/URL"
+        elif len(counts) <= min(20, max(4, len(present) // 3)): kind, kind_label = "category", "Category"
+        else: kind, kind_label = "text", "Text"
         profile = {"column": col, "kind": kind, "kind_label": kind_label, "present": len(present), "missing": len(rows) - len(present), "unique": len(counts), "samples": [clipped(v) for v in present[:5]], "top": [{"value": clipped(v, 100), "count": n} for v, n in counts.most_common(8)]}
         if numbers is not None:
             ordered = sorted(numbers)
