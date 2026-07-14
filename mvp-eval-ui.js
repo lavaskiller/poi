@@ -58,7 +58,10 @@ function renderLocalizedUI(){
   if(_rowstruct){const open=_openFieldGroup;renderRowStruct();if(open)loadFieldProfile(open);}
   renderParams();renderRuns();renderRunManager();drawCompareBars();renderChips();renderCaseList();
   if(curCaseIdx!=null)showCase(curCaseIdx);
-  loadOverviewSummary();loadDatasets();pollJobs();
+  if(_matchrateData)render(_matchrateData);
+  if(_overviewData)loadOverviewSummary(_overviewData);
+  if(_dsData)loadDatasets(_dsData);
+  if(_jobsData)pollJobs(_jobsData);
 }
 function setLanguage(value){uiLanguage=normalizeLanguage(value);storeLanguage(uiLanguage);renderLocalizedUI();}
 document.querySelectorAll('[data-lang]').forEach(b=>b.onclick=()=>setLanguage(b.dataset.lang));
@@ -91,17 +94,17 @@ async function apiJSON(url,key){
 }
 $('#retryLoad').onclick=()=>loadAll();
 let scope="all",mode="raw";
-async function render(){
+let _matchrateData=null;
+async function render(data=null){
   const apiMode='exact';
-  let d;
-  try{d=await apiJSON(`/api/matchrate?dataset=${encodeURIComponent(scope)}&mode=${apiMode}`,'matchrate');}
+  let d=data;
+  try{d=d||await apiJSON(`/api/matchrate?dataset=${encodeURIComponent(scope)}&mode=${apiMode}`,'matchrate');_matchrateData=d;}
   catch(e){d={n:0,rank1:0,top3:0,top5:0,top10:0,top20:0,top50:0,miss:0,counts:{},by_provider:{},matching_policy:{}};}
   const n=d.n||0, pct=x=>n?Math.round(100*x/n):0;
-  const c=d.counts||{}, rows=c.rows||0;
-  const excl=[]; if(d.excluded_korea_pending_kakao)excl.push(`${bi('KR/Kakao pending','KR/Kakao 대기')} ${d.excluded_korea_pending_kakao}`); if(d.excluded_non_poi)excl.push(`non_poi ${d.excluded_non_poi}`); if(d.excluded_non_mapkit)excl.push(`NON_MAPKIT ${d.excluded_non_mapkit}`); if(d.excluded_sim_mapkit)excl.push(`SIM_MAPKIT ${d.excluded_sim_mapkit}`); if(d.excluded_no_gt)excl.push(`${bi('no provider GT','provider GT 없음')} ${d.excluded_no_gt}`); if(d.no_provider_data)excl.push(`${bi('no candidate data','후보 데이터 없음')} ${d.no_provider_data}`);
+  const rows=(d.counts||{}).rows||0;
   $("#meta").innerHTML=d.counts&&d.counts.rows===0
     ? bi('No datasets yet. Add a ZIP under Dataset management to see evaluation metrics and cases.','등록된 데이터셋이 없습니다. 데이터셋 관리에서 ZIP을 추가하면 평가 지표와 사례를 볼 수 있습니다.')
-    : bi(`Eligible rows <b>${rows}</b> · canonical GT <b>${c.gt_canonical||0}</b> · evaluated <b>n=${n}</b> · excluded/pending: ${excl.join(' · ')||'-'}<br>Match rule: <b>provider canonical name == candidate name</b> · sentinel or empty provider GT is held out · candidate provider: non-KR MapKit (KR excluded)`,`대상 행 <b>${rows}</b> · canonical GT <b>${c.gt_canonical||0}</b> · 평가 완료 <b>n=${n}</b> · 제외/대기: ${excl.join(' · ')||'-'}<br>일치 기준: <b>제공자 canonical name == candidate name</b> · sentinel 또는 빈 provider GT는 평가에서 제외 · 후보 제공자: 한국 제외, 그 외 MapKit`);
+    : bi(`Eligible rows <b>${rows}</b> · evaluated <b>${n}</b>`,`평가 대상 <b>${rows}</b>행 · 평가 완료 <b>${n}</b>행`);
   const set=(id,c)=>{$("#p-"+id).textContent=pct(c)+"%";$("#c-"+id).textContent=c+" / "+n;};
   set("r1",d.rank1||0);set("t3",d.top3||0);set("t5",d.top5||0);set("t10",d.top10||0);set("t20",d.top20||0);set("t50",d.top50||0);set("miss",d.miss||0);
   $("#flip").classList.add("hidden");
@@ -205,10 +208,13 @@ loadCases();
 // ---------- overview: row structure (라벨 컬럼 · 채움 · 입력벡터) — live /api/overview fill ----------
 
 const PIPELINE_LABELS_EN={'GPS 좌표':'GPS coordinates','사진 다운로드+변환':'Photo download and conversion','입력 장소명':'Input place name','MapKit 베이스라인':'MapKit baseline','MapKit 정규명(GT)':'MapKit canonical name (GT)','온디바이스 LLM (v2)':'On-device LLM (v2)','FastVLM (이미지)':'FastVLM (image)'};
-async function loadOverviewSummary(){
+let _overviewData=null;
+const pipelineLabel=label=>uiLanguage==='ko'?(label||'처리 단계'):(PIPELINE_LABELS_EN[label]||(!hasKorean(label)?label:'Pipeline step'));
+async function loadOverviewSummary(data=null){
   const by=id=>document.getElementById(id);
   try{
-    const d=await apiJSON('/api/overview','overview');
+    const d=data||await apiJSON('/api/overview','overview');
+    _overviewData=d;
     const total=d.total||0;
     storeDataState=d.data_state||((total>0)?'ready':'empty');
     setApiState('overview',null);
@@ -222,7 +228,7 @@ async function loadOverviewSummary(){
     by('sourcebars').innerHTML=(d.sources||[]).map(x=>`<div class="src"><span class="dot" style="background:${color(x.color)}"></span><span>${esc(x.key)}</span><b>${x.count}</b></div>`).join('');
     by('confidencebars').innerHTML=(d.confidence||[]).map(x=>`<div class="bar"><span class="lbl">${esc(x.key)}</span><div class="track"><div class="fill" style="width:${pct(x.count)}%;background:${color(x.color)}"></div></div><span class="v">${x.count}</span></div>`).join('');
     by('countrybars').innerHTML=(d.countries||[]).map((x,i)=>`<div class="bar"><span class="lbl">${esc(x.flag||'·')} ${esc(x.key)}</span><div class="track"><div class="fill" style="width:${pct(x.count)}%;background:${['var(--blue)','var(--pink)','var(--cyan)','var(--violet)','var(--orange)'][i%5]}"></div></div><span class="v">${x.count}</span></div>`).join('');
-    by('pipelinebars').innerHTML=(d.pipeline||[]).map(x=>{const p=total?Math.round(100*(x.merged||x.extracted||0)/total):0;const st=tl('pipelineStatus',x.status==='done'?'done':(x.status==='run'?'run':'waiting'));const label=uiLanguage==='en'?(PIPELINE_LABELS_EN[x.label]||x.label):x.label;const col=x.status==='done'?'var(--green)':(x.status==='run'?'var(--orange)':'#333c66');return `<div class="pl"><span class="lbl">${esc(label)}</span><div class="track"><div class="seg" style="width:${p}%;background:${col}"></div></div><span class="st ${x.status}">${st}</span></div>`}).join('');
+    by('pipelinebars').innerHTML=(d.pipeline||[]).map(x=>{const p=total?Math.round(100*(x.merged||x.extracted||0)/total):0;const st=tl('pipelineStatus',x.status==='done'?'done':(x.status==='run'?'run':'waiting'));const label=pipelineLabel(x.label);const col=x.status==='done'?'var(--green)':(x.status==='run'?'var(--orange)':'#333c66');return `<div class="pl"><span class="lbl">${esc(label)}</span><div class="track"><div class="seg" style="width:${p}%;background:${col}"></div></div><span class="st ${x.status}">${st}</span></div>`}).join('');
   }catch(e){ console.warn('overview load failed',e); }
 }
 // Row structure is rendered live from /api/overview `schema` (config-driven).
@@ -230,10 +236,12 @@ async function loadOverviewSummary(){
 // The 출처(dataset) dropdown recomputes 채움% from per-dataset fills.
 let _rowstruct=null;
 let _openFieldGroup=null;
-const FIELD_DESC_EN={'capture_lat/lon':'Photo EXIF GPS coordinates.','caption_ondevice':'Text extracted from photos with Vision OCR.','photo_url / photo':'S3 URL and local filename; input for FastVLM and OCR.','timestamp':'Capture time retained only for the local dataset.','input_place_name':'Raw user input before provider normalization.','gt_mapkit':'Canonical MapKit answer for non-Korean rows; used for scoring.','gt_kakao':'Canonical Kakao answer for Korean rows; held out until Kakao data is available.','gt_confidence':'Label confidence tier.','category':'POI type used for failure analysis.','city / country / address':'Reverse-geocoded strings supplied by exports.','app_poi_rank':'Rank of the correct answer in the current app MapKit search.','app_nearby_top1':'Nearest result within a 250 m MapKit radius.','app_nearby_n_wide':'Number of candidates within the wider MapKit radius.','app_poi_dist_m':'Distance to the matched POI, in metres.','baseline_place_title':'Title attached by the app.','poi_match_keyword':'Keyword used to find the answer in MapKit results.','poi_list_match':'Answer-match detail and annotations.','dataset / notes / username':'Source, author, and manual notes.','caption_oracle':'Strong vision-model captions deliberately removed to prevent circularity.'};
+const FIELD_DESC_EN={'capture_lat/lon':'Photo EXIF GPS coordinates.','caption_ondevice':'Text extracted from photos with Vision OCR.','photo_url / photo':'S3 URL and local filename; input for FastVLM and OCR.','timestamp':'Capture time retained only for the local dataset.','input_place_name':'Raw user input before provider normalization.','gt_mapkit':'Canonical MapKit answer for non-Korean rows; used for scoring.','gt_kakao':'Canonical Kakao answer for Korean rows; held out until Kakao data is available.','gt_confidence':'Label confidence tier.','category':'POI type used for failure analysis.','city / country / address':'Reverse-geocoded strings supplied by exports.','app_poi_rank':'Rank of the correct answer in the current app MapKit search.','app_nearby_top1':'Nearest result within a 250 m MapKit radius.','app_nearby_n_wide':'Number of candidates within the wider MapKit radius.','app_poi_dist_m':'Distance to the matched POI, in metres.','baseline_place_title':'Title attached by the app.','poi_match_keyword':'Keyword used to find the answer in MapKit results.','poi_list_match':'Answer-match detail and annotations.','dataset / notes / username':'Dataset identity and internal annotations.','caption_oracle':'Strong vision-model captions deliberately removed to prevent circularity.'};
+const FIELD_LABELS={en:{'dataset / notes / username':'Dataset metadata'},ko:{'dataset / notes / username':'데이터셋 메타데이터'}};
+const fieldLabel=group=>FIELD_LABELS[uiLanguage]?.[group]||group;
 
-async function loadRowStruct(){
-  try{_rowstruct=await apiJSON('/api/overview','overview');}catch(e){_rowstruct={};}
+async function loadRowStruct(data=_overviewData){
+  try{_rowstruct=data||await apiJSON('/api/overview','overview');}catch(e){_rowstruct={};}
   const sel=$("#rowstruct-src");
   if(sel && !sel.dataset.init){
     const dss=_rowstruct.datasets||[];
@@ -256,10 +264,10 @@ function renderRowStruct(){
     const pct=total?Math.round(100*f/total):0;
     const color=pct>=90?'var(--green)':(pct===0?'var(--ink3)':'var(--orange)');
     const rcolor=RC[s.role_key]||'var(--ink3)';
-    return `<tr data-group="${esc(s.group)}" tabindex="0" aria-label="${esc(s.group)} ${uiLanguage==='en'?'details':'값 상세 보기'}"><td class="nm3">${esc(s.group)}</td>
+    return `<tr data-group="${esc(s.group)}" tabindex="0" aria-label="${esc(fieldLabel(s.group))} ${uiLanguage==='en'?'details':'값 상세 보기'}"><td class="nm3">${esc(fieldLabel(s.group))}</td>
       <td class="rl" style="color:${rcolor}">${esc(tl('role',s.role_key,s.role_key||''))}</td>
       <td><div class="fb2"><div class="mt2"><div class="mf2" style="width:${pct}%;background:${color}"></div></div><span class="mp2">${pct}%</span></div></td>
-      <td class="m3">${uiLanguage==='en'?esc(FIELD_DESC_EN[s.group]||(s.desc&&!/[가-힣]/.test(s.desc)?String(s.desc).replace(/<[^>]*>/g,''):'No dashboard description. Add this field to dashboard_config.json > schema_groups.')):plain(s.desc||'')} <button class="field-detail-trigger" type="button" aria-label="${esc(s.group)} ${uiLanguage==='en'?'details':'값 상세 보기'}">${uiLanguage==='en'?'Details':'상세 보기'}</button></td></tr>`;
+      <td class="m3">${uiLanguage==='en'?esc(FIELD_DESC_EN[s.group]||(s.desc&&!/[가-힣]/.test(s.desc)?String(s.desc).replace(/<[^>]*>/g,''):'No description is available for this field.')):plain(s.desc||'')} <button class="field-detail-trigger" type="button" aria-label="${esc(fieldLabel(s.group))} ${uiLanguage==='en'?'details':'값 상세 보기'}">${uiLanguage==='en'?'Details':'상세 보기'}</button></td></tr>`;
   }).join('');
   $("#rowstruct").querySelectorAll('tr[data-group]').forEach(row=>{
     const open=()=>loadFieldProfile(row.dataset.group);
@@ -311,7 +319,7 @@ async function loadFieldProfile(group){
       const chart=p.numeric?profileHistogram(distribution):(distribution.length?profileBars(distribution):`<div class="profile-empty">${L?'No populated values in this selection.':'선택한 범위에 채워진 값이 없습니다.'}</div>`);
       return `<section><h4>${esc(p.column)}</h4>${profileCompleteness(p,denom)}<h4>${title}</h4>${chart}${p.samples.length?`<h4>${L?'Example values':'예시 값'}</h4><ul class="profile-samples">${p.samples.map(v=>`<li>${esc(v)}</li>`).join('')}</ul>`:''}</section>`;
     };
-    panel.innerHTML=`<h3>${esc(group)} <span style="font:11px var(--mono);color:var(--ink3)">· ${src==='__all'?(uiLanguage==='en'?'All datasets':'전체 데이터셋'):esc(src)} · ${d.total}${uiLanguage==='en'?' rows':'행'}</span></h3>${d.columns.map(card).join('')}`;
+    panel.innerHTML=`<h3>${esc(fieldLabel(group))} <span style="font:11px var(--mono);color:var(--ink3)">· ${src==='__all'?(uiLanguage==='en'?'All datasets':'전체 데이터셋'):esc(src)} · ${d.total}${uiLanguage==='en'?' rows':'행'}</span></h3>${d.columns.map(card).join('')}`;
   }catch(e){panel.textContent=uiLanguage==='en'?`Could not load the field profile: ${e.message}`:`필드 상세 정보를 불러올 수 없습니다: ${e.message}`;}
 }
 loadOverviewSummary();
@@ -502,7 +510,7 @@ function renderRunDetail(){
   const hash=r.script_sha256||'';
   const hashText=hash?`${hash.slice(0,12)}${r.script_sha256_derived?(L?' · 레거시 파생':' · legacy-derived'):''}`:(L?'사용 불가':'unavailable');
   const kindLabel={error:label.errors,wrong:label.wrong,abstained:label.abstained};
-  const failRows=shown.map(c=>{const kind=c.error?'error':(c.prediction?'wrong':'abstained'),ctx=c.context||{};const title=ctx.input_place_name||c.gt||c.photo||'case';const location=[ctx.category,ctx.city,ctx.country].filter(Boolean).join(' · ');const prediction=c.error?`${label.error}: ${c.error}`:(c.prediction||label.abstained);const ocr=ctx.ocr_text?`<span class="failreason">OCR: ${esc(ctx.ocr_text)}</span>`:'';const coords=(ctx.lat&&ctx.lon)?`<span class="failmeta">${esc(ctx.lat)}, ${esc(ctx.lon)}</span>`:'';const image=c.photo_url?`<img class="failthumb" src="${esc(c.photo_url)}" alt="" loading="lazy">`:'<span class="failthumb"></span>';return `<div class="failrow">${image}<span><span class="failtitle">${esc(title)}</span><span class="failmeta">${esc(location||c.dataset||'—')}</span><span class="failreason">GT: ${esc(c.gt||'—')} → ${esc(prediction)}</span>${ocr}${coords}<span class="failmeta">${esc(c.photo||'')}</span></span><span class="oc ${kind==='error'?'retrieval':kind==='wrong'?'selection':'other'}">${esc(kindLabel[kind])}</span></div>`}).join('')||`<div>${label.noFailures}</div>`;
+  const failRows=shown.map(c=>{const kind=c.error?'error':(c.prediction?'wrong':'abstained'),ctx=c.context||{};const title=ctx.input_place_name||c.gt||c.photo||'case';const location=[ctx.category,ctx.city,ctx.country].filter(Boolean).join(' · ');const prediction=c.error?`${label.error}: ${safeServerMessage(c.error,label.error)}`:(c.prediction||label.abstained);const ocr=ctx.ocr_text?`<span class="failreason">OCR: ${esc(ctx.ocr_text)}</span>`:'';const coords=(ctx.lat&&ctx.lon)?`<span class="failmeta">${esc(ctx.lat)}, ${esc(ctx.lon)}</span>`:'';const image=c.photo_url?`<img class="failthumb" src="${esc(c.photo_url)}" alt="" loading="lazy">`:'<span class="failthumb"></span>';return `<div class="failrow">${image}<span><span class="failtitle">${esc(title)}</span><span class="failmeta">${esc(location||c.dataset||'—')}</span><span class="failreason">GT: ${esc(c.gt||'—')} → ${esc(prediction)}</span>${ocr}${coords}<span class="failmeta">${esc(c.photo||'')}</span></span><span class="oc ${kind==='error'?'retrieval':kind==='wrong'?'selection':'other'}">${esc(kindLabel[kind])}</span></div>`}).join('')||`<div>${label.noFailures}</div>`;
   g('runDetail').innerHTML=`<div style="display:flex;justify-content:space-between;gap:10px"><b style="color:var(--ink)">${esc(r.name)} v${r.version}</b><button class="btn danger" id="deleteRun">${label.del}</button></div><div class="dl"><b>${label.created}</b><span>${esc(r.created_at||'')}</span><b>${label.config}</b><span>${esc(r.scope)} · ${esc(r.mode)} · ${label.candidates} ${r.candidate_limit==null?label.all:r.candidate_limit}</span><b>${label.inputs}</b><span>${esc((r.params||[]).join(', ')||label.none)}</span><b>${label.identity}</b><span title="${esc(hash||(L?'스크립트 텍스트가 없어 코드 식별값을 만들 수 없습니다.':'No script text was available to derive an identity.'))}">${esc(hashText)} <button class="btn" type="button" id="viewRunCode">${L?'코드 보기':'View code'}</button></span></div><div><b style="color:var(--ink)">${m.accuracy_pct||0}% · ${m.correct||0}/${n}</b> ${label.correct}</div><div class="outcomes">${part(m.correct||0,'var(--green)')}${part(m.abstained||0,'var(--orange)')}${part(m.errored||0,'var(--red)')}${part(wrong,'var(--pink)')}</div><div style="font:11px var(--mono);color:var(--ink3)">${label.correct} ${m.correct||0} · ${label.abstained} ${m.abstained||0} · ${label.errors} ${m.errored||0} · ${label.wrong} ${wrong}</div><div class="casefail"><b style="color:var(--ink3)">${label.failures} · ${allFails.length} ${label.total}, ${filtered.length} ${label.matching}</b><div class="detail-filters"><select id="failureDataset"><option value="all">${label.allDatasets}</option>${datasets.map(x=>`<option value="${esc(x)}" ${x===runFailureDataset?'selected':''}>${esc(x)}</option>`).join('')}</select><select id="failureKind"><option value="all">${label.allOutcomes}</option>${kinds.map(x=>`<option value="${x}" ${x===runFailureKind?'selected':''}>${esc(kindLabel[x]||x)}</option>`).join('')}</select></div>${failRows}<div class="pager"><button id="failurePrev" ${runFailurePage===0?'disabled':''}>${label.previous}</button><span>${filtered.length?`${runFailurePage+1} / ${pages}`:'0 / 0'}</span><button id="failureNext" ${runFailurePage>=pages-1?'disabled':''}>${label.next}</button></div></div>`;
   g('deleteRun').onclick=()=>deleteSelectedRun(r);
   g('viewRunCode').onclick=showRunCode;
@@ -533,7 +541,7 @@ renderParams();updVer();loadRuns();
 
 // ================= ④ dataset management + jobs + ① live progress =================
 const gid=id=>document.getElementById(id);
-let _dsData=null, _jobTimer=null, _watchJob=null, _pollBusy=false;
+let _dsData=null, _jobsData=null, _jobTimer=null, _watchJob=null, _pollBusy=false;
 const _shownWarnings=new Set();
 // step -> ① 신호 파이프라인 row label to annotate while running
 const STEP_PIPELINE={ocr:'Vision OCR', mapkit_nearby:'MapKit 베이스라인', gt_mapkit:'MapKit 정규명(GT)'};
@@ -575,8 +583,8 @@ const warningMessage=w=>{
   return hasKorean(w.message)?'The job completed with a warning.':(w.message||'The job completed with a warning.');
 };
 
-async function loadDatasets(){
-  let d; try{ d=await apiJSON('/api/datasets','datasets'); }catch(e){ return; }
+async function loadDatasets(data=null){
+  let d=data; try{ d=d||await apiJSON('/api/datasets','datasets'); }catch(e){ return; }
   _dsData=d;
   const sig=d.signals_meta||{};
   gid('dsTable').innerHTML=(d.datasets||[]).map(ds=>{
@@ -662,11 +670,12 @@ function fmtResult(r){
   return p.join(' · ')||(r.ok?'ok':'');
 }
 
-async function pollJobs(){
-  let d; try{ d=await apiJSON('/api/jobs','jobs'); }catch(e){ return null; }
+async function pollJobs(data=null){
+  let d=data; try{ d=d||await apiJSON('/api/jobs','jobs'); }catch(e){ return null; }
+  _jobsData=d;
   const active=(d.jobs||[]).find(j=>j.job_id===d.active);
   const ab=gid('jobActive');
-  if(ab){ if(active){ const pr=active.progress, subs=pr&&pr.substeps; const bars=subs?`<div style="display:grid;gap:5px;margin-top:8px">${Object.entries(subs).map(([name,x])=>{const pct=x.total?Math.round(100*x.done/x.total):0;const retry=x.retries?` · ${bi('retries','재시도')} ${x.retries}${x.retry_reason?': '+esc(x.retry_reason):''}`:'';return `<div><span style="display:inline-block;width:150px">${esc(stepLabel(name,name))} · ${esc(x.step?stepLabel(x.step):jobStatusLabel(x.status||''))}</span><span style="display:inline-block;width:150px;height:6px;background:#333c66;vertical-align:middle"><i style="display:block;width:${pct}%;height:100%;background:var(--orange)"></i></span> ${x.done}/${x.total}${retry}</div>`}).join('')}</div>`:''; ab.innerHTML=`<span style="color:var(--orange)">● ${bi('Running','실행 중')}</span> ${esc(stepLabel(active.step))}${active.params&&active.params.dataset?' · '+esc(active.params.dataset):''} · ${active.elapsed_s||0}s${pr?` · ${pr.done}/${pr.total}`:''}${bars}`; } else ab.textContent=bi('No active job.','실행 중인 작업이 없습니다.'); }
+  if(ab){ if(active){ const pr=active.progress, subs=pr&&pr.substeps; const bars=subs?`<div style="display:grid;gap:5px;margin-top:8px">${Object.entries(subs).map(([name,x])=>{const pct=x.total?Math.round(100*x.done/x.total):0;const reason=x.retry_reason?safeServerMessage(x.retry_reason,bi('temporary error','일시적 오류')):'';const retry=x.retries?` · ${bi('retries','재시도')} ${x.retries}${reason?': '+esc(reason):''}`:'';return `<div><span style="display:inline-block;width:150px">${esc(stepLabel(name,name))} · ${esc(x.step?stepLabel(x.step):jobStatusLabel(x.status||''))}</span><span style="display:inline-block;width:150px;height:6px;background:#333c66;vertical-align:middle"><i style="display:block;width:${pct}%;height:100%;background:var(--orange)"></i></span> ${x.done}/${x.total}${retry}</div>`}).join('')}</div>`:''; ab.innerHTML=`<span style="color:var(--orange)">● ${bi('Running','실행 중')}</span> ${esc(stepLabel(active.step))}${active.params&&active.params.dataset?' · '+esc(active.params.dataset):''} · ${active.elapsed_s||0}s${pr?` · ${pr.done}/${pr.total}`:''}${bars}`; } else ab.textContent=bi('No active job.','실행 중인 작업이 없습니다.'); }
   const jl=gid('jobList');
   if(jl){
     const jobs=(d.jobs||[]).slice().sort((a,b)=>(b.started||0)-(a.started||0)).slice(0,8);
@@ -676,7 +685,7 @@ async function pollJobs(){
       return `<tr><td class="name">${esc(stepLabel(j.step))}</td><td>${esc((j.params&&j.params.dataset)||bi('All','전체'))}${j.params&&j.params.only_empty?` · ${bi('unprocessed rows','미처리 행')}`:''}</td><td><span class="${sc}" style="${est}">${esc(jobStatusLabel(j.status))}</span></td><td class="m3">${j.elapsed_s!=null?j.elapsed_s+'s':''}</td><td style="font-family:var(--mono);font-size:11px;color:var(--ink2)">${esc(fmtResult(j.result)||(j.error?safeServerMessage(j.error,API_ERROR_MESSAGES[uiLanguage].internal_error):''))}</td></tr>`;
     }).join('');
   }
-  if(_watchJob){ const wj=(d.jobs||[]).find(j=>j.job_id===_watchJob); const lg=gid('jobLog'); if(wj&&lg){ lg.style.display='block'; lg.textContent=(wj.log_tail||[]).join('\n'); } }
+  if(_watchJob){ const wj=(d.jobs||[]).find(j=>j.job_id===_watchJob); const lg=gid('jobLog'); if(wj&&lg){ const lines=wj.log_tail||[];const localized=uiLanguage==='en'?lines.filter(line=>!hasKorean(line)):lines;lg.style.display='block';lg.textContent=localized.join('\n')||(lines.length?bi('No localized log entries.','표시할 로그가 없습니다.'):''); } }
   (d.jobs||[]).forEach(j=>(j.warnings||[]).forEach(w=>{
     const key=`${j.job_id}:${w.code}`; if(_shownWarnings.has(key)) return;
     _shownWarnings.add(key);
