@@ -1,6 +1,6 @@
 import http.server, socketserver, functools, json, csv, os, sys, tempfile
-import threading, subprocess, uuid, time, math, shutil, queue
-from collections import Counter
+import threading, subprocess, uuid, time, math, shutil, queue, statistics
+from collections import Counter, defaultdict
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(REPO_DIR, "tools"))
@@ -687,10 +687,53 @@ def build_field_profile(group, dataset="__all"):
             return "category", "Category"
         return "text", "Text"
 
+    stop_terms = {
+        "and", "are", "for", "from", "has", "have", "not", "the", "this", "that", "was", "with",
+        "you", "your", "our", "all", "one", "two", "off", "www", "com", "http", "https",
+    }
+
+    def useful_words(value):
+        """Extract readable OCR/text words while dropping fragments and numeric noise."""
+        words = []
+        for word in re.findall(r"[^\W\d_][\w'-]*", value, re.UNICODE):
+            normalized = word.strip("_'-").casefold()
+            letters = sum(ch.isalpha() for ch in normalized)
+            if letters < 3 or len(normalized) > 28 or normalized in stop_terms:
+                continue
+            words.append(normalized)
+        return words
+
+    def script_label(value):
+        has_korean = bool(re.search(r"[가-힣]", value))
+        has_latin = bool(re.search(r"[A-Za-z]", value))
+        if has_korean and has_latin:
+            return "mixed"
+        if has_korean:
+            return "korean"
+        if has_latin:
+            return "latin"
+        return "other"
+
+    def sample_context(row, value, quality=""):
+        dataset_name = (row.get("dataset") or "").strip()
+        photo = (row.get("photo") or "").strip()
+        return {
+            "text": value,
+            "preview": clipped(value, 150),
+            "dataset": dataset_name,
+            "photo": photo,
+            "photo_url": _photo_url(dataset_name, photo),
+            "place": clipped(row.get("input_place_name") or row.get("gt_mapkit") or "", 54),
+            "quality": quality,
+            "characters": len(value),
+            "useful_tokens": len(useful_words(value)),
+        }
+
     profiles = []
     for col in selected_cols:
-        present = [(r.get(col) or "").strip() for r in rows]
-        present = [v for v in present if v]
+        present_rows = [(row, (row.get(col) or "").strip()) for row in rows
+                        if (row.get(col) or "").strip()]
+        present = [value for _, value in present_rows]
         counts = Counter(present)
         numbers = as_numbers(present) if present else None
         kind, kind_label = semantic_kind(col, present, numbers)
@@ -701,36 +744,68 @@ def build_field_profile(group, dataset="__all"):
         }
 
         if kind == "ocr":
-            token_rows = []
-            useful_terms = Counter()
-            noisy = 0
-            for value in present:
-                tokens = [x.strip() for x in value.split("|") if x.strip()]
-                if not tokens:
-                    tokens = [value]
-                clean = []
-                for token in tokens:
-                    token = " ".join(token.split())
-                    alnum = re.sub(r"[^\w]+", "", token, flags=re.UNICODE)
-                    letters = sum(ch.isalpha() for ch in token)
-                    if len(alnum) < 2 or not letters or len(token) > 48:
-                        continue
-                    clean.append(token)
-                    if len(token) >= 3:
-                        useful_terms[token.casefold()] += 1
-                if not clean:
-                    noisy += 1
-                token_rows.append(len(clean))
-            ordered = sorted(token_rows)
+            lengths = [len(value) for value in present]
+            token_counts = [len(useful_words(value)) for value in present]
+            has_processed = any("ocr_processed" in row for row in rows)
+            processed = (sum(1 for row in rows if str(row.get("ocr_processed") or "").strip().lower()
+                             in {"1", "true", "yes", "done"}) if has_processed else len(present))
+            processed = max(processed, len(present))
+
+            terms = Counter()
+            display_variants = defaultdict(Counter)
+            language_counts = Counter()
+            example_buckets = {"clear": [], "dense": [], "noisy": []}
+            for row, value in present_rows:
+                words = useful_words(value)
+                language_counts[script_label(value)] += 1
+                seen = set(words)
+                terms.update(seen)  # count rows containing a term, not repetitions in one image
+                for original in re.findall(r"[^\W\d_][\w'-]*", value, re.UNICODE):
+                    normalized = original.strip("_'-").casefold()
+                    if normalized in seen:
+                        display_variants[normalized][original.strip("_'-")] += 1
+
+                parts = [part for part in re.split(r"\s*\|\s*|\s+", value) if part]
+                useful_ratio = len(words) / max(1, len(parts))
+                quality = ("dense" if len(value) >= 180 or len(words) >= 18 else
+                           "noisy" if len(words) < 2 or useful_ratio < .28 else "clear")
+                example_buckets[quality].append(sample_context(row, value, quality))
+
+            term_items = []
+            for key, count in terms.most_common(12):
+                variants = display_variants.get(key)
+                label = variants.most_common(1)[0][0] if variants else key
+                term_items.append({"value": clipped(label, 30), "count": count})
+
+            examples = []
+            order = (("clear", 2), ("dense", 1), ("noisy", 1))
+            for bucket, limit in order:
+                candidates = example_buckets[bucket]
+                if bucket == "clear":
+                    candidates.sort(key=lambda item: (not bool(item["photo_url"]), -item["useful_tokens"], item["characters"]))
+                elif bucket == "dense":
+                    candidates.sort(key=lambda item: (not bool(item["photo_url"]), -item["characters"]))
+                else:
+                    candidates.sort(key=lambda item: (not bool(item["photo_url"]), item["useful_tokens"], item["characters"]))
+                examples.extend(candidates[:limit])
+
             profile["ocr"] = {
+                "processed": processed,
                 "detected": len(present),
-                "no_text_or_unprocessed": len(rows) - len(present),
-                "median_useful_tokens": ordered[len(ordered) // 2] if ordered else 0,
-                "no_useful_tokens": noisy,
-                "terms": [{"value": clipped(term, 42), "count": n}
-                          for term, n in useful_terms.most_common(6) if n > 1],
+                "no_text": max(0, processed - len(present)),
+                "unprocessed": max(0, len(rows) - processed),
+                "processed_pct": round(processed * 100 / len(rows), 1) if rows else 0,
+                "detection_pct": round(len(present) * 100 / processed, 1) if processed else 0,
+                "median_characters": round(statistics.median(lengths), 1) if lengths else 0,
+                "median_useful_tokens": round(statistics.median(token_counts), 1) if token_counts else 0,
+                "language_distribution": [
+                    {"value": key, "count": count,
+                     "pct": round(count * 100 / len(present), 1) if present else 0}
+                    for key, count in language_counts.most_common()
+                ],
             }
-            profile["samples"] = [clipped(v, 80) for v in present[:3]]
+            profile["terms"] = term_items
+            profile["examples"] = examples
 
         elif kind == "coordinate":
             if numbers:

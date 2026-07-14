@@ -294,6 +294,29 @@ function profileHistogram(items){
   const L=uiLanguage==='en';
   return `<div class="profile-histogram">${items.map(x=>`<div class="profile-hist-bin" title="${esc(x.label)}: ${x.count}"><i style="height:${Math.max(3,Math.round(100*x.count/max))}%"></i><span>${esc(x.label)}</span></div>`).join('')}</div><div class="profile-chart-label"><span>${L?'Lower values':'낮은 값'}</span><span>${L?'Higher values':'높은 값'}</span></div>`;
 }
+function profileMetrics(items){
+  return `<div class="profile-metrics">${items.map(x=>`<div class="profile-metric"><b>${esc(x.value)}</b><span>${esc(x.label)}</span>${x.help?`<small>${esc(x.help)}</small>`:''}</div>`).join('')}</div>`;
+}
+function profileExamples(items){
+  if(!items?.length)return '';
+  const L=uiLanguage==='en';
+  return `<h4>${L?'Representative examples':'대표 예시'}</h4><div class="profile-examples">${items.map(item=>`<article class="profile-example">${item.photo_url?`<img src="${esc(item.photo_url)}" alt="" loading="lazy">`:'<span class="profile-example-placeholder">OCR</span>'}<div><div class="profile-example-meta"><b>${esc(item.place||item.photo||item.dataset||'—')}</b><span class="profile-quality ${esc(item.quality||'')}">${esc(L?({clear:'clear text',dense:'text-heavy',noisy:'possible noise'}[item.quality]||item.quality):({clear:'명확한 텍스트',dense:'텍스트가 많음',noisy:'노이즈 가능'}[item.quality]||item.quality))}</span></div><p>${esc(item.preview)}</p><small>${esc(item.dataset)} · ${item.characters} ${L?'characters':'자'} · ${item.useful_tokens} ${L?'useful terms':'유효 단어'}</small><details><summary>${L?'View full recognized text':'인식된 전체 텍스트 보기'}</summary><pre>${esc(item.text)}</pre></details></div></article>`).join('')}</div>`;
+}
+function profileSemanticBody(p){
+  const L=uiLanguage==='en', empty=`<div class="profile-empty">${L?'No useful distribution is available for this selection.':'선택한 범위에서 유용한 분포를 만들 수 없습니다.'}</div>`;
+  if(p.kind==='ocr'&&p.ocr){
+    const o=p.ocr;
+    const metrics=profileMetrics([{value:`${o.processed}/${p.present+p.missing}`,label:L?'Processed':'처리 완료',help:`${o.processed_pct}%`},{value:`${o.detected}/${o.processed||0}`,label:L?'Text detected':'텍스트 검출',help:`${o.detection_pct}%`},{value:o.no_text,label:L?'Processed, no text':'처리됨 · 텍스트 없음'},{value:o.unprocessed,label:L?'Not processed':'미처리'},{value:o.median_characters,label:L?'Median characters':'글자 수 중앙값'},{value:o.median_useful_tokens,label:L?'Median useful terms':'유효 단어 중앙값'}]);
+    const languages=(o.language_distribution||[]).map(x=>({value:L?({latin:'Latin',korean:'Korean',mixed:'Mixed',other:'Other'}[x.value]||x.value):({latin:'라틴 문자',korean:'한글',mixed:'혼합',other:'기타'}[x.value]||x.value),count:x.count}));
+    return `${metrics}<div class="profile-split"><div><h4>${L?'Common recognized terms':'자주 인식된 단어'}</h4>${p.terms?.length?profileBars(p.terms):empty}</div><div><h4>${L?'Writing systems':'문자 유형'}</h4>${languages.length?profileBars(languages):empty}</div></div>${profileExamples(p.examples)}`;
+  }
+  if(p.numeric)return `<h4>${L?'Value distribution':'값 분포'}</h4>${p.numeric.histogram?.length?profileHistogram(p.numeric.histogram):empty}`;
+  if(p.kind==='date')return `${profileMetrics([{value:p.date?.earliest||'—',label:L?'Earliest':'가장 이른 값'},{value:p.date?.latest||'—',label:L?'Latest':'가장 늦은 값'}])}<h4>${L?'Values over time':'기간별 값'}</h4>${p.date_counts?.length?profileBars(p.date_counts):empty}`;
+  if(p.kind==='asset')return `${profileMetrics([{value:p.asset?.valid_urls||0,label:L?'Valid web URLs':'유효한 웹 URL'},{value:p.asset?.other_references||0,label:L?'Local or other references':'로컬 및 기타 참조'}])}${p.asset?.domains?.length?`<h4>${L?'URL domains':'URL 도메인'}</h4>${profileBars(p.asset.domains)}`:''}`;
+  if(p.kind==='identifier')return profileMetrics([{value:`${p.identifier?.unique_rate||0}%`,label:L?'Unique values':'고유값 비율'},{value:p.identifier?.duplicate_rows||0,label:L?'Duplicate rows':'중복 행'}]);
+  if(p.kind==='category')return `<h4>${L?'Category distribution':'범주 분포'}</h4>${p.top?.length?profileBars(p.top):empty}${p.other?`<div class="profile-other">+ ${p.other} ${L?'values outside the top categories':'개 값이 상위 범주 외에 있음'}</div>`:''}`;
+  return `${p.terms?.length?`<h4>${L?'Common terms':'자주 등장하는 단어'}</h4>${profileBars(p.terms)}`:''}${p.samples?.length?`<h4>${L?'Short examples':'짧은 예시'}</h4><ul class="profile-samples">${p.samples.map(v=>`<li>${esc(v)}</li>`).join('')}</ul>`:empty}`;
+}
 async function loadFieldProfile(group){
   const existing=document.querySelector('.fieldprofile-row');
   if(_openFieldGroup===group && existing){
@@ -312,14 +335,9 @@ async function loadFieldProfile(group){
   const panel=detail.querySelector('.fieldprofile');
   try{
     const d=await apiJSON(`/api/field-profile?group=${encodeURIComponent(group)}&dataset=${encodeURIComponent(src)}`,'field-profile');
-    const card=(p)=>{
-      const denom=d.total||0, fill=denom?Math.round(100*p.present/denom):0;
-      const distribution=p.numeric?.histogram || p.date_counts || p.top;
-      const L=uiLanguage==='en', title=p.numeric?(L?'Distribution':'분포'):(p.kind==='text'?(L?'Most repeated values':'반복된 값'):(p.kind==='date'?(L?'Values by date':'날짜별 값'):(L?'Most frequent values':'자주 나타나는 값')));
-      const chart=p.numeric?profileHistogram(distribution):(distribution.length?profileBars(distribution):`<div class="profile-empty">${L?'No populated values in this selection.':'선택한 범위에 채워진 값이 없습니다.'}</div>`);
-      return `<section><h4>${esc(p.column)}</h4>${profileCompleteness(p,denom)}<h4>${title}</h4>${chart}${p.samples.length?`<h4>${L?'Example values':'예시 값'}</h4><ul class="profile-samples">${p.samples.map(v=>`<li>${esc(v)}</li>`).join('')}</ul>`:''}</section>`;
-    };
-    panel.innerHTML=`<h3>${esc(fieldLabel(group))} <span style="font:11px var(--mono);color:var(--ink3)">· ${src==='__all'?(uiLanguage==='en'?'All datasets':'전체 데이터셋'):esc(src)} · ${d.total}${uiLanguage==='en'?' rows':'행'}</span></h3>${d.columns.map(card).join('')}`;
+    const card=p=>`<section><h4>${esc(p.column)}</h4>${profileCompleteness(p,d.total||0)}${profileSemanticBody(p)}</section>`;
+    const geo=d.group_summary?.kind==='geo_extent'?`<div class="profile-geo"><b>${uiLanguage==='en'?'Paired coordinate coverage':'좌표 쌍 채움'}</b><span>${d.group_summary.paired}/${d.total} ${uiLanguage==='en'?'rows':'행'}</span><small>N ${fmtProfileNumber(d.group_summary.north)} · S ${fmtProfileNumber(d.group_summary.south)} · E ${fmtProfileNumber(d.group_summary.east)} · W ${fmtProfileNumber(d.group_summary.west)}</small></div>`:'';
+    panel.innerHTML=`<h3>${esc(fieldLabel(group))} <span style="font:11px var(--mono);color:var(--ink3)">· ${src==='__all'?(uiLanguage==='en'?'All datasets':'전체 데이터셋'):esc(src)} · ${d.total}${uiLanguage==='en'?' rows':'행'}</span></h3>${geo}${d.columns.map(card).join('')}`;
   }catch(e){panel.textContent=uiLanguage==='en'?`Could not load the field profile: ${e.message}`:`필드 상세 정보를 불러올 수 없습니다: ${e.message}`;}
 }
 loadOverviewSummary();
