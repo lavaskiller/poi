@@ -79,7 +79,16 @@ Identification accuracy (`prediction == GT`) is distinct from candidate-retrieva
 
 ### Candidate retrieval scope
 
-The current non-Korea retrieval probe uses `MKLocalPointsOfInterestRequest`: strict 80m and wide 250m searches, then distance-from-photo-coordinate ordering (not MapKit relevance ordering). The probe TSV can contain up to 50 wide results, so retrieval coverage reports cumulative top-1/3/5/10/20/50 when a rank is available. The current generated candidate file is flat JSONL (one candidate per line) and does **not** yet preserve that depth for every photo: its local snapshot has at most 18 rows per photo and ranks through 6. Consequently, top-20/top-50 coverage is a probe-rank diagnostic, not a guarantee that a submitted algorithm receives 20 or 50 candidates. Extending submission depth requires retaining the full wide probe result in `generated/mapkit_candidates.jsonl`.
+The current non-Korea retrieval probe uses `MKLocalPointsOfInterestRequest`: strict 80m and wide 250m searches, then distance-from-photo-coordinate ordering (not MapKit relevance ordering). New probe output retains the full wide result as JSON, including MapKit category, identifier when available, candidate coordinates, and distance; `tools/match_score.py --convert-mapkit-tsv` converts it to flat candidate JSONL. Older local snapshots remain lossy (often top-3 and without metadata), and are accepted with empty metadata for backward compatibility.
+
+## Tests
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+The suite covers candidate conversion, submission harness metadata, and the
+weighted MapKit example. It does not require a private dataset.
 
 ## Repository layout
 
@@ -88,12 +97,16 @@ README.md                 Project entry point and local setup
 server.py                 Local HTTP server and API
 mvp-eval-ui.html/.js      Current dashboard UI
 examples/                 Runnable submission examples
+  baseline_nearest.py     Minimal nearest-candidate baseline
+  mapkit_weighted.py      Category-aware MapKit selector with single/ambiguous policy
 templates/                Public upload-package templates
 tools/                    Active evaluation, ingestion, and probe utilities
   swift/                  Reusable Swift probe sources
+  run_fastvlm_baseline.py Optional FastVLM Top-K reranker runner (local model/env)
+tests/                    Unit tests for the harness and examples
 docs/                     Canonical API and functional documentation
   archive/                Superseded dated specifications and reviews
-  reports/                Dated project reports
+  reports/                Dated project reports and experiment notes
 archive/web-prototypes/   Historical browser prototypes (not active routes)
 experiments/              Historical/offline experiments (not supported entry points)
 poi-data/                 Ignored local runtime data (created or supplied locally)
@@ -111,5 +124,8 @@ poi-data/                 Ignored local runtime data (created or supplied locall
 
 - This is a local, single-user prototype—not an authentication boundary or hardened code-execution environment.
 - Candidate coverage and identification quality are intentionally reported as different metrics.
+- Provider-canonical GT is required for scoring. Empty provider GT fields and resolution sentinels are held out; raw `input_place_name` is never used as the answer label.
+- Direct run comparison requires the same evaluation cohort and scoring mode. Data-snapshot differences are warned but do not rewrite metrics.
 - The public repository has no real dataset, so real metric values are not reproducible until you supply a permitted local dataset.
+- FastVLM baseline execution needs a local model environment under `poi-data/`; the runner and reports are public, but the model weights and private photos are not.
 - Several enrichment backends are represented in the UI/config but are not implemented; the server returns an explicit unavailable status rather than simulating results.

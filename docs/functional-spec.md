@@ -20,7 +20,7 @@
 - **후보 검색(retrieval)**: 후보 공급원(MapKit 등)이 GT 장소를 후보 리스트에 넣었는가 → 알고리즘이 고를 수 있는 상한.
 - **식별(selection) 정확도**: 제출된 알고리즘의 `예측 == GT` 비율 → 실제 성능 지표.
 - **매칭 정책**: 같은 공급원 내 exact 문자열 일치. 한국 row는 Kakao Local 데이터 확보 전까지 홀드아웃. `non_poi`/GT 없음 row는 자동 제외.
-- **GT 모델(provider별)**: `input_place_name`(사용자 원본 입력) + `gt_mapkit`·`gt_kakao`(provider 정규 정답명). 채점은 행의 provider에 맞는 GT 컬럼을 사용 — 비한국→`gt_mapkit`, 한국→`gt_kakao`. 두 컬럼은 MapKit/Kakao 재조회로 채우며, **비어 있으면 `input_place_name`으로 폴백**(재조회 전까지 기존 지표 유지). Kakao 데이터가 없어 `gt_kakao`는 현재 전부 빈 상태.
+- **GT 모델(provider별)**: `input_place_name`(사용자 원본 입력) + `gt_mapkit`·`gt_kakao`(provider 정규 정답명). 채점은 행의 provider에 맞는 GT 컬럼을 사용 — 비한국→`gt_mapkit`, 한국→`gt_kakao`. 두 컬럼은 MapKit/Kakao 재조회로 채우며, **canonical 이름만 채점 대상**이다. 값이 비어 있거나 `NON_MAPKIT`/`SIM_MAPKIT`/`NON_KAKAO`/`SIM_KAKAO`/`KOR`/`NON_KR` 같은 resolution sentinel이면 해당 row를 홀드아웃한다. raw `input_place_name`은 사용자 입력을 검증하는 신호일 뿐 GT 대체값이 아니다. Kakao 데이터가 없어 `gt_kakao`는 현재 전부 빈 상태.
 
 ---
 
@@ -52,7 +52,7 @@
    |---|---|---|
    | 좌표 `lat,lon` | `lat`,`lon` | EXIF |
    | `ocr_text` | `ocr_text` | Vision VNRecognizeTextRequest |
-   | 주변 후보 `nearby_candidates` | `nearby_candidates[]` | MapKit MKLocalPointsOfInterest |
+   | 주변 후보 `nearby_candidates` | `nearby_candidates[]` (`name,rank,distance_m` + 가능하면 `category,provider_place_id,lat,lon`) | MapKit MKLocalPointsOfInterest |
    | `city,country,address` | `geocode{}` | 지오코딩 |
 
 
@@ -60,10 +60,10 @@
 4. **예측 함수 첨부** — `predict(case)` 계약을 구현한 파일 업로드(`.py` 외 언어는 stdin JSON → stdout 예측). **▶ 실행**.
 5. **최근 실행 테이블** — 이름·버전·언어·입력 수·스코프·식별 정확도·저장 상태.
 6. **실행 관리** — 저장된 실행을 이름·버전 단위로 선택한다. 상세는 설정, SHA-256 코드 해시, 정답/기권/오류/오답 분포, 최대 80개 실패 케이스를 표시한다. 제출 코드는 UI에서 재표시하지 않는다.
-7. **비교** — 최대 4개 실행을 선택해 정확도 막대와 결과 분포를 비교한다. 같은 `script_sha256`을 가진 실행은 `동일 코드 N회`로 표시한다. 이름·버전은 실행 식별자이지 코드의 고유 식별자가 아니므로, 같은 코드/결과가 같은 정확도를 보이는 것은 정상이다.
+7. **비교** — 최대 4개 실행을 선택해 exact accuracy와 정답/평가 수를 비교한다. 같은 evaluation cohort(`evaluation_set_sha256`)와 scoring mode일 때만 직접 비교한다. data snapshot이 다르면 경고를 표시하고, 같은 `script_sha256`을 가진 실행은 `동일 코드 N회`로 표시한다. 이름·버전은 실행 식별자이지 코드의 고유 식별자가 아니다.
 8. **삭제** — 선택된 실행만 이름·버전 확인 대화상자 뒤 영구 삭제한다. 삭제는 해당 persisted run JSON과 케이스 결과에 한정되며, 데이터셋·사진·원본 스크립트는 삭제하지 않는다.
 
-**채점 규약** — `예측 == GT`, 후보검색과 동일한 공급원-exact 정책. 한국/`non_poi`/GT 없음 row는 자동 홀드아웃. 결과는 `generated/runs/<name>__v<k>.json`으로 버전 저장하며, 코드 SHA-256도 기록한다. 스크립트는 격리 서브프로세스에서 실행(로컬 단일 사용자용).
+**채점 규약** — `예측 == GT`, 후보검색과 동일한 공급원-exact 정책. 한국/`non_poi`/빈 provider GT/provider resolution sentinel row는 자동 홀드아웃. 결과는 `generated/runs/<name>__v<k>.json`으로 버전 저장하며, 코드 SHA-256과 evaluation cohort/data snapshot 해시도 기록한다. 스크립트는 격리 서브프로세스에서 실행(로컬 단일 사용자용).
 
 ---
 
@@ -91,7 +91,7 @@
 1. **3단계 안내** —
    - STEP 1 등록(사람): `dashboard_config.json › sources`에 한 항목(`key·owner·source_type·label·color·default_confidence`).
    - STEP 2 템플릿 ZIP(사람): `photos/` 이미지 + `manifest.csv`(`photo`+`gt_input_raw`), notes 선택.
-   - STEP 3 자동 채움(도구): 좌표·시각(EXIF), OCR(Vision), 도시·국가(역지오코딩), eval_provider(KR=Kakao / non-KR=MapKit), gt_confidence(기본값), **provider 정규 정답명(`gt_mapkit`/`gt_kakao`) ← `input_place_name`을 MapKit/Kakao에 재조회**(provider는 국가 기반, 매칭 실패 시 빈 채로 두고 폴백).
+   - STEP 3 자동 채움(도구): 좌표·시각(EXIF), OCR(Vision), 도시·국가(역지오코딩), eval_provider(KR=Kakao / non-KR=MapKit), gt_confidence(기본값), **provider 정규 정답명(`gt_mapkit`/`gt_kakao`) ← `input_place_name`을 MapKit/Kakao에 재조회**(provider는 국가 기반). 매칭 실패 또는 미해결 상태는 빈 값/sentinel으로 남기고, 채점 시 해당 row를 홀드아웃한다. raw 입력명은 GT로 승격하지 않는다.
 2. **템플릿 ZIP 다운로드** — 빈 업로드 템플릿.
 3. **ZIP 검증** — 업로드 전 manifest 구조·이미지 경로 검증. 빈 템플릿은 `manifest_empty`로 거부(데이터 채운 뒤 업로드해야 함).
 4. **사람 vs 도구 역할표** + 플래그 안내(`no_coord`·`no_gt`).

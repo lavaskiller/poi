@@ -145,7 +145,7 @@ POI_DATA_DIR=/absolute/path/to/poi-data POI_PORT=8420 python3 server.py
 - `counts.gt_<status>`는 provider GT 품질 분포다. `canonical`만 eligible이다. `excluded_*`와 `no_provider_data`를 함께 보면 전체 행 → canonical GT → 실제 후보 데이터가 있는 평가 분모를 추적할 수 있다.
 - `n` = 실제 후보 데이터가 있어 채점된 행 수. `rank1/top3/top5/top10/top20/top50`은 GT가 저장된 rank 기준 top-N에 포함된 수이며 누적이다. `miss` = 후보 결과에 GT 없음.
 - 현재 rank의 출처는 MapKit probe의 wide 250m 결과(`ls_nearby_results.tsv`)이며, strict probe 반경은 80m이다. 후보는 API relevance가 아니라 사진 좌표까지의 거리 오름차순으로 재정렬한다. fresh unique-coordinate 요청에는 1.5초 간격을 두고, wide가 비면 cooldown 후 재시도한다.
-- `generated/mapkit_candidates.jsonl`은 후보 하나당 한 줄인 flat JSONL이고, 현재 보존본은 사진당 최대 18행(후보 rank는 최대 6)이다. 따라서 API가 `top20`/`top50`을 반환해도 제출 알고리즘에 전달되는 JSONL 후보가 실제로 20/50개까지 보장되는 것은 아니다. top-N coverage는 TSV의 `app_poi_rank`를 사용하지만, submission candidate depth를 늘리려면 생성 파이프라인이 wide 결과를 모두 JSONL로 보존해야 한다.
+- 새 MapKit probe 출력은 wide 결과 전체를 JSON으로 보존하며 `category`, `provider_place_id`(지원 OS), 후보 좌표, 거리를 포함한다. `tools/match_score.py --convert-mapkit-tsv`가 이를 flat candidate JSONL로 변환한다. 구형 로컬 snapshot은 top-3 위주이고 metadata가 비어 있을 수 있으며, 제출 알고리즘은 빈 metadata를 허용해야 한다.
 - `cases[].status` ∈ `correct`·`selection_failure`·`search_failure`·`no_provider_data`·`excluded_non_poi`·`excluded_no_gt`·`excluded_non_mapkit`·`excluded_sim_mapkit`·`excluded_korea_pending_kakao`. `rank`는 정수·`"MISS"`·`null`.
 
 ---
@@ -162,11 +162,16 @@ POI_DATA_DIR=/absolute/path/to/poi-data POI_PORT=8420 python3 server.py
     "scope": "vancouver", "mode": "exact", "params": ["nearby_candidates"], "candidate_limit": 10,
     "lang": "python", "created_at": "2026-07-10T12:26:58",
     "script_sha256": "<64-char SHA-256>",
+    "evaluation_set_sha256": "<64-char SHA-256>",
+    "evaluation_set_sha256_derived": false,
+    "data_snapshot_sha256": "<64-char SHA-256>",
     "n_eligible": 11, "correct": 2, "abstained": 0, "errored": 0, "accuracy_pct": 18 }
 ] }
 ```
 
 `script_sha256` identifies byte-identical submitted code; old persisted records derive it from their stored script text. Equal accuracy is not evidence that two executions are different algorithms.
+
+`evaluation_set_sha256` identifies the ordered evaluation cohort `(dataset, photo, gt)`. Direct run comparison requires the same cohort and scoring mode. `data_snapshot_sha256` hashes the CSV, config, and candidate files used for the run; optional provider files that are absent are recorded as missing rather than failing the run. Legacy runs without these fields remain readable, but the UI warns that comparison compatibility is incomplete.
 
 ### GET `/api/runs?name=<name>&version=<positive integer>`
 
@@ -216,7 +221,7 @@ def predict(case) -> str:      # 예측 장소명, 기권은 ""
 | `lat`,`lon`,`timestamp` | string | `lat,lon` |
 | `ocr_text` | string | `ocr_text` |
 | `vlm_caption` | string | (미추출, 현재 `""`) |
-| `nearby_candidates` | `[{name,rank,distance_m}]` (근접순) | `nearby_candidates` |
+| `nearby_candidates` | `[{name,rank,distance_m,category,provider_place_id,lat,lon}]` (근접순; legacy 데이터의 메타데이터는 빈 값) | `nearby_candidates` |
 | `geocode` | `{city,country,address}` | `city,country,address` |
 
 
