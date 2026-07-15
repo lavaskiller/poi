@@ -17,8 +17,8 @@
 
 점검 결과:
 
-- 로컬 `main`과 `origin/main`의 커밋 차이는 `0/0`이다.
-- 그러나 아래 핵심 작업이 아직 커밋되지 않아 **현재 원격 저장소에는 최신 코드가 모두 올라가 있지 않다.**
+- 로컬 `main`과 `origin/main`은 `4874dbe`에서 동기화됐다.
+- 평가 프레임워크 handoff에 필요한 코드·문서·테스트는 원격에 반영됐다.
   - rich MapKit 후보(category, provider ID, 좌표) 보존
   - 실행 하네스의 후보 메타데이터 전달
   - evaluation cohort / data snapshot hash
@@ -57,15 +57,15 @@
 
 ### 3.2 push 전 체크리스트
 
-- [ ] untracked 파일마다 공개 저장소에 포함해도 되는지 확인
-- [ ] raw 사진, CSV, generated run/cache, API key, 개인 식별 데이터가 diff에 없는지 확인
+- [x] untracked 파일마다 공개 저장소에 포함해도 되는지 확인
+- [x] raw 사진, CSV, generated run/cache, API key, 개인 식별 데이터가 diff에 없는지 확인
 - [x] `functional-spec.md`의 GT fallback 설명을 실제 holdout 정책과 일치시킴
-- [ ] README에 최소 실행 및 테스트 명령을 명확히 기재
-- [ ] `python3 -m unittest discover -s tests -v`
-- [ ] `git diff --check`
-- [ ] Python compile 및 Swift typecheck
-- [ ] 기능 단위로 커밋하고 `origin/main`에 push
-- [ ] 새 clone에서 dashboard와 baseline smoke test
+- [x] README에 최소 실행 및 테스트 명령을 명확히 기재
+- [x] `python3 -m unittest discover -s tests -v`
+- [x] `git diff --check`
+- [x] Python compile 및 Swift typecheck
+- [x] 기능 단위로 커밋하고 `origin/main`에 push
+- [x] 새 clone에서 dashboard와 baseline smoke test
 
 ### 3.3 권장 커밋 분리
 
