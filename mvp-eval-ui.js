@@ -10,14 +10,14 @@ const I18N={
   en:{
     appSubtitle:'Check data health → run an algorithm → inspect results and failures',tabOverview:'Overview',tabRun:'Run algorithm',tabResults:'Run results',tabData:'Dataset management',
     retry:'Retry',totalRows:'Total rows',rowsWithGt:'Rows with GT labels',rowsWithPhotos:'Rows with photo references',countries:'Countries',overviewEmpty:'<b>No dataset has been added yet.</b> The API is connected. Validate and add a ZIP under Dataset management to enable evaluation.',provenance:'Provenance',confidenceTier:'Confidence tier (scoring)',signalPipeline:'Signal pipeline',rowStructure:'Row structure — label columns, coverage, and input vector',coverageByDataset:'Coverage by dataset',field:'Field',role:'Role',coverage:'Coverage',extractionMethod:'Extraction method',coverageHelp:'<b>Coverage determines algorithm-input availability.</b> Selecting sparse signals reduces eligible rows and the performance ceiling.',
-    runIntro:'Upload a script that implements one prediction function. It runs against the evaluation set and saves the scored result under Run results.',runSettings:'Run settings',runName:'Run name',saveModeScope:'Save mode and scope',saveAuto:'Automatic (next version)',overwriteV1:'Overwrite v1',overwriteV2:'Overwrite v2',selectInputs:'Select inputs',selectInputsHelp:'— values passed to the function, extraction method, and candidate limit',usage:'Usage',usageHelp:'— access the selected inputs in your script',predictionFunction:'Prediction function',attachFileTypes:'— upload .py, .c, .cpp, .rs, .js, or .sh',attachScript:'📎 Upload a script that implements predict — click or drop',loadExample:'Load example code',downloadExample:'Download example .py',exampleHelp:'Minimal example that returns the nearest candidate',contract:'Contract',otherLanguages:'other languages read JSON from stdin and write the prediction to stdout',runAction:'▶ Run',recentRuns:'Recent runs',versioningHelp:'— matching names are versioned automatically',name:'Name',version:'Version',script:'Script',inputs:'Inputs',scope:'Scope',all:'All',status:'Status',
+    runIntro:'Upload a script that implements one prediction function. It runs against the evaluation set and saves the scored result under Run results.',runSettings:'Run settings',runName:'Run name',saveModeScope:'Save mode and scope',saveMode:'Save mode',saveAuto:'Automatic (next version)',overwriteV1:'Overwrite v1',overwriteV2:'Overwrite v2',versioningSimpleHelp:'Existing names create a new version automatically. Choose overwrite only when needed.',datasetsMulti:'Datasets · multiple selection',gtInspectionScope:'Ground Truth inspection scope',selectInputs:'Select inputs',selectInputsHelp:'— values passed to the function, extraction method, and candidate limit',usage:'Usage',usageHelp:'— access the selected inputs in your script',predictionFunction:'Prediction function',attachFileTypes:'— upload .py, .c, .cpp, .rs, .js, or .sh',attachScript:'📎 Upload a script that implements predict — click or drop',loadExample:'Load example code',downloadExample:'Download example .py',exampleHelp:'Minimal example that returns the nearest candidate',contract:'Contract',otherLanguages:'other languages read JSON from stdin and write the prediction to stdout',runAction:'▶ Run',recentRuns:'Recent runs',versioningHelp:'— matching names are versioned automatically',name:'Name',version:'Version',script:'Script',inputs:'Inputs',scope:'Scope',all:'All',status:'Status',
     resultsIntro:'Manage persisted results here. Select a run to inspect it, compare up to four runs, or delete it.',savedRuns:'Saved runs',compareSelect:'Compare (up to 4)',runDetailEmpty:'Select a run on the left to view its configuration, metrics, and failures.',selectedCompare:'Compare selected runs',compareHelp:'Bars show accuracy. The strip below each bar shows correct, no-prediction, error, and wrong cases.',retrievalDiagnostics:'Retrieval diagnostics',retrievalDiagnosticsHelp:'— candidate-provider coverage, separate from algorithm results',matching:'Matching',candidateRank1:'Candidate rank 1 · GT is first',candidateTop3:'Candidate top 3 · includes GT',candidateTop5:'Candidate top 5 · includes GT',candidateTop10:'Candidate top 10 · includes GT',candidateTop20:'Candidate top 20 · includes GT',candidateTop50:'Candidate top 50 · includes GT',candidateMiss:'Miss · GT absent from candidates',retrievalCoverage:'Retrieval coverage — top N by candidate provider',currentProvider:'current provider',curveAxes:'y = GT present in top-N candidates<br>x = N (measured ranks)',retrievalNote:'<b>Retrieval only.</b> This measures whether the provider returned the GT place. It is a coverage ceiling, not algorithm accuracy.',selectionAccuracy:'Selection accuracy by algorithm',selectionNote:'<b>Each bar is a submitted algorithm.</b> It shows exact-match accuracy for the latest version of each run name.',caseAnalysis:'Case analysis — retrieval success and failure',caseAnalysisHelp:'· live data · provider rank',selectCase:'Select a case on the left.',caseHelp:'<b>Retrieval failure</b> means GT is absent from all candidates. <b>Rank &gt; 1</b> means GT was returned but was not first.',
     datasetIntro:'Review datasets, rerun extraction steps, or add and remove data.',datasets:'Datasets',datasetCoverageHelp:'— processing and result coverage',dataset:'Dataset',rows:'Rows',signalCoverage:'Processing and detection',loading:'Loading…',rerunStepTitle:'Rerun extraction',rerunStepHelp:'— process rows not yet attempted',step:'Step',emptyRowsOnly:'Unprocessed rows only',rerun:'▶ Rerun',jobLimitHelp:'Only one data job can run at a time. Unavailable steps are disabled.',jobs:'Jobs',jobsHelp:'— progress and logs',noActiveJob:'No active job.',elapsed:'Elapsed',result:'Result',addDataset:'Add a dataset',addDatasetHelp:'— upload a ZIP and track ingestion above',downloadTemplate:'Download template ZIP',validateZip:'Validate ZIP',ingestDataset:'＋ Add dataset',uploadHelp:'Validate a ZIP before adding it. Ingestion runs as a job; derived signals can be filled afterward with Rerun extraction.',footer:'POI evaluation dashboard',submittedCode:'Submitted algorithm code',close:'Close',dataConnectionError:'Data connection error',dataLoadError:'Some data could not be loaded. Check that the server is running, then try again.',apiConnectedEmpty:'API connected · no data',liveDataConnected:'Live data connected'
   },
   ko:{
     appSubtitle:'데이터 상태 확인 → 알고리즘 실행 → 결과 및 실패 사례 확인',tabOverview:'개요',tabRun:'알고리즘 실행',tabResults:'실행 결과',tabData:'데이터셋 관리',
     retry:'다시 시도',totalRows:'전체 행',rowsWithGt:'정답 라벨이 있는 행',rowsWithPhotos:'사진이 있는 행',countries:'국가',overviewEmpty:'<b>등록된 데이터셋이 없습니다.</b> 데이터셋 관리에서 ZIP을 검증하고 추가하면 평가를 시작할 수 있습니다.',provenance:'데이터 출처',confidenceTier:'신뢰도 등급',signalPipeline:'신호 처리 단계',rowStructure:'행 구조 — 라벨, 입력값, 데이터 채움률',coverageByDataset:'데이터셋별 채움률',field:'필드',role:'역할',coverage:'채움률',extractionMethod:'추출 방법',coverageHelp:'<b>채움률은 알고리즘이 사용할 수 있는 입력의 비율입니다.</b> 채움률이 낮은 신호를 선택하면 평가 가능한 행이 줄어듭니다.',
-    runIntro:'예측 함수가 포함된 스크립트를 업로드하세요. 평가 데이터 전체에 실행한 뒤 채점 결과를 실행 결과에 저장합니다.',runSettings:'실행 설정',runName:'실행 이름',saveModeScope:'저장 방식 및 범위',saveAuto:'자동(다음 버전)',overwriteV1:'v1 덮어쓰기',overwriteV2:'v2 덮어쓰기',selectInputs:'입력 선택',selectInputsHelp:'— 함수에 전달할 값, 추출 방법, 후보 수',usage:'사용 방법',usageHelp:'— 스크립트에서 선택한 입력에 접근하는 방법',predictionFunction:'예측 함수',attachFileTypes:'— .py, .c, .cpp, .rs, .js, .sh 업로드',attachScript:'📎 predict를 구현한 스크립트를 클릭하거나 끌어다 놓으세요',loadExample:'예시 코드 불러오기',downloadExample:'예시 .py 다운로드',exampleHelp:'가장 가까운 후보를 반환하는 간단한 예시',contract:'입출력 규약',otherLanguages:'그 외 언어는 stdin으로 JSON을 읽고 stdout으로 예측값을 출력',runAction:'▶ 실행',recentRuns:'최근 실행',versioningHelp:'— 같은 이름은 자동으로 버전이 올라갑니다',name:'이름',version:'버전',script:'스크립트',inputs:'입력',scope:'범위',all:'전체',status:'상태',
+    runIntro:'예측 함수가 포함된 스크립트를 업로드하세요. 평가 데이터 전체에 실행한 뒤 채점 결과를 실행 결과에 저장합니다.',runSettings:'실행 설정',runName:'실행 이름',saveModeScope:'저장 방식 및 범위',saveMode:'저장 방식',saveAuto:'자동(다음 버전)',overwriteV1:'v1 덮어쓰기',overwriteV2:'v2 덮어쓰기',versioningSimpleHelp:'같은 이름을 선택하면 다음 버전으로 자동 저장됩니다. 덮어쓰기는 꼭 필요할 때만 선택하세요.',datasetsMulti:'데이터셋 · 복수 선택',gtInspectionScope:'Ground Truth 검사 범위',selectInputs:'입력 선택',selectInputsHelp:'— 함수에 전달할 값, 추출 방법, 후보 수',usage:'사용 방법',usageHelp:'— 스크립트에서 선택한 입력에 접근하는 방법',predictionFunction:'예측 함수',attachFileTypes:'— .py, .c, .cpp, .rs, .js, .sh 업로드',attachScript:'📎 predict를 구현한 스크립트를 클릭하거나 끌어다 놓으세요',loadExample:'예시 코드 불러오기',downloadExample:'예시 .py 다운로드',exampleHelp:'가장 가까운 후보를 반환하는 간단한 예시',contract:'입출력 규약',otherLanguages:'그 외 언어는 stdin으로 JSON을 읽고 stdout으로 예측값을 출력',runAction:'▶ 실행',recentRuns:'최근 실행',versioningHelp:'— 같은 이름은 자동으로 버전이 올라갑니다',name:'이름',version:'버전',script:'스크립트',inputs:'입력',scope:'범위',all:'전체',status:'상태',
     resultsIntro:'저장된 실행을 확인하고, 최대 4개까지 비교하거나 삭제할 수 있습니다.',savedRuns:'저장된 실행',compareSelect:'비교할 실행 선택(최대 4개)',runDetailEmpty:'왼쪽에서 실행을 선택하면 설정, 지표, 실패 사례를 볼 수 있습니다.',selectedCompare:'선택한 실행 비교',compareHelp:'막대는 정확도를, 아래 띠는 정답·예측 없음·오류·오답의 비율을 나타냅니다.',retrievalDiagnostics:'후보 검색 진단',retrievalDiagnosticsHelp:'— 알고리즘 결과와 별도로 후보 제공 범위를 확인합니다',matching:'일치 기준',candidateRank1:'후보 1위 · 정답이 첫 번째',candidateTop3:'상위 3개 후보 · 정답 포함',candidateTop5:'상위 5개 후보 · 정답 포함',candidateTop10:'상위 10개 후보 · 정답 포함',candidateTop20:'상위 20개 후보 · 정답 포함',candidateTop50:'상위 50개 후보 · 정답 포함',candidateMiss:'검색 실패 · 후보에 정답 없음',retrievalCoverage:'후보 검색 범위 — 제공자별 상위 N개',currentProvider:'현재 후보 제공자',curveAxes:'y = 상위 N개 후보에 정답이 있는 비율<br>x = N(실측 순위)',retrievalNote:'<b>후보 검색 지표입니다.</b> 제공자가 정답 장소를 반환했는지 보여 주며, 알고리즘 정확도가 아니라 선택 가능한 범위의 상한입니다.',selectionAccuracy:'알고리즘별 선택 정확도',selectionNote:'<b>막대 하나가 제출한 알고리즘 하나를 나타냅니다.</b> 실행 이름별 최신 버전의 완전 일치 정확도입니다.',caseAnalysis:'사례 분석 — 후보 검색 성공 및 실패',caseAnalysisHelp:'· 실제 데이터 · 후보 순위',selectCase:'왼쪽에서 사례를 선택하세요.',caseHelp:'<b>검색 실패</b>는 전체 후보에 정답이 없다는 뜻입니다. <b>순위 2위 이하</b>는 정답이 후보에 있지만 첫 번째가 아니라는 뜻입니다.',
     datasetIntro:'데이터셋을 확인하고 추출 단계를 다시 실행하거나 데이터를 추가·삭제할 수 있습니다.',datasets:'데이터셋',datasetCoverageHelp:'— 처리율·결과 검출률 및 관리',dataset:'데이터셋',rows:'행',signalCoverage:'처리 상태와 결과 검출',loading:'불러오는 중…',rerunStepTitle:'추출 다시 실행',rerunStepHelp:'— 아직 처리하지 않은 행 실행',step:'단계',emptyRowsOnly:'미처리 행만',rerun:'▶ 다시 실행',jobLimitHelp:'데이터 작업은 한 번에 하나만 실행할 수 있습니다. 사용할 수 없는 단계는 비활성화됩니다.',jobs:'작업',jobsHelp:'— 진행 상황 및 로그',noActiveJob:'실행 중인 작업이 없습니다.',elapsed:'경과 시간',result:'결과',addDataset:'새 데이터셋 추가',addDatasetHelp:'— ZIP을 업로드하고 위에서 진행 상황 확인',downloadTemplate:'템플릿 ZIP 다운로드',validateZip:'ZIP 검증',ingestDataset:'＋ 데이터셋 추가',uploadHelp:'추가하기 전에 ZIP을 검증하세요. 데이터 추가는 작업으로 실행되며, 파생 신호는 이후 추출 다시 실행에서 채울 수 있습니다.',footer:'POI 평가 대시보드',submittedCode:'제출한 알고리즘 코드',close:'닫기',dataConnectionError:'데이터 연결 오류',dataLoadError:'일부 데이터를 불러오지 못했습니다. 서버가 실행 중인지 확인한 뒤 다시 시도하세요.',apiConnectedEmpty:'API 연결됨 · 데이터 없음',liveDataConnected:'실데이터 연결됨'
   }
@@ -56,7 +56,7 @@ function renderLocalizedUI(){
   applyStaticLanguage();
   if(selectedRun)renderRunDetail();
   if(_rowstruct){const open=_openFieldGroup;renderRowStruct();if(open)loadFieldProfile(open);}
-  renderParams();renderRuns();renderRunManager();drawCompareBars();renderChips();renderCaseList();
+  renderParams();renderRuns();renderRunManager();drawCompareBars();renderChips();renderCaseList();renderDatasetPicks();renderGtScope();updVer();
   if(curCaseIdx!=null)showCase(curCaseIdx);
   if(_matchrateData)render(_matchrateData);
   if(_overviewData)loadOverviewSummary(_overviewData);
@@ -348,8 +348,38 @@ const REG={};
 let runsList=[];
 let selectedRunId=null, selectedRun=null;
 let runFailureDataset='all', runFailureKind='all', runFailurePage=0;
+let RUN_SCOPE_CASES=[];
 const RUN_FAILURE_PAGE_SIZE=12;
 const comparedRunIds=new Set();
+
+function datasetKeys(){return ((_dsData&&_dsData.datasets)||[]).map(d=>d.key).filter(Boolean)}
+function selectedDatasetKeys(){
+  const boxes=[...document.querySelectorAll('#datasetPicks input[type=checkbox]')];
+  return boxes.length?boxes.filter(x=>x.checked).map(x=>x.value):datasetKeys();
+}
+function renderDatasetPicks(){
+  const el=document.getElementById('datasetPicks');if(!el)return;
+  const hadBoxes=!!el.querySelector('input'), previous=new Set(selectedDatasetKeys()), keys=datasetKeys();
+  el.innerHTML=keys.map(k=>`<label class="dataset-pick"><input type="checkbox" value="${esc(k)}" ${(!hadBoxes||previous.has(k))?'checked':''}> ${esc(k)}</label>`).join('')||`<span class="muted">${tr('loading')}</span>`;
+  el.querySelectorAll('input').forEach(x=>x.addEventListener('change',renderGtScope));
+  renderGtScope();
+}
+function renderGtScope(){
+  const cards=document.getElementById('gtScopeCards'), totalEl=document.getElementById('gtScopeTotal');if(!cards||!totalEl)return;
+  const chosen=new Set(selectedDatasetKeys()), rows=RUN_SCOPE_CASES.filter(r=>chosen.has(r.dataset));
+  const labels={mapkit:'MapKit',kakao_local:'Kakao Local'};
+  cards.innerHTML=['mapkit','kakao_local'].map(provider=>{
+    const routed=rows.filter(r=>r.provider===provider), resolved=routed.filter(r=>r.gt_status==='canonical'&&r.gt);
+    const scope=[...new Set(routed.map(r=>r.dataset))].join(', ')||'—';
+    const detail=uiLanguage==='ko'?`${routed.length}건 라우팅 · ${routed.length-resolved.length}건 GT 제외`:`${routed.length} routed · ${routed.length-resolved.length} excluded`;
+    return `<div class="gt-card"><div class="gt-card-head"><span>${labels[provider]}</span><strong>${resolved.length}${uiLanguage==='ko'?'건':''}</strong></div><small>${esc(scope)} · ${detail}</small></div>`;
+  }).join('');
+  const resolved=rows.filter(r=>r.gt_status==='canonical'&&r.gt).length;
+  totalEl.textContent=uiLanguage==='ko'?`선택 ${chosen.size}개 데이터셋 · 실제 검사 GT ${resolved}건 / 전체 ${rows.length}행`:`${chosen.size} datasets · ${resolved} resolved GT cases / ${rows.length} rows`;
+}
+async function loadRunScopeData(){
+  try{RUN_SCOPE_CASES=await apiJSON('/api/records?dataset=all','run-scope');renderGtScope();}catch(e){console.error(e)}
+}
 const g=id=>document.getElementById(id);
 applyStaticLanguage();
 // 입력 파라미터 = 신호 + 추출 방법(provenance). methods[0]=현재, 그 외=대안(이후).
@@ -413,6 +443,9 @@ function updSig(){
 }
 function updVer(){
   const nm=g('tname').value.trim(), ex=REG[nm];
+  const save=g('savemode'), previous=save.value;
+  save.innerHTML=`<option value="auto">${tr('saveAuto')}</option>`+(ex||[]).map(v=>`<option value="v${v}">${bi(`Overwrite v${v}`,`v${v} 덮어쓰기`)}</option>`).join('');
+  if([...save.options].some(o=>o.value===previous))save.value=previous;
   g('verstat').innerHTML = (ex&&ex.length)
     ? bi(`Versions v${ex.join(' · v')} exist. Automatic save will create <span class="bg">v${Math.max(...ex)+1}</span>.`,`v${ex.join(' · v')}이 있습니다. 자동 저장 시 <span class="bg">v${Math.max(...ex)+1}</span>이 생성됩니다.`)
     : bi(`New run → <span class="bg">v1</span>`,`새 실행 → <span class="bg">v1</span>`);
@@ -477,7 +510,9 @@ function selectedCandidateLimit(){
 g('runbtn').onclick=async()=>{
   if(!scriptText){ g('runhint').textContent=bi('Upload a predict() script first.','먼저 predict() 스크립트를 업로드하세요.'); return; }
   const name=(g('tname').value||'').trim()||'algorithm';
-  const scope=g('rscope').value, save=g('savemode').value;
+  const datasets=selectedDatasetKeys();
+  if(!datasets.length){g('runhint').textContent=bi('Select at least one dataset.','데이터셋을 하나 이상 선택하세요.');return;}
+  const scope=datasets.join(','), save=g('savemode').value;
   const body={name,scope,mode:'exact',save_mode:save,lang:scriptLang,params:selectedParams(),candidate_limit:selectedCandidateLimit(),script_text:scriptText};
   g('runbtn').disabled=true; g('runhint').textContent=`${bi('Running','실행 중')}: ${name} (${scope}) …`;
   try{
@@ -547,6 +582,7 @@ async function loadRuns(){
   runs.forEach(r=>{ (REG[r.name]=REG[r.name]||[]).push(r.version); });
   Object.values(REG).forEach(a=>a.sort((x,y)=>x-y));
   runsList=runs;
+  g('runNameOptions').innerHTML=Object.keys(REG).sort().map(name=>`<option value="${esc(name)}"></option>`).join('');
   renderRuns();updVer();
   // one bar per algorithm name, latest version wins
   const latest={};
@@ -604,6 +640,7 @@ const warningMessage=w=>{
 async function loadDatasets(data=null){
   let d=data; try{ d=d||await apiJSON('/api/datasets','datasets'); }catch(e){ return; }
   _dsData=d;
+  renderDatasetPicks();
   const sig=d.signals_meta||{};
   gid('dsTable').innerHTML=(d.datasets||[]).map(ds=>{
     const bars=Object.values(ds.signals||{}).map(s=>{
@@ -749,5 +786,6 @@ if(_ingestZip) _ingestZip.onchange=async e=>{
   e.target.value='';
 };
 loadDatasets();
+loadRunScopeData();
 pollJobs().then(d=>{ if(d&&d.active) startJobPolling(); });
-function loadAll(){ apiFailures.clear(); loadOverviewSummary(); loadRowStruct(); render(); loadCases(); loadRuns(); loadDatasets(); pollJobs(); }
+function loadAll(){ apiFailures.clear(); loadOverviewSummary(); loadRowStruct(); render(); loadCases(); loadRuns(); loadDatasets(); loadRunScopeData(); pollJobs(); }

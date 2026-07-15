@@ -92,10 +92,13 @@ def build_cases(rows, cfg, candidates, dataset: str, params: Optional[List[str]]
     for p in selected:
         wanted.update(PARAM_SIGNALS[p])
 
+    # Comma-separated values are the persisted wire format for multi-dataset
+    # runs; "all" and a single value remain backward compatible.
+    selected_datasets = {x.strip() for x in dataset.split(",") if x.strip()}
     cases: List[Dict[str, Any]] = []
     for row in rows:
         ds = (row.get("dataset") or "").strip()
-        if dataset != "all" and ds != dataset:
+        if "all" not in selected_datasets and ds not in selected_datasets:
             continue
         provider = ms.provider_for_row(row, cfg)
         gt, gt_status = ms.gt_resolution(row, provider)
