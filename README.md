@@ -87,9 +87,26 @@ The current non-Korea retrieval probe uses `MKLocalPointsOfInterestRequest`: str
 python3 -m unittest discover -s tests -v
 ```
 
-The suite covers candidate conversion, submission harness metadata, and the
-weighted MapKit example. It does not require a private dataset.
+The suite covers candidate conversion, submission harness metadata, the
+weighted MapKit example, and confidence-policy action gates. It does not require
+a private dataset.
 
+## Confidence-policy simulator
+
+The MVP 1 policy separates a suggestion action from a fake confidence
+probability: `AUTO_PICK`, `SHOW_PICKER`, or `NONE`. It uses the weighted MapKit
+resolver, direct-tap context when available, conservative OCR name support, and
+optional VLM corroboration. VLM alone (including a nearest fallback) never
+causes an automatic selection.
+
+```bash
+python3 tools/simulate_confidence_policy.py \
+  --output poi-data/generated/confidence-policy-v0.json
+```
+
+The simulator reads only eligible provider-canonical cases, writes aggregate
+risk/coverage metrics plus case-level reason codes to ignored local data, and
+records cohort/snapshot hashes. See the [v0 policy report](docs/reports/confidence-policy-simulator-v0.md) for the decision contract and calibration caveats.
 ## Repository layout
 
 ```text
@@ -99,10 +116,12 @@ mvp-eval-ui.html/.js      Current dashboard UI
 examples/                 Runnable submission examples
   baseline_nearest.py     Minimal nearest-candidate baseline
   mapkit_weighted.py      Category-aware MapKit selector with single/ambiguous policy
+  poi_confidence_policy.py Action-tier policy for auto/picker/none UX
 templates/                Public upload-package templates
 tools/                    Active evaluation, ingestion, and probe utilities
   swift/                  Reusable Swift probe sources
   run_fastvlm_baseline.py Optional FastVLM Top-K reranker runner (local model/env)
+  simulate_confidence_policy.py Risk-coverage simulator for the action policy
 tests/                    Unit tests for the harness and examples
 docs/                     Canonical API and functional documentation
   archive/                Superseded dated specifications and reviews
