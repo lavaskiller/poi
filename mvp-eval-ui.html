@@ -119,7 +119,9 @@
   .param .fl2{margin-left:auto;font-size:10px;font-family:var(--mono);color:var(--orange)}
   .sig{font-family:var(--mono);font-size:11.5px;color:var(--cyan);background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:8px 11px;margin-bottom:10px;word-break:break-all}
   .plist{display:flex;flex-direction:column;gap:6px}
-  .prow{display:grid;grid-template-columns:18px 120px 150px 1fr;gap:10px;align-items:center;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:13px;cursor:pointer}
+  .input-builder{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.9fr);gap:14px;align-items:start}.input-picker,.input-preview{min-width:0}.input-toolbar,.preview-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}.input-actions{display:flex;gap:6px;flex-wrap:wrap}.mini-btn{border:1px solid var(--line);border-radius:6px;background:var(--card2);color:var(--ink2);padding:5px 8px;font:10.5px var(--mono);cursor:pointer}.mini-btn:hover{border-color:var(--blue);color:var(--ink)}.mini-btn:active{transform:translateY(1px)}.selected-count{font:11px var(--mono);color:var(--cyan);white-space:nowrap}.input-preview{position:sticky;top:14px;border-left:1px solid var(--line);padding-left:14px}.preview-title{font:11px var(--mono);color:var(--ink2);text-transform:uppercase;letter-spacing:.08em}.preview-summary{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px}.preview-chip{padding:4px 7px;border-radius:5px;background:rgba(56,224,208,.08);color:var(--cyan);font:10.5px var(--mono)}.preview-empty{color:var(--ink3);font:11.5px var(--mono)}
+  .prow{display:grid;grid-template-columns:18px minmax(110px,.7fr) minmax(120px,.8fr) minmax(180px,1.4fr);gap:10px;align-items:center;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:13px;cursor:pointer;transition:border-color .15s,background .15s}
+  .prow.on{border-color:rgba(56,224,208,.45);background:rgba(56,224,208,.045)}.prow:not(.on){opacity:.72}.prow:focus-within{outline:1px solid var(--blue);outline-offset:1px}
   .prow .nm{color:var(--ink2)} .prow .warn2{color:var(--orange);font-size:11px}
   .prow .pk{font-family:var(--mono);font-size:11px;color:var(--ink3)}
   .prow .m{font-family:var(--mono);font-size:11px;color:var(--cyan)}
@@ -127,6 +129,8 @@
   .mcell{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}
   .topk{border-color:rgba(59,130,246,.5)!important;color:var(--cyan)!important}
   .prow input{accent-color:var(--blue);width:15px;height:15px}
+  @media(max-width:900px){.input-builder{grid-template-columns:1fr}.input-preview{position:static;border-left:0;border-top:1px solid var(--line);padding:14px 0 0}.prow{grid-template-columns:18px minmax(100px,.7fr) minmax(110px,.8fr) minmax(160px,1.2fr)}}
+  @media(max-width:620px){.prow{grid-template-columns:18px 1fr}.prow .pk,.prow .mcell{grid-column:2}.input-toolbar{align-items:flex-start;flex-direction:column}.input-actions{width:100%}}
   #prov .pv{color:var(--ink);display:block} #prov .mm{color:var(--cyan)}
   /* ===== CASE ANALYSIS ===== */
   .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
@@ -299,13 +303,16 @@
     </div>
 
     <h2><span data-i18n="selectInputs">Select inputs</span> <span style="color:var(--ink3);text-transform:none;letter-spacing:0" data-i18n="selectInputsHelp">— values passed to the function, extraction method, and candidate limit</span></h2>
-    <div class="panel">
-      <div id="params"></div>
-    </div>
-
-    <h2><span data-i18n="usage">Usage</span> <span style="color:var(--ink3);text-transform:none;letter-spacing:0" data-i18n="usageHelp">— access the selected inputs in your script</span></h2>
-    <div class="panel">
-      <pre class="loadsnippet" id="loadsnippet"></pre>
+    <div class="panel input-builder">
+      <div class="input-picker">
+        <div class="input-toolbar"><div class="input-actions"><button class="mini-btn" type="button" id="inputRecommended" data-i18n="inputRecommended">Recommended</button><button class="mini-btn" type="button" id="inputAll" data-i18n="inputAll">Select all</button><button class="mini-btn" type="button" id="inputClear" data-i18n="inputClear">Clear</button></div><span class="selected-count" id="selectedInputCount"></span></div>
+        <div id="params"></div>
+      </div>
+      <div class="input-preview">
+        <div class="preview-head"><span class="preview-title" data-i18n="usage">Usage</span><button class="mini-btn" type="button" id="copySnippet" data-i18n="copyCode">Copy code</button></div>
+        <div class="preview-summary" id="inputSummary"></div>
+        <pre class="loadsnippet" id="loadsnippet"></pre>
+      </div>
     </div>
 
     <h2><span data-i18n="predictionFunction">Prediction function</span> <span style="color:var(--ink3);text-transform:none;letter-spacing:0" data-i18n="attachFileTypes">— upload .py, .c, .cpp, .rs, .js, or .sh</span></h2>
