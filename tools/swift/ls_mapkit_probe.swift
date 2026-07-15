@@ -21,7 +21,14 @@ let WIDE_RADIUS   = 250.0
 let PACE_S: UInt64   = 1_500_000_000            // 1.5s between fresh unique-coord lookups
 let RETRY_WAITS: [UInt64] = [4_000_000_000, 9_000_000_000, 15_000_000_000] // cooldowns on empty wide
 
-struct Ranked { let name: String; let category: String; let dist: Double }
+struct Ranked {
+    let name: String
+    let category: String
+    let dist: Double
+    let providerPlaceID: String?
+    let lat: Double
+    let lon: Double
+}
 
 func nearby(_ coord: CLLocationCoordinate2D, radius: Double) async -> [Ranked] {
     let center = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
@@ -35,7 +42,19 @@ func nearby(_ coord: CLLocationCoordinate2D, radius: Double) async -> [Ranked] {
             ?? CLLocation(latitude: item.placemark.coordinate.latitude, longitude: item.placemark.coordinate.longitude)
         let d = center.distance(from: loc)
         guard d <= radius else { return nil }
-        return Ranked(name: name, category: item.pointOfInterestCategory?.rawValue ?? "-", dist: d)
+        let coordinate = item.placemark.coordinate
+        let identifier: String?
+        if #available(macOS 15.0, *) {
+            identifier = item.identifier?.rawValue
+        } else {
+            identifier = nil
+        }
+        return Ranked(name: name,
+                      category: item.pointOfInterestCategory?.rawValue ?? "",
+                      dist: d,
+                      providerPlaceID: identifier,
+                      lat: coordinate.latitude,
+                      lon: coordinate.longitude)
     }.sorted { $0.dist < $1.dist }
 }
 
@@ -63,7 +82,7 @@ let rows: [Row] = lines.compactMap { line in
 
 setbuf(stdout, nil)
 Task {
-    print("photo\tstrict_n\tstrict_rank\tstrict_dist\twide_n\twide_rank\twide_dist\tretries\ttop3_wide")
+    print("photo\tstrict_n\tstrict_rank\tstrict_dist\twide_n\twide_rank\twide_dist\tretries\ttop3_wide\twide_candidates_json")
     var cacheStrict = [String: [Ranked]](), cacheWide = [String: [Ranked]](), cacheRetries = [String: Int]()
     for (rowIndex, r) in rows.enumerated() {
         let key = String(format: "%.5f,%.5f", r.lat, r.lon)
@@ -88,7 +107,21 @@ Task {
         let srDist = sr != nil ? String(format: "%.0f", s[sr!-1].dist) : "-"
         let wrDist = wr != nil ? String(format: "%.0f", w[wr!-1].dist) : "-"
         let top3 = w.prefix(3).map { "\($0.name)@\(Int($0.dist))m" }.joined(separator: " | ")
-        print("\(r.photo)\t\(s.count)\t\(sr.map(String.init) ?? "MISS")\t\(srDist)\t\(w.count)\t\(wr.map(String.init) ?? "MISS")\t\(wrDist)\t\(cacheRetries[key]!)\t\(top3)")
+        let fullCandidates: [[String: Any]] = w.enumerated().map { index, item in
+            var value: [String: Any] = [
+                "name": item.name,
+                "category": item.category,
+                "rank": index + 1,
+                "distance_m": item.dist,
+                "lat": item.lat,
+                "lon": item.lon,
+            ]
+            if let placeID = item.providerPlaceID { value["provider_place_id"] = placeID }
+            return value
+        }
+        let jsonData = try! JSONSerialization.data(withJSONObject: fullCandidates)
+        let fullJSON = String(data: jsonData, encoding: .utf8)!
+        print("\(r.photo)\t\(s.count)\t\(sr.map(String.init) ?? "MISS")\t\(srDist)\t\(w.count)\t\(wr.map(String.init) ?? "MISS")\t\(wrDist)\t\(cacheRetries[key]!)\t\(top3)\t\(fullJSON)")
         FileHandle.standardError.write("PROGRESS {\"done\":\(rowIndex + 1),\"total\":\(rows.count),\"step\":\"searching nearby POIs\",\"retries\":\(cacheRetries[key]!)}\n".data(using: .utf8)!)
     }
     exit(0)

@@ -32,7 +32,16 @@ from typing import Any, Dict, List, Optional
 import match_score as ms
 
 RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_predict_runner.py")
-RUN_TIMEOUT_S = 120
+# Full MapKit-backed submissions may legitimately take many minutes. Runs are
+# unlimited by default; set POI_RUN_TIMEOUT_S to a positive number to add a
+# deployment-specific guard.
+_timeout_raw = os.environ.get("POI_RUN_TIMEOUT_S", "").strip()
+try:
+    RUN_TIMEOUT_S: Optional[float] = float(_timeout_raw) if _timeout_raw else None
+except ValueError:
+    RUN_TIMEOUT_S = None
+if RUN_TIMEOUT_S is not None and RUN_TIMEOUT_S <= 0:
+    RUN_TIMEOUT_S = None
 NAME_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 
 # param key (from the UI) -> which signal keys it injects into the case
@@ -64,6 +73,10 @@ def _candidate_names(candidates, provider: str, photo: str, row: Dict[str, str])
             "name": c.get("name") or "",
             "rank": c.get("rank"),
             "distance_m": c.get("distance_m"),
+            "category": c.get("category") or "",
+            "provider_place_id": c.get("provider_place_id"),
+            "lat": c.get("lat"),
+            "lon": c.get("lon"),
         })
     if not out:
         # Candidate JSONL is a lossy top-3 preview; fall back to the nearest POI
@@ -77,7 +90,9 @@ def _candidate_names(candidates, provider: str, photo: str, row: Dict[str, str])
             dist = (row.get("app_poi_dist_m") or "").strip() or dist_s.replace("m", "").strip()
             if name:
                 out.append({"name": name, "rank": 1,
-                            "distance_m": ms._num_or_none(dist) if dist else None})
+                            "distance_m": ms._num_or_none(dist) if dist else None,
+                            "category": "", "provider_place_id": None,
+                            "lat": None, "lon": None})
     return out
 
 
@@ -142,7 +157,7 @@ def _run_subprocess(script_path: str, lang: str, cases: List[Dict[str, Any]]) ->
         proc = subprocess.run(cmd, input=stdin_data, capture_output=True,
                               text=True, timeout=RUN_TIMEOUT_S)
     except subprocess.TimeoutExpired:
-        raise RunError(f"submission timed out after {RUN_TIMEOUT_S}s")
+        raise RunError(f"submission timed out after {RUN_TIMEOUT_S:g}s")
     except (PermissionError, OSError) as e:
         raise RunError(f"could not execute submission: {e}")
     if proc.returncode != 0:
@@ -201,6 +216,41 @@ def _score(cases, preds, mode: str) -> Dict[str, Any]:
                        for k, v in sorted(by_dataset.items())},
         "cases": scored_cases,
     }
+
+
+def evaluation_set_sha256(cases: List[Dict[str, Any]]) -> str:
+    """Identify the ordered evaluation cohort, including its answer labels.
+
+    Algorithm inputs are excluded: runs using different signals are comparable
+    when they were scored on the same examples and labels.  Both internal cases
+    and scored cases persisted in run JSON are accepted for legacy support.
+    """
+    cohort = [{
+        "dataset": c.get("_dataset", c.get("dataset", "")),
+        "photo": c.get("_photo", c.get("photo", "")),
+        "gt": c.get("_gt", c.get("gt", "")),
+    } for c in cases]
+    payload = json.dumps(cohort, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def data_snapshot_sha256(paths: List[str]) -> str:
+    """Hash the source files that determine evaluation and candidate inputs."""
+    digest = hashlib.sha256()
+    for pos, path in enumerate(paths):
+        digest.update(f"{pos}:{os.path.basename(path)}\0".encode("utf-8"))
+        if not os.path.isfile(path):
+            # Optional provider files may legitimately be absent (for example,
+            # Kakao candidates before that provider has been collected). Keep
+            # the absence in the snapshot identity instead of failing the run.
+            digest.update(b"<missing>\0")
+            continue
+        with open(path, "rb") as f:
+            for block in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(block)
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _existing_versions(runs_dir: str, safe: str) -> List[int]:
@@ -276,6 +326,10 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
         "candidate_limit": candidate_limit,
         "lang": lang,
         "script_sha256": hashlib.sha256(script_text.encode("utf-8")).hexdigest(),
+        "evaluation_set_sha256": evaluation_set_sha256(cases),
+        "data_snapshot_sha256": data_snapshot_sha256(
+            [csv_path, config_path, *candidate_paths]
+        ),
         "script_text": script_text,
         "metrics": {k: v for k, v in scored.items() if k != "cases"},
         "cases": scored["cases"],
@@ -303,6 +357,12 @@ def list_runs(runs_dir: str) -> List[Dict[str, Any]]:
             continue
         m = r.get("metrics", {})
         stored_hash = r.get("script_sha256")
+        stored_evaluation_hash = r.get("evaluation_set_sha256")
+        derived_evaluation_hash = (
+            evaluation_set_sha256(r.get("cases") or [])
+            if not stored_evaluation_hash and r.get("cases") is not None
+            else None
+        )
         out.append({
             "run_id": f"{r.get('safe_name') or _safe_name(r.get('name') or '')}__v{r.get('version')}",
             "name": r.get("name"),
@@ -319,6 +379,11 @@ def list_runs(runs_dir: str) -> List[Dict[str, Any]]:
                 else None
             ),
             "script_sha256_derived": bool(not stored_hash and r.get("script_text")),
+            "evaluation_set_sha256": stored_evaluation_hash or derived_evaluation_hash,
+            "evaluation_set_sha256_derived": bool(
+                not stored_evaluation_hash and derived_evaluation_hash
+            ),
+            "data_snapshot_sha256": r.get("data_snapshot_sha256"),
             "created_at": r.get("created_at"),
             "metrics": m,
             "n_eligible": m.get("n_eligible", 0),
@@ -359,6 +424,11 @@ def get_run(runs_dir: str, name: str, version: Any) -> Dict[str, Any]:
         run["script_sha256_derived"] = True
     else:
         run["script_sha256_derived"] = False
+    if not run.get("evaluation_set_sha256") and run.get("cases") is not None:
+        run["evaluation_set_sha256"] = evaluation_set_sha256(run["cases"])
+        run["evaluation_set_sha256_derived"] = True
+    else:
+        run["evaluation_set_sha256_derived"] = False
     return run
 
 

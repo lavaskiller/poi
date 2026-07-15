@@ -160,10 +160,10 @@ def _num_or_none(v: str) -> Optional[float]:
 def convert_mapkit_tsv(tsv_path: str, out_path: str) -> int:
     """Convert the current MapKit TSV probe output to candidate JSONL.
 
-    The current Swift probe does not expose a stable MapKit place ID, so
-    provider_place_id is written as null.
+    New probe output contains the full candidate list with category, location,
+    and (on supported OS versions) MapKit ID. Old top3-only TSVs remain valid.
     """
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     n = 0
     with open(tsv_path, encoding="utf-8", errors="replace", newline="") as f, open(out_path, "w", encoding="utf-8") as out:
         reader = csv.DictReader(f, delimiter="\t")
@@ -171,18 +171,28 @@ def convert_mapkit_tsv(tsv_path: str, out_path: str) -> int:
             photo = (row.get("photo") or "").strip()
             if not photo:
                 continue
-            for cand in parse_top_candidates(row.get("top3_wide") or ""):
+            rich_candidates = []
+            raw_candidates = (row.get("wide_candidates_json") or "").strip()
+            if raw_candidates:
+                try:
+                    parsed = json.loads(raw_candidates)
+                    if isinstance(parsed, list):
+                        rich_candidates = [c for c in parsed if isinstance(c, dict)]
+                except json.JSONDecodeError:
+                    rich_candidates = []
+            source_candidates = rich_candidates or parse_top_candidates(row.get("top3_wide") or "")
+            for fallback_rank, cand in enumerate(source_candidates, start=1):
                 rec = {
                     "photo": photo,
                     "provider": "mapkit",
-                    "provider_place_id": None,
-                    "name": cand["name"],
-                    "lat": None,
-                    "lon": None,
-                    "address": "",
-                    "category": "",
-                    "rank": cand["rank"],
-                    "distance_m": cand["distance_m"],
+                    "provider_place_id": cand.get("provider_place_id"),
+                    "name": cand.get("name") or "",
+                    "lat": cand.get("lat"),
+                    "lon": cand.get("lon"),
+                    "address": cand.get("address") or "",
+                    "category": cand.get("category") or "",
+                    "rank": cand.get("rank") or fallback_rank,
+                    "distance_m": cand.get("distance_m"),
                     "source": os.path.basename(tsv_path),
                 }
                 out.write(json.dumps(rec, ensure_ascii=False) + "\n")
