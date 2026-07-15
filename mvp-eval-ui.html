@@ -206,6 +206,8 @@
   .runrow .rm{margin-top:4px;color:var(--ink3);font:11px var(--mono)}
   .compare{display:flex;gap:8px;align-items:center;margin:0 0 10px;color:var(--ink2);font-size:12px}
   .compare input{accent-color:var(--blue)}
+  .compare-warning{display:none;margin:8px 0 12px;padding:9px 11px;border:1px solid rgba(255,159,69,.35);border-radius:8px;background:rgba(255,159,69,.08);color:var(--orange);font-size:11.5px;line-height:1.45}
+  .compare-warning.on{display:block}
   .rundetail{min-height:260px;font-size:12.5px;color:var(--ink2)}
   .rundetail .dl{display:grid;grid-template-columns:86px 1fr;gap:6px;margin-bottom:7px}.rundetail .dl b{color:var(--ink3);font:11px var(--mono)}
   .outcomes{display:flex;height:13px;border-radius:7px;overflow:hidden;background:rgba(255,255,255,.06);margin:9px 0}.outcomes span{height:100%}
@@ -349,7 +351,7 @@
       <div class="panel"><div class="compare"><span data-i18n="compareSelect">Compare (up to 4)</span><span id="compareHint" style="margin-left:auto;font-family:var(--mono);color:var(--ink3)"></span></div><div class="runrows" id="runManagerList"></div></div>
       <div class="panel rundetail" id="runDetail" data-i18n="runDetailEmpty">Select a run on the left to view its configuration, metrics, and failures.</div>
     </div>
-    <div class="panel" style="margin-top:14px"><h2 style="margin-top:0" data-i18n="selectedCompare">Compare selected runs</h2><svg id="compareBars" width="580" height="210" viewBox="0 0 580 210"></svg><div class="note" data-i18n="compareHelp">Bars show accuracy. The strip below each bar shows correct, no-prediction, error, and wrong cases.</div></div>
+    <div class="panel" style="margin-top:14px"><h2 style="margin-top:0" data-i18n="selectedCompare">Compare selected runs</h2><div id="compareWarning" class="compare-warning" role="status"></div><svg id="compareBars" width="580" height="210" viewBox="0 0 580 210"></svg><div class="note" data-i18n="compareHelp">Bars show exact accuracy and correct/eligible counts. Only runs with the same evaluation cohort and scoring mode can be compared.</div></div>
     <details class="analysis-disclosure">
       <summary><b data-i18n="retrievalDiagnostics">Retrieval diagnostics</b> <span data-i18n="retrievalDiagnosticsHelp">— candidate-provider coverage, separate from algorithm results</span></summary>
       <div class="inside">
