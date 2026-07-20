@@ -23,10 +23,12 @@ import datetime
 import hashlib
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any, Dict, List, Optional
 
 import match_score as ms
@@ -66,10 +68,21 @@ def _safe_name(name: str) -> str:
     return slug or "algorithm"
 
 
-def _candidate_names(candidates, provider: str, photo: str, row: Dict[str, str]) -> List[Dict[str, Any]]:
+def _candidate_names(candidates, provider: str, photo: str, row: Dict[str, str],
+                     dataset: str = "") -> List[Dict[str, Any]]:
+    """Return only records stored in the candidate artifact.
+
+    ``app_nearby_top1`` is a scalar summary, not a candidate-list artifact. It
+    cannot establish an original list, raw rank, or metadata, so it must never
+    be promoted to a synthetic rank-one candidate.
+    """
+    # New snapshots use dataset-qualified keys. Bare-photo artifacts remain
+    # readable solely for historical auditing.
+    qualified = candidates.get((provider, f"{dataset}/{photo}"), []) if dataset else []
+    source = qualified or candidates.get((provider, photo), [])
     out = []
-    for c in candidates.get((provider, photo), []):
-        out.append({
+    for c in source:
+        entry = {
             "name": c.get("name") or "",
             "rank": c.get("rank"),
             "distance_m": c.get("distance_m"),
@@ -77,27 +90,29 @@ def _candidate_names(candidates, provider: str, photo: str, row: Dict[str, str])
             "provider_place_id": c.get("provider_place_id"),
             "lat": c.get("lat"),
             "lon": c.get("lon"),
-        })
-    if not out:
-        # Candidate JSONL is a lossy top-3 preview; fall back to the nearest POI
-        # the MapKit probe already stored per row so a row with a real nearest
-        # candidate is not treated as "no candidates".
-        top1 = (row.get("app_nearby_top1") or "").strip()
-        if top1:
-            # app_nearby_top1 is stored as "Name@<dist>m"; keep only the name.
-            name, sep, dist_s = top1.rpartition("@")
-            name = (name if sep else top1).strip()
-            dist = (row.get("app_poi_dist_m") or "").strip() or dist_s.replace("m", "").strip()
-            if name:
-                out.append({"name": name, "rank": 1,
-                            "distance_m": ms._num_or_none(dist) if dist else None,
-                            "category": "", "provider_place_id": None,
-                            "lat": None, "lon": None})
+        }
+        # Preserve the lossy marker so a scored run can refuse a top3-capped
+        # artifact instead of reporting retrieval loss as selection failure.
+        if c.get("lossy_top3_summary"):
+            entry["lossy_top3_summary"] = True
+        out.append(entry)
     return out
 
 
+def _has_candidate_artifact(candidates, provider: str, photo: str, dataset: str = "") -> bool:
+    """Return whether an artifact explicitly represents this case.
+
+    A completed full probe can return ``[]``. That is an available empty input,
+    unlike a case absent from the selected artifact altogether.
+    """
+    qualified = (provider, f"{dataset}/{photo}") if dataset else None
+    return ((qualified in candidates if qualified else False)
+            or (provider, photo) in candidates)
+
+
 def build_cases(rows, cfg, candidates, dataset: str, params: Optional[List[str]],
-                candidate_limit: Optional[int] = None) -> List[Dict[str, Any]]:
+                candidate_limit: Optional[int] = None,
+                require_candidate_artifact: bool = True) -> List[Dict[str, Any]]:
     """Return eligible eval cases. Each has a public `input` (fed to predict,
     never containing GT) plus internal `_gt`/`_dataset`/`_photo` for scoring."""
     # None is the legacy/CLI default (all signals); [] deliberately means no
@@ -125,6 +140,22 @@ def build_cases(rows, cfg, candidates, dataset: str, params: Optional[List[str]]
             continue
         photo = (row.get("photo") or "").strip()
 
+        nearby_candidates = _candidate_names(candidates, provider, photo, row, ds)
+        if require_candidate_artifact and not _has_candidate_artifact(candidates, provider, photo, ds):
+            raise RunError(
+                "Candidate-input artifact unavailable for eligible case "
+                f"{ds}/{photo}. Refusing to synthesize a candidate from "
+                "app_nearby_top1; collect or select a versioned full-candidate snapshot."
+            )
+        if any(c.get("lossy_top3_summary") for c in nearby_candidates):
+            raise RunError(
+                "Candidate artifact for eligible case "
+                f"{ds}/{photo} was converted from a top3-only probe summary "
+                "(lossy_top3_summary): its candidate list is capped at 3 and the "
+                "true ranking was dropped at collection time. Scoring on it would "
+                "misreport retrieval loss as selection failure. Re-probe with the "
+                "full-candidate probe and select a complete snapshot before running."
+            )
         full = {
             "photo": photo,
             "photo_url": (row.get("photo_url") or "").strip(),
@@ -133,7 +164,7 @@ def build_cases(rows, cfg, candidates, dataset: str, params: Optional[List[str]]
             "timestamp": (row.get("timestamp") or "").strip(),
             "ocr_text": (row.get("caption_ondevice") or "").strip(),
             "vlm_caption": "",  # not extracted yet
-            "nearby_candidates": _candidate_names(candidates, provider, photo, row)[:candidate_limit],
+            "nearby_candidates": nearby_candidates[:candidate_limit],
             "geocode": {
                 "city": (row.get("city") or "").strip(),
                 "country": (row.get("country") or "").strip(),
@@ -143,16 +174,62 @@ def build_cases(rows, cfg, candidates, dataset: str, params: Optional[List[str]]
         }
         public = {k: v for k, v in full.items() if k in wanted}
         public["photo"] = photo  # always present as a reference id
-        cases.append({"input": public, "_gt": gt, "_dataset": ds, "_photo": photo})
+        cases.append({
+            "input": public, "_gt": gt, "_dataset": ds, "_photo": photo,
+            "_provider": provider,
+        })
     return cases
 
 
-def _run_subprocess(script_path: str, lang: str, cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _percentile(sorted_vals: List[float], p: float) -> Optional[float]:
+    """Nearest-rank percentile for a pre-sorted non-empty list."""
+    if not sorted_vals:
+        return None
+    if len(sorted_vals) == 1:
+        return float(sorted_vals[0])
+    # Inclusive nearest-rank: index = ceil(p/100 * n) - 1
+    k = int((p / 100.0) * len(sorted_vals) + 0.999999999) - 1
+    k = max(0, min(len(sorted_vals) - 1, k))
+    return float(sorted_vals[k])
+
+
+def _latency_summary(latencies: List[float]) -> Dict[str, Any]:
+    if not latencies:
+        return {"mean": None, "p50": None, "p95": None, "max": None, "n": 0}
+    ordered = sorted(latencies)
+    return {
+        "mean": round(sum(ordered) / len(ordered), 3),
+        "p50": round(_percentile(ordered, 50) or 0.0, 3),
+        "p95": round(_percentile(ordered, 95) or 0.0, 3),
+        "max": round(ordered[-1], 3),
+        "n": len(ordered),
+    }
+
+
+def _host_runtime_info() -> Dict[str, Any]:
+    """Describe the evaluation host. Values are not mobile-device measurements."""
+    return {
+        "device_class": "desktop_host",
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "python": platform.python_version(),
+        "system": platform.system(),
+        "notes": "Host-side wall time on this evaluation machine, not mobile runtime.",
+    }
+
+
+def _run_subprocess(script_path: str, lang: str, cases: List[Dict[str, Any]]):
+    """Run the submission and return (preds, duration_ms).
+
+    duration_ms is wall-clock for the whole subprocess, including process start.
+    Per-case latency_ms (when present on each pred) is predict-call wall time only.
+    """
     if lang == "python":
         cmd = [sys.executable, RUNNER, script_path]
     else:
         cmd = [script_path]  # non-python: script speaks the JSONL protocol itself
     stdin_data = "".join(json.dumps(c["input"], ensure_ascii=False) + "\n" for c in cases)
+    t0 = time.perf_counter()
     try:
         proc = subprocess.run(cmd, input=stdin_data, capture_output=True,
                               text=True, timeout=RUN_TIMEOUT_S)
@@ -160,6 +237,7 @@ def _run_subprocess(script_path: str, lang: str, cases: List[Dict[str, Any]]) ->
         raise RunError(f"submission timed out after {RUN_TIMEOUT_S:g}s")
     except (PermissionError, OSError) as e:
         raise RunError(f"could not execute submission: {e}")
+    duration_ms = round((time.perf_counter() - t0) * 1000.0, 3)
     if proc.returncode != 0:
         detail = (proc.stderr or "").strip().splitlines()
         raise RunError("submission failed to load: " + (detail[-1] if detail else f"exit {proc.returncode}"))
@@ -172,48 +250,100 @@ def _run_subprocess(script_path: str, lang: str, cases: List[Dict[str, Any]]) ->
         try:
             preds.append(json.loads(line))
         except json.JSONDecodeError:
-            preds.append({"prediction": "", "error": "non-JSON line from submission"})
-    return preds
+            preds.append({"prediction": "", "error": "non-JSON line from submission", "latency_ms": None})
+    return preds, duration_ms
 
 
-def _score(cases, preds, mode: str) -> Dict[str, Any]:
-    matcher = ms.exact_equal if mode in ("exact", "raw") else ms.normalized_equal
+def _score(cases, preds, mode: str,
+           label_relations: Optional[Dict] = None) -> Dict[str, Any]:
+    """Score predictions.
+
+    Primary ``correct`` / ``accuracy`` remain **strict** (canonical GT string
+    only) so historical leaderboards stay comparable.
+
+    When ``label_relations`` is provided (reviewed alias sidecar), also emit:
+      - correct_canonical / accuracy_canonical  (strict ∪ accepted_aliases)
+      - match_kind breakdown (exact, alias, related, wrong, abstain)
+    """
     n = len(cases)
-    correct = errored = abstained = 0
+    correct = correct_canonical = errored = abstained = 0
+    kind_counts: Dict[str, int] = {}
     by_dataset: Dict[str, Dict[str, int]] = {}
     scored_cases: List[Dict[str, Any]] = []
+    # Default: load sidecar if present so alias expansion works without callers
+    # threading the path; pass {} to force strict-only dual metrics off... actually
+    # None means auto-load; empty dict means no relations.
+    if label_relations is None:
+        label_relations = ms.load_label_relations()
+
     for i, c in enumerate(cases):
         p = preds[i] if i < len(preds) else {"prediction": "", "error": "no output for case"}
         pred = (p.get("prediction") or "").strip()
         err = p.get("error")
         gt = c["_gt"]
-        is_correct = bool(pred) and matcher(gt, pred)
+        provider = c.get("_provider") or "mapkit"
+        match = ms.match_prediction(
+            gt, pred, dataset=c["_dataset"], photo=c["_photo"],
+            provider=provider, mode=mode, relations=label_relations,
+        )
+        is_correct = match["correct_strict"]
+        is_canonical = match["correct_canonical"]
+        match_kind = match["match_kind"]
         # An execution/protocol error is distinct from a blank prediction.
         # Keep outcome counts mutually exclusive for summaries and charts.
         if err:
             errored += 1
+            match_kind = "error"
         elif not pred:
             abstained += 1
+            match_kind = "abstain"
         if is_correct:
             correct += 1
-        d = by_dataset.setdefault(c["_dataset"], {"n": 0, "correct": 0})
+        if is_canonical:
+            correct_canonical += 1
+        kind_counts[match_kind] = kind_counts.get(match_kind, 0) + 1
+        d = by_dataset.setdefault(c["_dataset"], {"n": 0, "correct": 0, "correct_canonical": 0})
         d["n"] += 1
         d["correct"] += 1 if is_correct else 0
+        d["correct_canonical"] += 1 if is_canonical else 0
+        lat = p.get("latency_ms")
+        try:
+            latency_ms = float(lat) if lat is not None else None
+        except (TypeError, ValueError):
+            latency_ms = None
         scored_cases.append({
             "dataset": c["_dataset"], "photo": c["_photo"], "gt": gt,
             "prediction": pred, "reason": p.get("reason"),
-            "correct": is_correct, "error": err,
+            "correct": is_correct,
+            "correct_canonical": is_canonical,
+            "match_kind": match_kind,
+            "matched_label": match.get("matched_label") or "",
+            "error": err,
+            "latency_ms": latency_ms,
         })
     accuracy = (correct / n) if n else 0.0
+    accuracy_canonical = (correct_canonical / n) if n else 0.0
+    latencies = [c["latency_ms"] for c in scored_cases if isinstance(c.get("latency_ms"), (int, float))]
     return {
         "n_eligible": n,
         "correct": correct,
+        "correct_canonical": correct_canonical,
         "abstained": abstained,
         "errored": errored,
         "accuracy": accuracy,
         "accuracy_pct": round(100 * accuracy),
-        "by_dataset": {k: {**v, "accuracy": (v["correct"] / v["n"] if v["n"] else 0.0)}
-                       for k, v in sorted(by_dataset.items())},
+        "accuracy_canonical": accuracy_canonical,
+        "accuracy_canonical_pct": round(100 * accuracy_canonical),
+        "match_kind_counts": dict(sorted(kind_counts.items())),
+        "by_dataset": {
+            k: {
+                **v,
+                "accuracy": (v["correct"] / v["n"] if v["n"] else 0.0),
+                "accuracy_canonical": (v["correct_canonical"] / v["n"] if v["n"] else 0.0),
+            }
+            for k, v in sorted(by_dataset.items())
+        },
+        "latency_ms": _latency_summary(latencies),
         "cases": scored_cases,
     }
 
@@ -276,7 +406,8 @@ def _pick_version(runs_dir: str, safe: str, save_mode: str) -> int:
 def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode: str,
                    params: Optional[List[str]], save_mode: str, csv_path: str, config_path: str,
                    candidate_paths: List[str], runs_dir: str,
-                   candidate_limit: Optional[int] = None) -> Dict[str, Any]:
+                   candidate_limit: Optional[int] = None,
+                   label_relations_path: Optional[str] = None) -> Dict[str, Any]:
     if not (script_text or "").strip():
         raise RunError("no script provided — attach a predict() script before running")
     lang = "python" if lang in ("python", "py", "") else lang
@@ -298,6 +429,9 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
         raise RunError(f"no eligible eval cases for scope '{dataset}' "
                        "(need rows with GT, non-Korea, not non_poi)")
 
+    rel_path = label_relations_path or ms.DEFAULT_LABEL_RELATIONS_PATH
+    relations = ms.load_label_relations(rel_path)
+
     suffix = ".py" if lang == "python" else ""
     tmp = tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False, encoding="utf-8")
     try:
@@ -305,16 +439,25 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
         tmp.close()
         if lang != "python":
             os.chmod(tmp.name, 0o755)
-        preds = _run_subprocess(tmp.name, lang, cases)
+        preds, duration_ms = _run_subprocess(tmp.name, lang, cases)
     finally:
         if os.path.exists(tmp.name):
             os.unlink(tmp.name)
 
-    scored = _score(cases, preds, mode or "exact")
+    scored = _score(cases, preds, mode or "exact", label_relations=relations)
+    metrics = {k: v for k, v in scored.items() if k != "cases"}
+    metrics["duration_ms"] = duration_ms
+    metrics["runtime"] = _host_runtime_info()
+    if relations:
+        metrics["label_relations_path"] = rel_path
+        metrics["label_relations_n"] = len(relations)
 
     safe = _safe_name(name)
     version = _pick_version(runs_dir, safe, save_mode)
     os.makedirs(runs_dir, exist_ok=True)
+    hash_paths = [csv_path, config_path, *candidate_paths]
+    if relations and os.path.isfile(rel_path):
+        hash_paths.append(rel_path)
     record = {
         "name": (name or safe).strip(),
         "safe_name": safe,
@@ -327,11 +470,10 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
         "lang": lang,
         "script_sha256": hashlib.sha256(script_text.encode("utf-8")).hexdigest(),
         "evaluation_set_sha256": evaluation_set_sha256(cases),
-        "data_snapshot_sha256": data_snapshot_sha256(
-            [csv_path, config_path, *candidate_paths]
-        ),
+        "data_snapshot_sha256": data_snapshot_sha256(hash_paths),
+        "label_relations_path": rel_path if relations else None,
         "script_text": script_text,
-        "metrics": {k: v for k, v in scored.items() if k != "cases"},
+        "metrics": metrics,
         "cases": scored["cases"],
     }
     with open(os.path.join(runs_dir, f"{safe}__v{version}.json"), "w", encoding="utf-8") as f:
@@ -388,9 +530,16 @@ def list_runs(runs_dir: str) -> List[Dict[str, Any]]:
             "metrics": m,
             "n_eligible": m.get("n_eligible", 0),
             "correct": m.get("correct", 0),
+            "correct_canonical": m.get("correct_canonical"),
             "abstained": m.get("abstained", 0),
             "errored": m.get("errored", 0),
             "accuracy_pct": m.get("accuracy_pct", 0),
+            "accuracy_canonical_pct": m.get("accuracy_canonical_pct"),
+            "match_kind_counts": m.get("match_kind_counts"),
+            "label_relations_path": r.get("label_relations_path") or m.get("label_relations_path"),
+            "duration_ms": m.get("duration_ms"),
+            "latency_ms": m.get("latency_ms"),
+            "runtime": m.get("runtime"),
         })
     out.sort(key=lambda r: (r.get("created_at") or "", r.get("version") or 0), reverse=True)
     return out

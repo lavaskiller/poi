@@ -73,9 +73,9 @@ POI_DATA_DIR=/absolute/path/to/poi-data POI_PORT=8420 python3 server.py
 
 ```json
 [{
-  "dataset": "vancouver",
-  "photo": "IMG_6133.jpeg",
-  "photo_url": "/photos/IMG_6133.jpeg",
+  "dataset": "sample",
+  "photo": "IMG_0001.jpeg",
+  "photo_url": "/photos/IMG_0001.jpeg",
   "gt": "",
   "gt_status": "no_gt",
   "provider": "mapkit",
@@ -165,13 +165,18 @@ POI_DATA_DIR=/absolute/path/to/poi-data POI_PORT=8420 python3 server.py
     "evaluation_set_sha256": "<64-char SHA-256>",
     "evaluation_set_sha256_derived": false,
     "data_snapshot_sha256": "<64-char SHA-256>",
-    "n_eligible": 11, "correct": 2, "abstained": 0, "errored": 0, "accuracy_pct": 18 }
+    "n_eligible": 11, "correct": 2, "abstained": 0, "errored": 0, "accuracy_pct": 18,
+    "duration_ms": 18340.2,
+    "latency_ms": {"mean": 12.4, "p50": 9.1, "p95": 28.0, "max": 110.2, "n": 11},
+    "runtime": {"device_class":"desktop_host", "platform":"…", "machine":"…", "python":"…"} }
 ] }
 ```
 
 `script_sha256` identifies byte-identical submitted code; old persisted records derive it from their stored script text. Equal accuracy is not evidence that two executions are different algorithms.
 
 `evaluation_set_sha256` identifies the ordered evaluation cohort `(dataset, photo, gt)`. Direct run comparison requires the same cohort and scoring mode. `data_snapshot_sha256` hashes the CSV, config, and candidate files used for the run; optional provider files that are absent are recorded as missing rather than failing the run. Legacy runs without these fields remain readable, but the UI warns that comparison compatibility is incomplete.
+
+`duration_ms` is the full submitted-process wall time, including process startup. `latency_ms` summarizes available per-case `predict()` call wall times (`mean`, `p50`, `p95`, `max`, `n`); case detail has an individual `latency_ms`. These and `runtime` are measurements of the evaluation host, explicitly **not** mobile-device measurements. Legacy records can omit them.
 
 ### GET `/api/runs?name=<name>&version=<positive integer>`
 
@@ -232,7 +237,10 @@ def predict(case) -> str:      # 예측 장소명, 기권은 ""
   "params": ["nearby_candidates"], "candidate_limit": 10, "lang": "python",
   "metrics": { "n_eligible": 11, "correct": 2, "abstained": 0, "errored": 0,
     "accuracy": 0.1818, "accuracy_pct": 18,
-    "by_dataset": { "vancouver": { "n": 11, "correct": 2, "accuracy": 0.1818 } } },
+    "by_dataset": { "vancouver": { "n": 11, "correct": 2, "accuracy": 0.1818 } },
+    "duration_ms": 18340.2,
+    "latency_ms": { "mean": 12.4, "p50": 9.1, "p95": 28.0, "max": 110.2, "n": 11 },
+    "runtime": { "device_class": "desktop_host", "notes": "Host-side wall time; not mobile runtime." } },
   "n_cases": 11 }
 ```
 - 채점: `예측 == GT`(공급원 exact). 한국/Kakao, `non_poi`, 빈 provider GT 및 provider resolution sentinel은 자동 홀드아웃 → `n_eligible`에서 제외. raw `input_place_name`은 GT 대체값이 아니다.

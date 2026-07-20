@@ -75,11 +75,29 @@ python3 tools/run_algorithm.py examples/baseline_nearest.py \
 
 Results are written below `<data-root>/generated/runs/` and shown in **③ 평가 결과**. Select persisted executions there to inspect their configuration, outcome distribution, and failed cases; compare up to four executions, and delete one only after a confirmation. The UI labels runs with the same SHA-256 submitted-code hash, so equal scores from identical code are not mistaken for a display problem. Deleting a run permanently removes only its saved run JSON—not a dataset, photo, or source script.
 
-Identification accuracy (`prediction == GT`) is distinct from candidate-retrieval coverage. Current MVP scoring uses same-provider exact-name matching; Korea/Kakao, `non_poi`, blank provider GT, and provider-resolution sentinels (for example `NON_MAPKIT` and `SIM_MAPKIT`) are held out. A raw `input_place_name` is never substituted for a missing provider-canonical GT.
+Identification accuracy (`prediction == GT`) is distinct from candidate-retrieval coverage. Current MVP scoring uses same-provider exact-name matching; Korea/Kakao, `non_poi`, blank provider GT, and provider-resolution sentinels (for example `NON_MAPKIT` and `SIM_MAPKIT`) are held out. A raw `input_place_name` is never substituted for a missing provider-canonical GT. Likewise, a scalar `app_nearby_top1` is not a candidate-list artifact: evaluation refuses an eligible case without stored candidate records rather than synthesizing a rank-one candidate.
 
 ### Candidate retrieval scope
 
 The current non-Korea retrieval probe uses `MKLocalPointsOfInterestRequest`: strict 80m and wide 250m searches, then distance-from-photo-coordinate ordering (not MapKit relevance ordering). New probe output retains the full wide result as JSON, including MapKit category, identifier when available, candidate coordinates, and distance; `tools/match_score.py --convert-mapkit-tsv` converts it to flat candidate JSONL. Older local snapshots remain lossy (often top-3 and without metadata), and are accepted with empty metadata for backward compatibility.
+
+To create a non-destructive full-candidate benchmark snapshot, first create and
+inspect its immutable manifest, then explicitly permit live MapKit queries:
+
+```bash
+python3 tools/rebaseline_mapkit_snapshot.py --snapshot-id mapkit-YYYYMMDD
+python3 tools/rebaseline_mapkit_snapshot.py --snapshot-id mapkit-YYYYMMDD --execute
+```
+
+The snapshot is written below `<data-root>/generated/candidate-snapshots/` and
+does not modify the canonical CSV, legacy candidate JSONL, or legacy rerun TSV.
+It is a new live MapKit snapshot—not a reconstruction of historical results.
+After validation, select a complete snapshot by writing
+`<data-root>/generated/active-mapkit-candidate-snapshot.json` with its
+`snapshot_id` and `candidate_artifact` (`mapkit_candidates.jsonl`). Evaluation
+and the case explorer then use that immutable artifact. The pointer is checked
+against the snapshot metadata and candidate SHA-256; it never falls back to the
+legacy JSONL when a selected snapshot is invalid.
 
 ## Tests
 
@@ -120,12 +138,13 @@ examples/                 Runnable submission examples
 templates/                Public upload-package templates
 tools/                    Active evaluation, ingestion, and probe utilities
   swift/                  Reusable Swift probe sources
-  run_fastvlm_baseline.py Optional FastVLM Top-K reranker runner (local model/env)
+  run_vlm_topk_rerank.py Optional FastVLM Top-K reranker runner (local model/env)
   simulate_confidence_policy.py Risk-coverage simulator for the action policy
 tests/                    Unit tests for the harness and examples
 docs/                     Canonical API and functional documentation
   archive/                Superseded dated specifications and reviews
-  reports/                Dated project reports and experiment notes
+  reports/                Daily activity record and active policy notes
+    daily/                One report per calendar day (continuity checked)
 archive/web-prototypes/   Historical browser prototypes (not active routes)
 experiments/              Historical/offline experiments (not supported entry points)
 poi-data/                 Ignored local runtime data (created or supplied locally)
@@ -135,6 +154,7 @@ poi-data/                 Ignored local runtime data (created or supplied locall
 
 - [API contract](docs/API.md)
 - [Functional specification](docs/functional-spec.md)
+- [Daily reports](docs/reports/daily/README.md)
 - [Archived design/history](docs/archive/README.md)
 - [Historical experiments](experiments/README.md)
 - [Archived web prototypes](archive/web-prototypes/README.md)

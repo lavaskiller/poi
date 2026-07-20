@@ -38,5 +38,5 @@ EXIF가 비어 있는 export를 좌표·촬영시각과 함께 올리는 경우:
 
 ```csv
 photo,gt_input_raw,capture_lat,capture_lon,timestamp,notes
-photos/0001.jpg,Shadow Lakes Golf Club,37.9298957,-121.7415443,2026-07-05T00:25:23Z,Golf
+photos/0001.jpg,Example Place Name,37.000000,-122.000000,2026-01-01T00:00:00Z,Category
 ```

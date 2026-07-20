@@ -1,6 +1,7 @@
-import http.server, socketserver, functools, json, csv, os, sys, tempfile
+import http.server, socketserver, functools, json, csv, os, sys, tempfile, urllib.parse
 import threading, subprocess, uuid, time, math, shutil, queue, statistics
 from collections import Counter, defaultdict
+from pathlib import Path
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(REPO_DIR, "tools"))
@@ -14,6 +15,8 @@ from match_score import (
 )
 from run_algorithm import run_submission, list_runs, get_run, delete_run, RunError
 from gt_classify_common import read_csv as gc_read_csv, write_csv as gc_write_csv, backup_csv as gc_backup_csv
+import run_algorithm as algorithm
+import match_score as match_score
 
 # Data root. POI_DATA_DIR is the explicit override. For an ordinary checkout,
 # prefer a repository-local poi-data bundle when it contains the reconciled CSV;
@@ -36,10 +39,175 @@ def config_read_path():
     """Current effective config; ingestion may create the data copy at runtime."""
     return DATA_CONFIG_PATH if os.path.exists(DATA_CONFIG_PATH) else REPO_CONFIG_PATH
 MATCH_CANDIDATE_PATHS = [
-    os.path.join(DIRECTORY, "generated", "mapkit_candidates.jsonl"),
+    match_score.active_mapkit_candidate_file(DIRECTORY),
     os.path.join(DIRECTORY, "generated", "kakao_local_candidates.jsonl"),
 ]
 RUNS_DIR = os.path.join(DIRECTORY, "generated", "runs")
+
+
+def _parse_source_candidate_text(value):
+    return [{"rank": i + 1, "name": c.get("name", ""),
+             "distance_m": c.get("distance_m"), "category": ""}
+            for i, c in enumerate(match_score.parse_top_candidates(value or ""))]
+
+
+def _load_original_mapkit_outputs():
+    """Read original MapKit probe TSVs, never generated candidate JSONL."""
+    records = {}
+    for filename, rich_field in (("rerun_mapkit_output.tsv", "wide_candidates_json"),
+                                 ("ls_nearby_results.tsv", "top3_wide")):
+        path = os.path.join(DIRECTORY, filename)
+        if not os.path.isfile(path):
+            continue
+        grouped = defaultdict(list)
+        with open(path, encoding="utf-8", errors="replace", newline="") as f:
+            for row in csv.DictReader(f, delimiter="\t"):
+                photo = os.path.basename((row.get("photo") or "").strip())
+                if photo:
+                    grouped[photo].append(row)
+        for photo, rows in grouped.items():
+            if photo in records:
+                continue
+            variants, signatures = [], set()
+            for row in rows:
+                try:
+                    parsed = json.loads(row.get(rich_field) or "") if rich_field == "wide_candidates_json" else []
+                except json.JSONDecodeError:
+                    parsed = []
+                candidates = parsed if isinstance(parsed, list) and parsed else _parse_source_candidate_text(row.get("top3_wide"))
+                signature = json.dumps(candidates, ensure_ascii=False, sort_keys=True)
+                if signature not in signatures:
+                    signatures.add(signature)
+                    variants.append(candidates)
+            chosen = variants[-1] if variants else []
+            has_rich = rich_field == "wide_candidates_json" and bool((rows[-1].get(rich_field) or "").strip())
+            records[photo] = {"candidates": chosen[:5], "source": filename,
+                "sourceField": rich_field if has_rich else "top3_wide",
+                "sourceRows": len(rows), "sourceVariants": len(variants),
+                "sourceRetained": len(chosen), "reportedWideCount": rows[-1].get("wide_n", "")}
+    return records
+
+
+def _load_result_evidence():
+    """Read raw model logs directly; create no explorer-specific artifact."""
+    specs = {
+        "fastvlm-top5-reranker": "fastvlm_results.tsv",
+        "fastvlm-top10-reranker": "fastvlm_top10_results.tsv",
+        "fastvlm-top20-reranker": "fastvlm_top20_results.tsv",
+        "fastvlm-bloggo-verified-top5": "fastvlm_bloggo_hybrid_results.tsv",
+        "mapkit-bloggo-ocr-reranker-exploratory": "bloggo_ocr_reranker_results.tsv",
+        "fastvlm-bloggo-ocr-fastvlm-semantic-v5-permissive-exploratory":
+            "fastvlm_bloggo_ocr_fastvlm_semantic_v5_permissive_results.tsv",
+    }
+    result = {}
+    for run_name, filename in specs.items():
+        path = os.path.join(DIRECTORY, filename)
+        if not os.path.isfile(path):
+            continue
+        grouped = defaultdict(list)
+        with open(path, encoding="utf-8", errors="replace", newline="") as f:
+            for row in csv.DictReader(f, delimiter="\t"):
+                key = ((row.get("dataset") or "").strip(), os.path.basename((row.get("photo") or "").strip()))
+                grouped[key].append(row)
+        result[run_name] = {"file": filename, "rows": grouped}
+    return result
+
+
+def poi_case_explorer_data():
+    """Compose cards from canonical run artifacts; write no report JSON.
+
+    Include only the newest version of each algorithm whose cases cover exactly
+    the frozen 166-case cohort. Partial/smoke runs are not silently padded.
+    """
+    config = match_score.load_config(config_read_path())
+    cases = algorithm.build_cases(
+        match_score.read_rows(CSV_PATH), config,
+        match_score.load_candidates([MATCH_CANDIDATE_PATHS[0]]),
+        "all", ["image", "ocr_text", "nearby_candidates"], 5,
+    )
+    by_name = {}
+    for filename in os.listdir(RUNS_DIR):
+        if not filename.endswith(".json"):
+            continue
+        with open(os.path.join(RUNS_DIR, filename), encoding="utf-8") as f:
+            run = json.load(f)
+        name, version = run.get("name"), run.get("version", 0)
+        if name and (name not in by_name or version > by_name[name].get("version", 0)):
+            by_name[name] = run
+    runs = {name: run for name, run in by_name.items()
+            if len(run.get("cases", [])) == len(cases) == 166}
+    if not runs:
+        raise RuntimeError("No complete frozen 166-case run snapshots were found")
+    indexes = {}
+    for name, run in runs.items():
+        grouped = defaultdict(list)
+        for row in run["cases"]:
+            grouped[(row["dataset"], row["photo"])].append(row)
+        indexes[name] = grouped
+    result_evidence = _load_result_evidence()
+    occurrence = Counter()
+    with open(os.path.join(DIRECTORY, "fastvlm_bloggo_ocr_fastvlm_semantic_v5_permissive_results.tsv"), encoding="utf-8") as f:
+        audit = {(row["dataset"], row["photo"]): row for row in csv.DictReader(f, delimiter="\t")}
+    result = []
+    for number, case in enumerate(cases, 1):
+        key = (case["_dataset"], case["_photo"])
+        row_occurrence = occurrence[key]
+        occurrence[key] += 1
+        data, gt = case["input"], case["_gt"]
+        # Render precisely the object delivered to every algorithm. This uses
+        # the same JSONL-to-app_nearby_top1 fallback and raw ranks as evaluation.
+        candidates = data.get("nearby_candidates", [])
+        details = audit.get(key, {})
+        record = {"id": number, "dataset": key[0], "photo": key[1],
+            "image": f"/api/poi-case-photo?dataset={urllib.parse.quote(key[0])}&photo={urllib.parse.quote(key[1])}",
+            "gt": gt, "top5": any(c.get("name") == gt for c in candidates),
+            "candidateSource": {"source": "evaluation case input",
+                                "sourceField": "nearby_candidates",
+                                "candidateLimit": 5},
+            "candidates": [{"rank": c.get("rank") or i + 1, "name": c.get("name", ""),
+                            "distance": c.get("distance_m"), "category": c.get("category", "")}
+                           for i, c in enumerate(candidates)],
+            "ocr": data.get("ocr_text", ""), "v5Decision": details.get("decision", ""),
+            "v5Raw": details.get("selection_raw", ""), "v5Nomination": details.get("nominated_candidate", ""),
+            "predictions": {}}
+        for name, index in indexes.items():
+            frozen_rows = index.get(key) or []
+            frozen = frozen_rows[min(row_occurrence, len(frozen_rows) - 1)] if frozen_rows else None
+            if not frozen:
+                raise RuntimeError(f"Missing frozen {name} result for {key}")
+            record["predictions"][name] = {"name": frozen["prediction"], "correct": frozen["correct"],
+                                           "reason": frozen.get("reason", "")}
+            evidence_source = result_evidence.get(name)
+            if evidence_source:
+                evidence_rows = evidence_source["rows"].get(key) or []
+                if evidence_rows:
+                    evidence_row = evidence_rows[min(row_occurrence, len(evidence_rows) - 1)]
+                    record["predictions"][name]["evidence"] = evidence_row
+                    record["predictions"][name]["evidenceSource"] = evidence_source["file"]
+        result.append(record)
+    # Names are verbatim canonical run names, as displayed by the Runs UI.
+    algorithms = [{"id": name, "label": name, "version": run.get("version"),
+                   "accuracy": (run.get("metrics") or {}).get("accuracy"),
+                   "correct": (run.get("metrics") or {}).get("correct")}
+                  for name, run in sorted(runs.items())]
+    return {"algorithms": algorithms, "cases": result}
+
+
+def poi_case_photo(photo):
+    """Locate an original image without a copied report-asset directory."""
+    if os.path.basename(photo) != photo:
+        return None
+    roots = [os.path.join(DIRECTORY, name) for name in
+             ("linkedspaces-photos", "photos", "poi-dataset-20260708-photos", "union-city-trip/photos")]
+    for root in roots:
+        direct = os.path.join(root, photo)
+        if os.path.isfile(direct):
+            return direct
+        if os.path.isdir(root):
+            found = next((path for path in Path(root).rglob(photo) if path.is_file()), None)
+            if found:
+                return str(found)
+    return None
 
 # ---------------------------------------------------------------------------
 # Background job registry. Every CSV-mutating operation (GT classify, signal
@@ -319,8 +487,7 @@ def _delete_dataset(params, log):
     present = sorted({(r.get("dataset") or "").strip() for r in rows if (r.get("dataset") or "").strip()})
     if dataset not in present:
         return {"ok": False, "error": f"unknown dataset {dataset!r}", "datasets": present}
-    if len(present) <= 1:
-        return {"ok": False, "error": "cannot delete the only dataset"}
+    # Last remaining dataset may be deleted; empty eval set / zero-dataset UI is supported.
     removed = [r for r in rows if (r.get("dataset") or "").strip() == dataset]
     kept = [r for r in rows if (r.get("dataset") or "").strip() != dataset]
 
@@ -1195,6 +1362,30 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.log_error("API request failed: %s", e)
                 self._send_api_error("internal_error", 500)
+            return
+        if route == "/api/poi-case-explorer":
+            try:
+                self._send_json(poi_case_explorer_data())
+            except Exception as e:
+                self.log_error("POI case explorer request failed: %s", e)
+                self._send_api_error("internal_error", 500)
+            return
+        if route == "/api/poi-case-photo":
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            photo = (q.get("photo", [""])[0]).strip()
+            path = poi_case_photo(photo)
+            if not path:
+                self._send_api_error("not_found", 404, detail="photo not found")
+                return
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", self.guess_type(path))
+                self.send_header("Content-Length", str(os.path.getsize(path)))
+                self.end_headers()
+                with open(path, "rb") as image:
+                    shutil.copyfileobj(image, self.wfile)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             return
         if route == "/api/records":
             from urllib.parse import urlparse, parse_qs

@@ -58,12 +58,12 @@
 
 3. **사용 방법 스니펫** — 선택한 입력을 스크립트에서 불러오는 예시 코드 자동 생성.
 4. **예측 함수 첨부** — `predict(case)` 계약을 구현한 파일 업로드(`.py` 외 언어는 stdin JSON → stdout 예측). **▶ 실행**.
-5. **최근 실행 테이블** — 이름·버전·언어·입력 수·스코프·식별 정확도·저장 상태.
-6. **실행 관리** — 저장된 실행을 이름·버전 단위로 선택한다. 상세는 설정, SHA-256 코드 해시, 정답/기권/오류/오답 분포, 최대 80개 실패 케이스를 표시한다. 제출 코드는 UI에서 재표시하지 않는다.
-7. **비교** — 최대 4개 실행을 선택해 exact accuracy와 정답/평가 수를 비교한다. 같은 evaluation cohort(`evaluation_set_sha256`)와 scoring mode일 때만 직접 비교한다. data snapshot이 다르면 경고를 표시하고, 같은 `script_sha256`을 가진 실행은 `동일 코드 N회`로 표시한다. 이름·버전은 실행 식별자이지 코드의 고유 식별자가 아니다.
+5. **최근 실행 테이블** — 이름·버전·언어·입력 수·스코프·식별 정확도·저장 상태와 host 실행시간 요약.
+6. **실행 관리** — 저장된 실행을 이름별 접이식 그룹으로 관리하고, 이름·범위·입력 검색, 최신 버전만 보기, 최신/정확도/이름/host latency 정렬을 제공한다. 최신 버전만 보기를 켠 대규모 목록은 가상 목록으로 렌더링한다. 상세는 설정, SHA-256 코드 해시, 정답/기권/오류/오답 분포, host 실행시간, 최대 80개 실패 케이스를 표시한다. 제출 코드는 UI에서 재표시하지 않는다.
+7. **비교** — 최대 4개 실행을 비교 트레이에서 선택해 exact accuracy, 정답/평가 수, host latency를 막대와 표로 비교한다. 같은 evaluation cohort(`evaluation_set_sha256`)와 scoring mode일 때만 직접 비교한다. data snapshot이 다르면 경고를 표시하고, 같은 `script_sha256`을 가진 실행은 `동일 코드 N회`로 표시한다. 이름·버전은 실행 식별자이지 코드의 고유 식별자가 아니다. host 시간은 현재 평가 머신의 wall time이며 모바일 기기 실측으로 표시하지 않는다.
 8. **삭제** — 선택된 실행만 이름·버전 확인 대화상자 뒤 영구 삭제한다. 삭제는 해당 persisted run JSON과 케이스 결과에 한정되며, 데이터셋·사진·원본 스크립트는 삭제하지 않는다.
 
-**채점 규약** — `예측 == GT`, 후보검색과 동일한 공급원-exact 정책. 한국/`non_poi`/빈 provider GT/provider resolution sentinel row는 자동 홀드아웃. 결과는 `generated/runs/<name>__v<k>.json`으로 버전 저장하며, 코드 SHA-256과 evaluation cohort/data snapshot 해시도 기록한다. 스크립트는 격리 서브프로세스에서 실행(로컬 단일 사용자용).
+**채점 규약** — `예측 == GT`, 후보검색과 동일한 공급원-exact 정책. 한국/`non_poi`/빈 provider GT/provider resolution sentinel row는 자동 홀드아웃. 결과는 `generated/runs/<name>__v<k>.json`으로 버전 저장하며, 코드 SHA-256과 evaluation cohort/data snapshot 해시, 전체 subprocess `duration_ms`, 케이스별 `latency_ms`와 그 요약, host runtime 정보를 기록한다. 스크립트는 격리 서브프로세스에서 실행(로컬 단일 사용자용). 시간은 host 기준 wall time으로 모바일 runtime 측정이 아니다.
 
 ---
 

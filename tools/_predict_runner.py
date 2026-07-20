@@ -5,13 +5,20 @@ stream of cases.
 Protocol (kept identical for other languages so the harness is language
 agnostic): read one JSON `case` object per stdin line, write one JSON result
 object per stdout line, in the same order. A result is normalized to
-`{"prediction": <str>, "reason": <str|null>, "error": <str|null>}`.
+`{"prediction": <str>, "reason": <str|null>, "error": <str|null>,
+  "latency_ms": <float|null>}`.
 
 The submitted script is isolated in its own process; the harness enforces the
 timeout. The `case` object never contains the ground-truth place name, so a
 script cannot score itself by reading the answer.
+
+`latency_ms` is host-side wall time for one predict() call on this machine.
+It is not a mobile-device measurement.
 """
-import sys, json, importlib.util
+import json
+import importlib.util
+import sys
+import time
 
 
 def _load_predict(path):
@@ -42,11 +49,13 @@ def main():
         if not line:
             continue
         case = json.loads(line)
+        t0 = time.perf_counter()
         try:
             res = _normalize(predict(case))
             res["error"] = None
         except Exception as e:  # a failing case must not kill the whole run
             res = {"prediction": "", "reason": None, "error": repr(e)}
+        res["latency_ms"] = round((time.perf_counter() - t0) * 1000.0, 3)
         sys.stdout.write(json.dumps(res, ensure_ascii=False) + "\n")
         sys.stdout.flush()
 

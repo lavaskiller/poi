@@ -117,6 +117,56 @@ class RunMetadataTests(unittest.TestCase):
             self.assertEqual(listed["data_snapshot_sha256"], snapshot_hash)
             self.assertFalse(detailed["evaluation_set_sha256_derived"])
 
+    def test_host_runtime_metrics_on_score_and_list(self):
+        preds = [
+            {"prediction": "One", "error": None, "latency_ms": 10.0},
+            {"prediction": "Two", "error": None, "latency_ms": 30.0},
+            {"prediction": "", "error": "boom", "latency_ms": 5.0},
+        ]
+        cases = [
+            {"_dataset": "a", "_photo": "1.jpg", "_gt": "One"},
+            {"_dataset": "a", "_photo": "2.jpg", "_gt": "Two"},
+            {"_dataset": "a", "_photo": "3.jpg", "_gt": "Three"},
+        ]
+        scored = run_algorithm._score(cases, preds, "exact")
+        self.assertEqual(scored["correct"], 2)
+        self.assertEqual(scored["latency_ms"]["n"], 3)
+        self.assertEqual(scored["latency_ms"]["mean"], 15.0)
+        self.assertEqual(scored["latency_ms"]["p50"], 10.0)
+        self.assertEqual(scored["latency_ms"]["max"], 30.0)
+        self.assertEqual(scored["cases"][0]["latency_ms"], 10.0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            record = {
+                "name": "timed",
+                "safe_name": "timed",
+                "version": 1,
+                "scope": "all",
+                "mode": "exact",
+                "metrics": {
+                    "n_eligible": 3,
+                    "correct": 2,
+                    "accuracy": 2 / 3,
+                    "accuracy_pct": 67,
+                    "duration_ms": 42.5,
+                    "latency_ms": scored["latency_ms"],
+                    "runtime": {"device_class": "desktop_host", "notes": "host"},
+                },
+                "cases": scored["cases"],
+            }
+            (root / "timed__v1.json").write_text(json.dumps(record), encoding="utf-8")
+            listed = run_algorithm.list_runs(str(root))[0]
+            self.assertEqual(listed["duration_ms"], 42.5)
+            self.assertEqual(listed["latency_ms"]["mean"], 15.0)
+            self.assertEqual(listed["runtime"]["device_class"], "desktop_host")
+
+    def test_host_runtime_info_marks_desktop_host(self):
+        info = run_algorithm._host_runtime_info()
+        self.assertEqual(info["device_class"], "desktop_host")
+        self.assertIn("not mobile", info["notes"].lower())
+
+
 
 if __name__ == "__main__":
     unittest.main()

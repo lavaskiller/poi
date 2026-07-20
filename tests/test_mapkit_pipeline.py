@@ -53,7 +53,10 @@ class MapKitPipelineTests(unittest.TestCase):
         self.assertEqual(record["lat"], 1.25)
         self.assertEqual(record["distance_m"], 5.5)
 
-    def test_legacy_top3_probe_remains_supported(self):
+    def test_legacy_top3_probe_is_rejected_by_default(self):
+        # A top3-only probe never persisted the full candidate list; converting
+        # it silently caps candidates at 3 and drops the ground truth whenever
+        # MapKit ranked it 4+. That must not become a scored artifact by accident.
         with tempfile.TemporaryDirectory() as directory:
             source = pathlib.Path(directory) / "legacy.tsv"
             output = pathlib.Path(directory) / "candidates.jsonl"
@@ -66,7 +69,26 @@ class MapKitPipelineTests(unittest.TestCase):
                     {"photo": "photo.jpg", "top3_wide": "Alpha@3m | Beta@14m"}
                 )
 
-            count = match_score.convert_mapkit_tsv(str(source), str(output))
+            with self.assertRaises(ValueError):
+                match_score.convert_mapkit_tsv(str(source), str(output))
+            self.assertFalse(output.exists())
+
+    def test_legacy_top3_probe_converts_only_when_explicitly_marked_lossy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = pathlib.Path(directory) / "legacy.tsv"
+            output = pathlib.Path(directory) / "candidates.jsonl"
+            with source.open("w", encoding="utf-8", newline="") as file:
+                writer = csv.DictWriter(
+                    file, fieldnames=["photo", "top3_wide"], delimiter="\t"
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {"photo": "photo.jpg", "top3_wide": "Alpha@3m | Beta@14m"}
+                )
+
+            count = match_score.convert_mapkit_tsv(
+                str(source), str(output), allow_lossy_top3=True
+            )
             records = [
                 json.loads(line)
                 for line in output.read_text(encoding="utf-8").splitlines()
@@ -77,6 +99,8 @@ class MapKitPipelineTests(unittest.TestCase):
         self.assertEqual(records[0]["distance_m"], 3.0)
         self.assertEqual(records[0]["category"], "")
         self.assertIsNone(records[0]["provider_place_id"])
+        # Every lossy record is stamped so a scored run can refuse it.
+        self.assertTrue(all(r.get("lossy_top3_summary") for r in records))
 
     def test_harness_passes_metadata(self):
         source = {
@@ -97,6 +121,22 @@ class MapKitPipelineTests(unittest.TestCase):
         self.assertEqual(candidates[0]["provider_place_id"], "mapkit-id")
         self.assertEqual(candidates[0]["lat"], 1.25)
 
+    def test_missing_artifact_is_not_synthesized_from_csv_top1(self):
+        self.assertEqual(
+            run_algorithm._candidate_names(
+                {}, "mapkit", "photo.jpg", {"app_nearby_top1": "Invented@3m"}, "dataset"
+            ),
+            [],
+        )
+        with self.assertRaisesRegex(run_algorithm.RunError, "artifact unavailable"):
+            run_algorithm.build_cases(
+                [{"dataset": "dataset", "photo": "photo.jpg", "country": "Canada",
+                  "gt_mapkit": "Expected", "gt_confidence": "confirmed_user",
+                  "app_nearby_top1": "Invented@3m"}],
+                {"confidence_rollup": {"confirmed_user": "user_selected"}}, {}, "all",
+                ["nearby_candidates"], 5,
+            )
+
     def test_subprocess_timeout_is_optional_and_enforced_when_set(self):
         with tempfile.TemporaryDirectory() as directory:
             script = pathlib.Path(directory) / "slow.py"
@@ -111,8 +151,12 @@ class MapKitPipelineTests(unittest.TestCase):
             original_timeout = run_algorithm.RUN_TIMEOUT_S
             try:
                 run_algorithm.RUN_TIMEOUT_S = None
-                predictions = run_algorithm._run_subprocess(str(script), "python", cases)
+                predictions, duration_ms = run_algorithm._run_subprocess(str(script), "python", cases)
                 self.assertEqual(predictions[0]["prediction"], "ok")
+                self.assertIsInstance(duration_ms, float)
+                self.assertGreater(duration_ms, 0)
+                self.assertIn("latency_ms", predictions[0])
+                self.assertIsInstance(predictions[0]["latency_ms"], (int, float))
 
                 run_algorithm.RUN_TIMEOUT_S = 0.03
                 with self.assertRaisesRegex(run_algorithm.RunError, "0.03s"):

@@ -11,14 +11,14 @@ const I18N={
     appSubtitle:'Check data health → run an algorithm → inspect results and failures',tabOverview:'Overview',tabRun:'Run algorithm',tabResults:'Run results',tabData:'Dataset management',
     retry:'Retry',totalRows:'Total rows',rowsWithGt:'Rows with GT labels',rowsWithPhotos:'Rows with photo references',countries:'Countries',overviewEmpty:'<b>No dataset has been added yet.</b> The API is connected. Validate and add a ZIP under Dataset management to enable evaluation.',provenance:'Provenance',confidenceTier:'Confidence tier (scoring)',signalPipeline:'Signal pipeline',rowStructure:'Row structure — label columns, coverage, and input vector',coverageByDataset:'Coverage by dataset',field:'Field',role:'Role',coverage:'Coverage',extractionMethod:'Extraction method',coverageHelp:'<b>Coverage determines algorithm-input availability.</b> Selecting sparse signals reduces eligible rows and the performance ceiling.',
     runIntro:'Upload a script that implements one prediction function. It runs against the evaluation set and saves the scored result under Run results.',runSettings:'Run settings',runName:'Run name',saveModeScope:'Save mode and scope',saveMode:'Save mode',saveAuto:'Automatic (next version)',overwriteV1:'Overwrite v1',overwriteV2:'Overwrite v2',versioningSimpleHelp:'Existing names create a new version automatically. Choose overwrite only when needed.',datasetsMulti:'Datasets · multiple selection',gtInspectionScope:'Ground Truth inspection scope',selectInputs:'Select inputs',selectInputsHelp:'— choose the data passed to predict(case)',inputRecommended:'Recommended',inputAll:'Select all',inputClear:'Clear',copyCode:'Copy code',copied:'Copied',usage:'Live code preview',usageHelp:'— access the selected inputs in your script',predictionFunction:'Prediction function',attachFileTypes:'— upload .py, .c, .cpp, .rs, .js, or .sh',attachScript:'📎 Upload a script that implements predict — click or drop',loadExample:'Load example code',downloadExample:'Download example .py',exampleHelp:'Minimal example that returns the nearest candidate',contract:'Contract',otherLanguages:'other languages read JSON from stdin and write the prediction to stdout',runAction:'▶ Run',recentRuns:'Recent runs',versioningHelp:'— matching names are versioned automatically',name:'Name',version:'Version',script:'Script',inputs:'Inputs',scope:'Scope',all:'All',status:'Status',
-    resultsIntro:'Manage persisted results here. Select a run to inspect it, compare up to four runs, or delete it.',savedRuns:'Saved runs',compareSelect:'Compare (up to 4)',runDetailEmpty:'Select a run on the left to view its configuration, metrics, and failures.',selectedCompare:'Compare selected runs',compareHelp:'Bars show exact accuracy and correct/eligible counts. Only runs with the same evaluation cohort and scoring mode can be compared.',retrievalDiagnostics:'Retrieval diagnostics',retrievalDiagnosticsHelp:'— candidate-provider coverage, separate from algorithm results',matching:'Matching',candidateRank1:'Candidate rank 1 · GT is first',candidateTop3:'Candidate top 3 · includes GT',candidateTop5:'Candidate top 5 · includes GT',candidateTop10:'Candidate top 10 · includes GT',candidateTop20:'Candidate top 20 · includes GT',candidateTop50:'Candidate top 50 · includes GT',candidateMiss:'Miss · GT absent from candidates',retrievalCoverage:'Retrieval coverage — top N by candidate provider',currentProvider:'current provider',curveAxes:'y = GT present in top-N candidates<br>x = N (measured ranks)',retrievalNote:'<b>Retrieval only.</b> This measures whether the provider returned the GT place. It is a coverage ceiling, not algorithm accuracy.',selectionAccuracy:'Selection accuracy by algorithm',selectionNote:'<b>Each bar is a submitted algorithm.</b> It shows exact-match accuracy for the latest version of each run name.',caseAnalysis:'Case analysis — retrieval success and failure',caseAnalysisHelp:'· live data · provider rank',selectCase:'Select a case on the left.',caseHelp:'<b>Retrieval failure</b> means GT is absent from all candidates. <b>Rank &gt; 1</b> means GT was returned but was not first.',
+    resultsIntro:'Manage persisted results here. Search and group saved runs, compare up to four, or delete one.',savedRuns:'Saved runs',compareSelect:'Compare (up to 4)',runSearchPlaceholder:'Search name, scope, params…',sortNewest:'Newest',sortAccuracy:'Accuracy',sortName:'Name',sortLatency:'Host latency',latestOnly:'Latest version only',expandAll:'Expand all',collapseAll:'Collapse all',compareTrayEmpty:'No runs selected for comparison.',clearCompare:'Clear',runDetailEmpty:'Select a run on the left to view its configuration, metrics, and failures.',selectedCompare:'Compare selected runs',compareHelp:'Bars and table show exact accuracy, correct/eligible counts, and host runtime (this machine). Only runs with the same evaluation cohort and scoring mode can be compared. Host latency is not mobile runtime.',hostRuntime:'Host runtime',hostRuntimeNote:'Measured on this evaluation machine (desktop host), not on a mobile device.',retrievalDiagnostics:'Retrieval diagnostics',retrievalDiagnosticsHelp:'— candidate-provider coverage, separate from algorithm results',matching:'Matching',candidateRank1:'Candidate rank 1 · GT is first',candidateTop3:'Candidate top 3 · includes GT',candidateTop5:'Candidate top 5 · includes GT',candidateTop10:'Candidate top 10 · includes GT',candidateTop20:'Candidate top 20 · includes GT',candidateTop50:'Candidate top 50 · includes GT',candidateMiss:'Miss · GT absent from candidates',retrievalCoverage:'Retrieval coverage — top N by candidate provider',currentProvider:'current provider',curveAxes:'y = GT present in top-N candidates<br>x = N (measured ranks)',retrievalNote:'<b>Retrieval only.</b> This measures whether the provider returned the GT place. It is a coverage ceiling, not algorithm accuracy.',selectionAccuracy:'Selection accuracy by algorithm',selectionNote:'<b>Each bar is a submitted algorithm.</b> It shows exact-match accuracy for the latest version of each run name.',caseAnalysis:'Case analysis — retrieval success and failure',caseAnalysisHelp:'· live data · provider rank',selectCase:'Select a case on the left.',caseHelp:'<b>Retrieval failure</b> means GT is absent from all candidates. <b>Rank &gt; 1</b> means GT was returned but was not first.',
     datasetIntro:'Review datasets, rerun extraction steps, or add and remove data.',datasets:'Datasets',datasetCoverageHelp:'— processing and result coverage',dataset:'Dataset',rows:'Rows',signalCoverage:'Processing and detection',loading:'Loading…',rerunStepTitle:'Rerun extraction',rerunStepHelp:'— process rows not yet attempted',step:'Step',emptyRowsOnly:'Unprocessed rows only',rerun:'▶ Rerun',jobLimitHelp:'Only one data job can run at a time. Unavailable steps are disabled.',jobs:'Jobs',jobsHelp:'— progress and logs',noActiveJob:'No active job.',elapsed:'Elapsed',result:'Result',addDataset:'Add a dataset',addDatasetHelp:'— upload a ZIP and track ingestion above',downloadTemplate:'Download template ZIP',validateZip:'Validate ZIP',ingestDataset:'＋ Add dataset',uploadHelp:'Validate a ZIP before adding it. Ingestion runs as a job; derived signals can be filled afterward with Rerun extraction.',footer:'POI evaluation dashboard',submittedCode:'Submitted algorithm code',close:'Close',dataConnectionError:'Data connection error',dataLoadError:'Some data could not be loaded. Check that the server is running, then try again.',apiConnectedEmpty:'API connected · no data',liveDataConnected:'Live data connected'
   },
   ko:{
     appSubtitle:'데이터 상태 확인 → 알고리즘 실행 → 결과 및 실패 사례 확인',tabOverview:'개요',tabRun:'알고리즘 실행',tabResults:'실행 결과',tabData:'데이터셋 관리',
     retry:'다시 시도',totalRows:'전체 행',rowsWithGt:'정답 라벨이 있는 행',rowsWithPhotos:'사진이 있는 행',countries:'국가',overviewEmpty:'<b>등록된 데이터셋이 없습니다.</b> 데이터셋 관리에서 ZIP을 검증하고 추가하면 평가를 시작할 수 있습니다.',provenance:'데이터 출처',confidenceTier:'신뢰도 등급',signalPipeline:'신호 처리 단계',rowStructure:'행 구조 — 라벨, 입력값, 데이터 채움률',coverageByDataset:'데이터셋별 채움률',field:'필드',role:'역할',coverage:'채움률',extractionMethod:'추출 방법',coverageHelp:'<b>채움률은 알고리즘이 사용할 수 있는 입력의 비율입니다.</b> 채움률이 낮은 신호를 선택하면 평가 가능한 행이 줄어듭니다.',
     runIntro:'예측 함수가 포함된 스크립트를 업로드하세요. 평가 데이터 전체에 실행한 뒤 채점 결과를 실행 결과에 저장합니다.',runSettings:'실행 설정',runName:'실행 이름',saveModeScope:'저장 방식 및 범위',saveMode:'저장 방식',saveAuto:'자동(다음 버전)',overwriteV1:'v1 덮어쓰기',overwriteV2:'v2 덮어쓰기',versioningSimpleHelp:'같은 이름을 선택하면 다음 버전으로 자동 저장됩니다. 덮어쓰기는 꼭 필요할 때만 선택하세요.',datasetsMulti:'데이터셋 · 복수 선택',gtInspectionScope:'Ground Truth 검사 범위',selectInputs:'입력 선택',selectInputsHelp:'— predict(case)에 전달할 데이터 선택',inputRecommended:'추천 구성',inputAll:'전체 선택',inputClear:'선택 해제',copyCode:'코드 복사',copied:'복사됨',usage:'실시간 코드 미리보기',usageHelp:'— 스크립트에서 선택한 입력에 접근하는 방법',predictionFunction:'예측 함수',attachFileTypes:'— .py, .c, .cpp, .rs, .js, .sh 업로드',attachScript:'📎 predict를 구현한 스크립트를 클릭하거나 끌어다 놓으세요',loadExample:'예시 코드 불러오기',downloadExample:'예시 .py 다운로드',exampleHelp:'가장 가까운 후보를 반환하는 간단한 예시',contract:'입출력 규약',otherLanguages:'그 외 언어는 stdin으로 JSON을 읽고 stdout으로 예측값을 출력',runAction:'▶ 실행',recentRuns:'최근 실행',versioningHelp:'— 같은 이름은 자동으로 버전이 올라갑니다',name:'이름',version:'버전',script:'스크립트',inputs:'입력',scope:'범위',all:'전체',status:'상태',
-    resultsIntro:'저장된 실행을 확인하고, 최대 4개까지 비교하거나 삭제할 수 있습니다.',savedRuns:'저장된 실행',compareSelect:'비교할 실행 선택(최대 4개)',runDetailEmpty:'왼쪽에서 실행을 선택하면 설정, 지표, 실패 사례를 볼 수 있습니다.',selectedCompare:'선택한 실행 비교',compareHelp:'막대는 정확한 정확도와 정답/평가 수를 표시합니다. 평가 표본과 채점 방식이 같은 실행만 비교할 수 있습니다.',retrievalDiagnostics:'후보 검색 진단',retrievalDiagnosticsHelp:'— 알고리즘 결과와 별도로 후보 제공 범위를 확인합니다',matching:'일치 기준',candidateRank1:'후보 1위 · 정답이 첫 번째',candidateTop3:'상위 3개 후보 · 정답 포함',candidateTop5:'상위 5개 후보 · 정답 포함',candidateTop10:'상위 10개 후보 · 정답 포함',candidateTop20:'상위 20개 후보 · 정답 포함',candidateTop50:'상위 50개 후보 · 정답 포함',candidateMiss:'검색 실패 · 후보에 정답 없음',retrievalCoverage:'후보 검색 범위 — 제공자별 상위 N개',currentProvider:'현재 후보 제공자',curveAxes:'y = 상위 N개 후보에 정답이 있는 비율<br>x = N(실측 순위)',retrievalNote:'<b>후보 검색 지표입니다.</b> 제공자가 정답 장소를 반환했는지 보여 주며, 알고리즘 정확도가 아니라 선택 가능한 범위의 상한입니다.',selectionAccuracy:'알고리즘별 선택 정확도',selectionNote:'<b>막대 하나가 제출한 알고리즘 하나를 나타냅니다.</b> 실행 이름별 최신 버전의 완전 일치 정확도입니다.',caseAnalysis:'사례 분석 — 후보 검색 성공 및 실패',caseAnalysisHelp:'· 실제 데이터 · 후보 순위',selectCase:'왼쪽에서 사례를 선택하세요.',caseHelp:'<b>검색 실패</b>는 전체 후보에 정답이 없다는 뜻입니다. <b>순위 2위 이하</b>는 정답이 후보에 있지만 첫 번째가 아니라는 뜻입니다.',
+    resultsIntro:'저장된 실행을 검색·그룹으로 관리하고, 최대 4개까지 비교하거나 삭제할 수 있습니다.',savedRuns:'저장된 실행',compareSelect:'비교할 실행 선택(최대 4개)',runSearchPlaceholder:'이름, 범위, 입력으로 검색…',sortNewest:'최신순',sortAccuracy:'정확도순',sortName:'이름순',sortLatency:'호스트 지연시간',latestOnly:'최신 버전만',expandAll:'모두 펼치기',collapseAll:'모두 접기',compareTrayEmpty:'비교할 실행이 없습니다.',clearCompare:'선택 해제',runDetailEmpty:'왼쪽에서 실행을 선택하면 설정, 지표, 실패 사례를 볼 수 있습니다.',selectedCompare:'선택한 실행 비교',compareHelp:'막대와 표는 정확한 정확도, 정답/평가 수, 호스트 실행시간(이 기기)을 표시합니다. 평가 표본과 채점 방식이 같은 실행만 비교할 수 있습니다. 호스트 지연시간은 모바일 실측이 아닙니다.',hostRuntime:'호스트 실행시간',hostRuntimeNote:'이 평가 머신(데스크톱 호스트)에서 측정한 값이며 모바일 기기 실측이 아닙니다.',retrievalDiagnostics:'후보 검색 진단',retrievalDiagnosticsHelp:'— 알고리즘 결과와 별도로 후보 제공 범위를 확인합니다',matching:'일치 기준',candidateRank1:'후보 1위 · 정답이 첫 번째',candidateTop3:'상위 3개 후보 · 정답 포함',candidateTop5:'상위 5개 후보 · 정답 포함',candidateTop10:'상위 10개 후보 · 정답 포함',candidateTop20:'상위 20개 후보 · 정답 포함',candidateTop50:'상위 50개 후보 · 정답 포함',candidateMiss:'검색 실패 · 후보에 정답 없음',retrievalCoverage:'후보 검색 범위 — 제공자별 상위 N개',currentProvider:'현재 후보 제공자',curveAxes:'y = 상위 N개 후보에 정답이 있는 비율<br>x = N(실측 순위)',retrievalNote:'<b>후보 검색 지표입니다.</b> 제공자가 정답 장소를 반환했는지 보여 주며, 알고리즘 정확도가 아니라 선택 가능한 범위의 상한입니다.',selectionAccuracy:'알고리즘별 선택 정확도',selectionNote:'<b>막대 하나가 제출한 알고리즘 하나를 나타냅니다.</b> 실행 이름별 최신 버전의 완전 일치 정확도입니다.',caseAnalysis:'사례 분석 — 후보 검색 성공 및 실패',caseAnalysisHelp:'· 실제 데이터 · 후보 순위',selectCase:'왼쪽에서 사례를 선택하세요.',caseHelp:'<b>검색 실패</b>는 전체 후보에 정답이 없다는 뜻입니다. <b>순위 2위 이하</b>는 정답이 후보에 있지만 첫 번째가 아니라는 뜻입니다.',
     datasetIntro:'데이터셋을 확인하고 추출 단계를 다시 실행하거나 데이터를 추가·삭제할 수 있습니다.',datasets:'데이터셋',datasetCoverageHelp:'— 처리율·결과 검출률 및 관리',dataset:'데이터셋',rows:'행',signalCoverage:'처리 상태와 결과 검출',loading:'불러오는 중…',rerunStepTitle:'추출 다시 실행',rerunStepHelp:'— 아직 처리하지 않은 행 실행',step:'단계',emptyRowsOnly:'미처리 행만',rerun:'▶ 다시 실행',jobLimitHelp:'데이터 작업은 한 번에 하나만 실행할 수 있습니다. 사용할 수 없는 단계는 비활성화됩니다.',jobs:'작업',jobsHelp:'— 진행 상황 및 로그',noActiveJob:'실행 중인 작업이 없습니다.',elapsed:'경과 시간',result:'결과',addDataset:'새 데이터셋 추가',addDatasetHelp:'— ZIP을 업로드하고 위에서 진행 상황 확인',downloadTemplate:'템플릿 ZIP 다운로드',validateZip:'ZIP 검증',ingestDataset:'＋ 데이터셋 추가',uploadHelp:'추가하기 전에 ZIP을 검증하세요. 데이터 추가는 작업으로 실행되며, 파생 신호는 이후 추출 다시 실행에서 채울 수 있습니다.',footer:'POI 평가 대시보드',submittedCode:'제출한 알고리즘 코드',close:'닫기',dataConnectionError:'데이터 연결 오류',dataLoadError:'일부 데이터를 불러오지 못했습니다. 서버가 실행 중인지 확인한 뒤 다시 시도하세요.',apiConnectedEmpty:'API 연결됨 · 데이터 없음',liveDataConnected:'실데이터 연결됨'
   }
 };
@@ -49,6 +49,7 @@ const bi=(en,ko)=>uiLanguage==='ko'?ko:en;
 function applyStaticLanguage(){
   document.documentElement.lang=uiLanguage;
   document.querySelectorAll('[data-i18n]').forEach(el=>{const value=tr(el.dataset.i18n);if(value!==undefined)el.innerHTML=value});
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el=>{const value=tr(el.dataset.i18nPlaceholder);if(value!==undefined)el.placeholder=value});
   document.querySelectorAll('[data-lang]').forEach(b=>b.classList.toggle('on',b.dataset.lang===uiLanguage));
   setApiState('language',null);
 }
@@ -351,6 +352,13 @@ let runFailureDataset='all', runFailureKind='all', runFailurePage=0;
 let RUN_SCOPE_CASES=[];
 const RUN_FAILURE_PAGE_SIZE=12;
 const comparedRunIds=new Set();
+const collapsedRunGroups=new Set();
+// A run name starts collapsed. Keep track of names already seen so refreshes do not
+// re-collapse groups that the user explicitly opened.
+const knownRunGroupNames=new Set();
+let runListFilter={q:'',sort:'newest',latestOnly:false};
+const RUN_LIST_VIRTUAL_THRESHOLD=40;
+const RUN_ROW_EST_HEIGHT=86;
 
 function datasetKeys(){return ((_dsData&&_dsData.datasets)||[]).map(d=>d.key).filter(Boolean)}
 function selectedDatasetKeys(){
@@ -468,10 +476,38 @@ function updVer(){
 }
 function renderRuns(){
  g('runsbody').innerHTML=runsList.length ? runsList.map(r=>
-    `<tr><td class="name">${esc(r.name)}</td><td><code>v${esc(r.version)}</code></td><td><code>${esc(r.lang||'—')}</code></td><td><code>${esc((r.params||[]).length+' '+bi('inputs','개'))}</code></td><td>${esc(r.scope)}</td><td>${formatRunAccuracy(r)} (${r.correct}/${r.n_eligible})</td><td><span class="stt ok">${bi('Saved','저장됨')}</span></td></tr>`).join('') : `<tr><td colspan="7" style="color:var(--ink3);font-size:12px">${bi('No algorithm runs have been submitted.','제출된 알고리즘 실행 결과가 없습니다.')}</td></tr>`;
+    `<tr><td class="name">${esc(r.name)}</td><td><code>v${esc(r.version)}</code></td><td><code>${esc(r.lang||'—')}</code></td><td><code>${esc((r.params||[]).length+' '+bi('inputs','개'))}</code></td><td>${esc(r.scope)}</td><td>${formatRunAccuracy(r)} (${r.correct}/${r.n_eligible}) · ${esc(formatHostRuntimeShort(r))}</td><td><span class="stt ok">${bi('Saved','저장됨')}</span></td></tr>`).join('') : `<tr><td colspan="7" style="color:var(--ink3);font-size:12px">${bi('No algorithm runs have been submitted.','제출된 알고리즘 실행 결과가 없습니다.')}</td></tr>`;
 }
 let scriptName='',scriptText='',scriptLang='python';
 const LANG_BY_EXT={py:'python',c:'c',cpp:'cpp',rs:'rust',js:'node',sh:'sh'};
+const DEFAULT_EXAMPLE_PATH='/examples/baseline_nearest.py';
+const DEFAULT_EXAMPLE_NAME='baseline_nearest.py';
+const DEFAULT_RUN_NAME='baseline-nearest';
+async function loadBaselineExample({userInitiated=false}={}){
+  const hint=g('runhint');
+  try{
+    const res=await fetch(DEFAULT_EXAMPLE_PATH,{cache:'no-store'});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    scriptText=await res.text(); scriptName=DEFAULT_EXAMPLE_NAME; scriptLang='python';
+    g('filelabel').textContent=bi('📎 baseline_nearest.py example loaded','📎 baseline_nearest.py 예시 코드를 불러왔습니다');
+    document.querySelector('.filedrop').classList.add('has');
+    const currentName=g('tname').value.trim();
+    // On first load the HTML default is "new-algorithm"; replace it with the
+    // preloaded baseline name so a cold start is one click from Run.
+    if(userInitiated||!currentName||currentName===DEFAULT_RUN_NAME||currentName==='new-algorithm'){
+      g('tname').value=DEFAULT_RUN_NAME; updVer();
+    }
+    if(userInitiated||!hint.textContent){
+      hint.textContent=bi('Example ready. You can run it when a dataset is available.','예시 코드가 준비되었습니다. 데이터셋이 있으면 실행할 수 있습니다.');
+    }
+    return true;
+  }catch(err){
+    if(userInitiated||!scriptText){
+      hint.textContent=`${bi('Could not load example','예시 코드를 불러오지 못했습니다')}: ${err.message}`;
+    }
+    return false;
+  }
+}
 g('scriptfile').onchange=e=>{
   const f=e.target.files[0]; scriptName=f?f.name:''; scriptText='';
   g('filelabel').textContent=f?`📎 ${f.name} ${bi('attached','첨부됨')}`:bi('📎 Upload a script that implements predict — click or drop','📎 predict를 구현한 스크립트를 클릭하거나 끌어다 놓으세요');
@@ -481,18 +517,9 @@ g('scriptfile').onchange=e=>{
     const rd=new FileReader(); rd.onload=()=>{scriptText=rd.result||'';}; rd.readAsText(f);
   }
 };
-g('loadExample').onclick=async()=>{
-  const hint=g('runhint');
-  try{
-    const res=await fetch('/examples/baseline_nearest.py',{cache:'no-store'});
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    scriptText=await res.text(); scriptName='baseline_nearest.py'; scriptLang='python';
-    g('filelabel').textContent=bi('📎 baseline_nearest.py example loaded','📎 baseline_nearest.py 예시 코드를 불러왔습니다');
-    document.querySelector('.filedrop').classList.add('has');
-    g('tname').value='baseline-nearest'; updVer();
-    hint.textContent=bi('Example ready. You can run it when a dataset is available.','예시 코드가 준비되었습니다. 데이터셋이 있으면 실행할 수 있습니다.');
-  }catch(err){ hint.textContent=`${bi('Could not load example','예시 코드를 불러오지 못했습니다')}: ${err.message}`; }
-};
+g('loadExample').onclick=()=>{ loadBaselineExample({userInitiated:true}); };
+// Preload baseline so a first run does not require upload or "Load example".
+loadBaselineExample();
 const uploadZip=g('uploadZip');
 if(uploadZip){
   uploadZip.onchange=async e=>{
@@ -537,7 +564,10 @@ g('runbtn').onclick=async()=>{
     if(data.ok){
       const m=data.metrics||{};
       const exact=Number.isFinite(Number(m.accuracy))?(100*Number(m.accuracy)).toFixed(1):Number(m.accuracy_pct||0).toFixed(1);
-      g('runhint').textContent=bi(`Completed: ${data.name} v${data.version} · accuracy ${exact}% (${m.correct}/${m.n_eligible}, no prediction ${m.abstained}, errors ${m.errored})`,`완료: ${data.name} v${data.version} · 정확도 ${exact}% (${m.correct}/${m.n_eligible}, 예측 없음 ${m.abstained}, 오류 ${m.errored})`);
+      const can=Number.isFinite(Number(m.accuracy_canonical))?(100*Number(m.accuracy_canonical)).toFixed(1):(m.accuracy_canonical_pct!=null?Number(m.accuracy_canonical_pct).toFixed(1):null);
+      const host=formatHostRuntimeShort({metrics:m,duration_ms:m.duration_ms,latency_ms:m.latency_ms});
+      const canBit=can!=null?bi(` · canonical ${can}% (${m.correct_canonical ?? '—'}/${m.n_eligible})`,` · canonical ${can}% (${m.correct_canonical ?? '—'}/${m.n_eligible})`):'';
+      g('runhint').textContent=bi(`Completed: ${data.name} v${data.version} · strict ${exact}% (${m.correct}/${m.n_eligible}${canBit}, no prediction ${m.abstained}, errors ${m.errored}) · ${host}`,`완료: ${data.name} v${data.version} · strict ${exact}% (${m.correct}/${m.n_eligible}${canBit}, 예측 없음 ${m.abstained}, 오류 ${m.errored}) · ${host}`);
       await loadRuns();
     }else{
       g('runhint').textContent=`${bi('Failed','실패')}: ${apiErrorMessage(data,'run_failed')}`;
@@ -548,12 +578,54 @@ g('runbtn').onclick=async()=>{
 // live runs from /api/runs → 최근 실행 표 + 식별 정확도 막대(알고리즘별, 이름당 최신 버전)
 function runKey(r){return `${r.name}__v${r.version}`}
 function runAccuracy(r){
+ // Primary leaderboard metric remains strict exact GT match.
  const a=Number(r?.metrics?.accuracy);
  if(Number.isFinite(a))return 100*a;
  const n=Number(r?.n_eligible)||0;
  return n?100*(Number(r?.correct)||0)/n:Number(r?.accuracy_pct)||0;
 }
-function formatRunAccuracy(r){return `${runAccuracy(r).toFixed(1)}%`}
+function runCanonicalAccuracy(r){
+ const m=r?.metrics||{};
+ const a=Number(m.accuracy_canonical);
+ if(Number.isFinite(a))return 100*a;
+ if(Number.isFinite(Number(m.accuracy_canonical_pct)))return Number(m.accuracy_canonical_pct);
+ // Older runs without alias scoring: canonical == strict when field missing.
+ if(m.correct_canonical==null&&m.accuracy_canonical==null&&m.accuracy_canonical_pct==null)return null;
+ const n=Number(r?.n_eligible)||Number(m.n_eligible)||0;
+ return n?100*(Number(m.correct_canonical)||0)/n:null;
+}
+function formatRunAccuracy(r){
+ const strict=runAccuracy(r).toFixed(1);
+ const can=runCanonicalAccuracy(r);
+ if(can==null||Math.abs(can-runAccuracy(r))<0.05)return `${strict}%`;
+ return `${strict}% ${bi('strict','strict')} · ${can.toFixed(1)}% ${bi('canonical','canonical')}`;
+}
+function runLatencyMean(r){
+  const v=r?.latency_ms?.mean ?? r?.metrics?.latency_ms?.mean;
+  const n=Number(v);
+  return Number.isFinite(n)?n:null;
+}
+function runDurationMs(r){
+  const v=r?.duration_ms ?? r?.metrics?.duration_ms;
+  const n=Number(v);
+  return Number.isFinite(n)?n:null;
+}
+function formatMs(v){
+  if(v==null||!Number.isFinite(Number(v)))return '—';
+  const n=Number(v);
+  if(n>=1000)return `${(n/1000).toFixed(2)}s`;
+  if(n>=100)return `${n.toFixed(0)}ms`;
+  if(n>=10)return `${n.toFixed(1)}ms`;
+  return `${n.toFixed(2)}ms`;
+}
+function formatHostRuntimeShort(r){
+  const mean=runLatencyMean(r), total=runDurationMs(r);
+  if(mean==null&&total==null)return bi('host runtime n/a','호스트 시간 없음');
+  const parts=[];
+  if(mean!=null)parts.push(`${formatMs(mean)}/case`);
+  if(total!=null)parts.push(`Σ ${formatMs(total)}`);
+  return parts.join(' · ');
+}
 function comparisonIssue(a,b){
  if((a.mode||'exact')!==(b.mode||'exact'))return bi('scoring modes differ','채점 방식이 다릅니다');
  const ah=a.evaluation_set_sha256,bh=b.evaluation_set_sha256;
@@ -585,11 +657,184 @@ function comparisonWarning(rs){
  );
  return '';
 }
+function filteredSortedRuns(){
+  let list=runsList.slice();
+  if(runListFilter.latestOnly){
+    const latest={};
+    list.forEach(r=>{if(!latest[r.name]||Number(r.version)>Number(latest[r.name].version))latest[r.name]=r});
+    list=Object.values(latest);
+  }
+  const q=(runListFilter.q||'').trim().toLowerCase();
+  if(q){
+    list=list.filter(r=>{
+      const hay=[r.name,r.scope,r.mode,(r.params||[]).join(' '),r.lang,r.created_at,r.script_sha256,r.evaluation_set_sha256]
+        .map(x=>String(x||'').toLowerCase()).join(' ');
+      return hay.includes(q);
+    });
+  }
+  const sort=runListFilter.sort||'newest';
+  list.sort((a,b)=>{
+    if(sort==='accuracy')return runAccuracy(b)-runAccuracy(a)||String(a.name).localeCompare(String(b.name))||Number(b.version)-Number(a.version);
+    if(sort==='name')return String(a.name).localeCompare(String(b.name))||Number(b.version)-Number(a.version);
+    if(sort==='latency'){
+      const am=runLatencyMean(a),bm=runLatencyMean(b);
+      if(am==null&&bm==null)return 0;
+      if(am==null)return 1;
+      if(bm==null)return -1;
+      return am-bm||runAccuracy(b)-runAccuracy(a);
+    }
+    return String(b.created_at||'').localeCompare(String(a.created_at||''))||Number(b.version)-Number(a.version);
+  });
+  return list;
+}
+function resetVirtualRunList(){
+  const host=g('runManagerList');
+  if(host){
+    host._virtualScrollTop=0;
+    host.scrollTop=0;
+  }
+}
+function groupRunsByName(list){
+  const order=[], map=new Map();
+  list.forEach(r=>{
+    if(!map.has(r.name)){map.set(r.name,[]);order.push(r.name)}
+    map.get(r.name).push(r);
+  });
+  return order.map(name=>({name,runs:map.get(name)}));
+}
+function setCompareSelection(k,want){
+  const candidate=runsList.find(r=>runKey(r)===k);
+  if(!candidate)return;
+  if(want){
+    if(comparedRunIds.has(k))return;
+    if(comparedRunIds.size>=4){alert(bi('You can compare up to four runs.','실행은 최대 4개까지 비교할 수 있습니다.'));return}
+    const selected=runsList.filter(r=>comparedRunIds.has(runKey(r)));
+    const issue=selected.map(r=>comparisonIssue(r,candidate)).find(Boolean);
+    if(issue){
+      const w=g('compareWarning');
+      w.textContent=`⚠ ${bi('Cannot compare these runs directly:','이 실행들은 직접 비교할 수 없습니다:')} ${issue}.`;
+      w.classList.add('on');
+      return;
+    }
+    comparedRunIds.add(k);
+  }else comparedRunIds.delete(k);
+  renderRunManager();
+  drawCompareBars();
+}
+function renderCompareTray(){
+  const tray=g('compareTray');if(!tray)return;
+  const selected=runsList.filter(r=>comparedRunIds.has(runKey(r)));
+  if(!selected.length){
+    tray.innerHTML=`<span class="empty">${esc(tr('compareTrayEmpty'))}</span>`;
+    return;
+  }
+  tray.innerHTML=selected.map(r=>{
+    const k=runKey(r);
+    return `<span class="chip">${esc(r.name)} v${esc(r.version)} · ${formatRunAccuracy(r)} <button type="button" data-remove-compare="${esc(k)}" aria-label="remove">×</button></span>`;
+  }).join('')+`<span class="actions"><button type="button" class="btn tiny" id="clearCompareBtn">${esc(tr('clearCompare'))}</button></span>`;
+  tray.querySelectorAll('[data-remove-compare]').forEach(btn=>btn.onclick=()=>setCompareSelection(btn.dataset.removeCompare,false));
+  const clear=g('clearCompareBtn');if(clear)clear.onclick=()=>{comparedRunIds.clear();renderRunManager();drawCompareBars()};
+}
+function runRowHtml(r){
+  const k=runKey(r),dups=runsList.filter(x=>x.script_sha256&&x.script_sha256===r.script_sha256).length;
+  const hostRt=formatHostRuntimeShort(r);
+  return `<div class="runrow ${k===selectedRunId?'sel':''}" data-rkey="${esc(k)}"><div class="rt"><span>${esc(r.name)} v${r.version}</span><b>${formatRunAccuracy(r)} · ${r.correct}/${r.n_eligible}</b></div><div class="rm">${esc(r.created_at||'')} · ${bi('scope','범위')} ${esc(r.scope)} · ${bi('cohort','표본')} ${esc((r.evaluation_set_sha256||'legacy unknown').slice(0,10))} · ${esc((r.params||[]).join(', ')||bi('no additional signals','추가 신호 없음'))} · ${bi('candidates','후보')} ${r.candidate_limit==null?bi('all','전체'):r.candidate_limit} · ${esc(hostRt)}${dups>1?` · ${bi(`same code × ${dups}`,`동일 코드 ${dups}회`)}`:''}</div><label class="compare" style="margin:7px 0 0"><input type="checkbox" data-compare="${esc(k)}" ${comparedRunIds.has(k)?'checked':''}> ${bi('Include in comparison','비교에 포함')}</label></div>`;
+}
+function bindRunListInteractions(host){
+  host.querySelectorAll('[data-rkey]').forEach(el=>el.onclick=e=>{if(!e.target.matches('input'))selectRun(el.dataset.rkey)});
+  host.querySelectorAll('[data-compare]').forEach(el=>el.onchange=e=>setCompareSelection(e.target.dataset.compare,e.target.checked));
+  host.querySelectorAll('[data-group-toggle]').forEach(btn=>btn.onclick=()=>{
+    const name=btn.dataset.groupToggle;
+    if(collapsedRunGroups.has(name))collapsedRunGroups.delete(name);else collapsedRunGroups.add(name);
+    renderRunManager();
+  });
+}
 function renderRunManager(){
- const host=g('runManagerList');if(!host)return;g('compareHint').textContent=`${comparedRunIds.size} / 4 ${bi('selected','선택')}`;
- host.innerHTML=runsList.length?runsList.map(r=>{const k=runKey(r),dups=runsList.filter(x=>x.script_sha256===r.script_sha256).length;return `<div class="runrow ${k===selectedRunId?'sel':''}" data-rkey="${esc(k)}"><div class="rt"><span>${esc(r.name)} v${r.version}</span><b>${formatRunAccuracy(r)} · ${r.correct}/${r.n_eligible}</b></div><div class="rm">${esc(r.created_at||'')} · ${bi('scope','범위')} ${esc(r.scope)} · ${bi('cohort','표본')} ${esc((r.evaluation_set_sha256||'legacy unknown').slice(0,10))} · ${esc((r.params||[]).join(', ')||bi('no additional signals','추가 신호 없음'))} · ${bi('candidates','후보')} ${r.candidate_limit==null?bi('all','전체'):r.candidate_limit}${dups>1?` · ${bi(`same code × ${dups}`,`동일 코드 ${dups}회`)}`:''}</div><label class="compare" style="margin:7px 0 0"><input type="checkbox" data-compare="${esc(k)}" ${comparedRunIds.has(k)?'checked':''}> ${bi('Include in comparison','비교에 포함')}</label></div>`}).join(''):`<div style="color:var(--ink3);font-size:12px;padding:10px">${bi('No saved runs.','저장된 실행이 없습니다.')}</div>`;
- host.querySelectorAll('[data-rkey]').forEach(el=>el.onclick=e=>{if(!e.target.matches('input'))selectRun(el.dataset.rkey)});
- host.querySelectorAll('[data-compare]').forEach(el=>el.onchange=e=>{const k=e.target.dataset.compare,candidate=runsList.find(r=>runKey(r)===k);if(e.target.checked&&!comparedRunIds.has(k)&&comparedRunIds.size>=4){e.target.checked=false;alert(bi('You can compare up to four runs.','실행은 최대 4개까지 비교할 수 있습니다.'));return}if(e.target.checked){const selected=runsList.filter(r=>comparedRunIds.has(runKey(r))),issue=selected.map(r=>comparisonIssue(r,candidate)).find(Boolean);if(issue){e.target.checked=false;const w=g('compareWarning');w.textContent=`⚠ ${bi('Cannot compare these runs directly:','이 실행들은 직접 비교할 수 없습니다:')} ${issue}.`;w.classList.add('on');return}comparedRunIds.add(k)}else comparedRunIds.delete(k);renderRunManager();drawCompareBars()});drawCompareBars();
+  const host=g('runManagerList');if(!host)return;
+  g('compareHint').textContent=`${comparedRunIds.size} / 4 ${bi('selected','선택')}`;
+  renderCompareTray();
+  const list=filteredSortedRuns();
+  if(!list.length){
+    host.onscroll=null;
+    host.innerHTML=`<div style="color:var(--ink3);font-size:12px;padding:10px">${runsList.length?bi('No runs match these filters.','필터 조건에 맞는 실행이 없습니다.'):bi('No saved runs.','저장된 실행이 없습니다.')}</div>`;
+    drawCompareBars();
+    return;
+  }
+  // Virtualize only the flat latest-only list when it is large; grouped view stays fully rendered but collapsible.
+  if(runListFilter.latestOnly && list.length>=RUN_LIST_VIRTUAL_THRESHOLD){
+    const rowH=RUN_ROW_EST_HEIGHT, total=list.length, viewH=host.clientHeight||430;
+    const scrollTop=host._virtualScrollTop||0;
+    const start=Math.max(0,Math.floor(scrollTop/rowH)-4);
+    const visible=Math.ceil(viewH/rowH)+8;
+    const end=Math.min(total,start+visible);
+    const topPad=start*rowH, bottomPad=Math.max(0,(total-end)*rowH);
+    host.innerHTML=`<div class="run-virtual-spacer" style="height:${topPad}px"></div>${list.slice(start,end).map(runRowHtml).join('')}<div class="run-virtual-spacer" style="height:${bottomPad}px"></div>`;
+    bindRunListInteractions(host);
+    if(!host._virtualBound){
+      host._virtualBound=true;
+      host.onscroll=()=>{host._virtualScrollTop=host.scrollTop;renderRunManager()};
+    }
+    drawCompareBars();
+    return;
+  }
+  host._virtualBound=false;host.onscroll=null;
+  const groups=groupRunsByName(list);
+  host.innerHTML=groups.map(g0=>{
+    const collapsed=collapsedRunGroups.has(g0.name);
+    const best=g0.runs.slice().sort((a,b)=>runAccuracy(b)-runAccuracy(a)||Number(b.version)-Number(a.version))[0];
+    return `<div class="run-group ${collapsed?'collapsed':''}"><button type="button" class="run-group-h" data-group-toggle="${esc(g0.name)}"><b>${collapsed?'▸':'▾'} ${esc(g0.name)}</b><span>${g0.runs.length} ${bi('versions','버전')} · ${bi('best','최고')} ${formatRunAccuracy(best)}</span></button><div class="run-group-body">${g0.runs.map(runRowHtml).join('')}</div></div>`;
+  }).join('');
+  bindRunListInteractions(host);
+  drawCompareBars();
+}
+function renderCompareTable(rs,issue){
+  const table=g('compareTable');if(!table)return;
+  const thead=table.querySelector('thead'), tbody=table.querySelector('tbody');
+  if(!rs.length){
+    thead.innerHTML='';
+    tbody.innerHTML=`<tr><td style="color:var(--ink3)">${esc(bi('Select at least one run to compare.','비교할 실행을 하나 이상 선택하세요.'))}</td></tr>`;
+    return;
+  }
+  if(issue){
+    thead.innerHTML='';
+    tbody.innerHTML=`<tr><td style="color:var(--ink3)">${esc(bi('Select runs with matching evaluation metadata.','평가 메타데이터가 일치하는 실행을 선택하세요.'))}</td></tr>`;
+    return;
+  }
+  const base=rs[0];
+  const headers=[
+    bi('Run','실행'),
+    bi('Accuracy','정확도'),
+    bi('Δ acc','Δ 정확도'),
+    bi('Correct','정답'),
+    bi('Host mean/case','호스트 평균/케이스'),
+    bi('Δ latency','Δ 지연'),
+    bi('Host total','호스트 합계'),
+    bi('Scope','범위'),
+    bi('Code','코드'),
+  ];
+  thead.innerHTML=`<tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr>`;
+  const baseAcc=runAccuracy(base), baseLat=runLatencyMean(base);
+  tbody.innerHTML=rs.map((r,i)=>{
+    const acc=runAccuracy(r), lat=runLatencyMean(r), total=runDurationMs(r);
+    const dAcc=i===0?null:(acc-baseAcc);
+    const dLat=(i===0||baseLat==null||lat==null)?null:(lat-baseLat);
+    const accCls=dAcc==null?'delta-same':(Math.abs(dAcc)<0.05?'delta-same':dAcc>0?'delta-up':'delta-down');
+    const latCls=dLat==null?'delta-same':(Math.abs(dLat)<0.05?'delta-same':dLat<0?'delta-up':'delta-down');
+    const dAccText=dAcc==null?'—':`${dAcc>=0?'+':''}${dAcc.toFixed(1)}pp`;
+    const dLatText=dLat==null?'—':`${dLat>=0?'+':''}${formatMs(dLat)}`;
+    const code=(r.script_sha256||'').slice(0,10)||'—';
+    return `<tr>
+      <td>${esc(r.name)} v${esc(r.version)}${i===0?` · <span class="delta-same">${bi('baseline','기준')}</span>`:''}</td>
+      <td class="num">${acc.toFixed(1)}%</td>
+      <td class="num ${accCls}">${dAccText}</td>
+      <td class="num">${r.correct}/${r.n_eligible}</td>
+      <td class="num">${formatMs(lat)}</td>
+      <td class="num ${latCls}">${dLatText}</td>
+      <td class="num">${formatMs(total)}</td>
+      <td>${esc(r.scope||'—')}</td>
+      <td title="${esc(r.script_sha256||'')}">${esc(code)}</td>
+    </tr>`;
+  }).join('');
 }
 function drawCompareBars(){
  const svg=g('compareBars');if(!svg)return;
@@ -597,11 +842,12 @@ function drawCompareBars(){
  const issue=selectedComparisonIssue(rs),warningText=issue?bi(`Comparison blocked: ${issue}.`,`비교할 수 없음: ${issue}.`):comparisonWarning(rs);
  warning.textContent=warningText?`⚠ ${warningText}`:'';
  warning.classList.toggle('on',!!warningText);
+ renderCompareTable(rs,issue);
  if(issue){
   svg.innerHTML=`<text x="290" y="105" text-anchor="middle" fill="var(--ink3)" font-size="12" font-family="var(--mono)">${esc(bi('Select runs with matching evaluation metadata.','평가 메타데이터가 일치하는 실행을 선택하세요.'))}</text>`;
   return;
  }
- const W=580,H=210,pl=42,pr=14,pt=15,pb=42;if(!rs.length){svg.innerHTML=`<text x="290" y="105" text-anchor="middle" fill="var(--ink3)" font-size="12" font-family="var(--mono)">${bi('Select at least one run to compare.','비교할 실행을 하나 이상 선택하세요.')}</text>`;return}const y=v=>pt+(H-pt-pb)*(1-v/100),step=(W-pl-pr)/rs.length,bw=Math.min(95,step*.6);let out='';for(let v=0;v<=100;v+=25)out+=`<line x1="${pl}" y1="${y(v)}" x2="${W-pr}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"/><text x="${pl-6}" y="${y(v)+4}" text-anchor="end" fill="var(--ink3)" font-size="10">${v}</text>`;rs.forEach((r,i)=>{const cx=pl+step*(i+.5),a=runAccuracy(r),n=Number(r.n_eligible)||0;out+=`<rect x="${cx-bw/2}" y="${y(a)}" width="${bw}" height="${y(0)-y(a)}" rx="4" fill="var(--cyan)"/><text x="${cx}" y="${y(a)-6}" text-anchor="middle" fill="var(--ink)" font-size="11">${a.toFixed(1)}% · ${r.correct}/${n}</text>`;let x=cx-bw/2;[[r.correct,'var(--green)'],[r.abstained,'var(--orange)'],[r.errored,'var(--red)'],[Math.max(0,n-(r.correct||0)-(r.abstained||0)-(r.errored||0)),'var(--pink)']].forEach(([v,c])=>{const w=n?bw*v/n:0;out+=`<rect x="${x}" y="179" width="${w}" height="8" fill="${c}"/>`;x+=w});out+=`<text x="${cx}" y="199" text-anchor="middle" fill="var(--ink2)" font-size="10">${esc(r.name)} v${r.version} · ${esc(r.scope)}</text>`});svg.innerHTML=out}
+ const W=580,H=210,pl=42,pr=14,pt=15,pb=42;if(!rs.length){svg.innerHTML=`<text x="290" y="105" text-anchor="middle" fill="var(--ink3)" font-size="12" font-family="var(--mono)">${bi('Select at least one run to compare.','비교할 실행을 하나 이상 선택하세요.')}</text>`;return}const y=v=>pt+(H-pt-pb)*(1-v/100),step=(W-pl-pr)/rs.length,bw=Math.min(95,step*.6);let out='';for(let v=0;v<=100;v+=25)out+=`<line x1="${pl}" y1="${y(v)}" x2="${W-pr}" y2="${y(v)}" stroke="rgba(255,255,255,.07)"/><text x="${pl-6}" y="${y(v)+4}" text-anchor="end" fill="var(--ink3)" font-size="10">${v}</text>`;rs.forEach((r,i)=>{const cx=pl+step*(i+.5),a=runAccuracy(r),n=Number(r.n_eligible)||0;const host=formatHostRuntimeShort(r);out+=`<rect x="${cx-bw/2}" y="${y(a)}" width="${bw}" height="${y(0)-y(a)}" rx="4" fill="var(--cyan)"/><text x="${cx}" y="${y(a)-6}" text-anchor="middle" fill="var(--ink)" font-size="11">${a.toFixed(1)}% · ${r.correct}/${n}</text>`;let x=cx-bw/2;[[r.correct,'var(--green)'],[r.abstained,'var(--orange)'],[r.errored,'var(--red)'],[Math.max(0,n-(r.correct||0)-(r.abstained||0)-(r.errored||0)),'var(--pink)']].forEach(([v,c])=>{const w=n?bw*v/n:0;out+=`<rect x="${x}" y="179" width="${w}" height="8" fill="${c}"/>`;x+=w});out+=`<text x="${cx}" y="199" text-anchor="middle" fill="var(--ink2)" font-size="10">${esc(r.name)} v${r.version} · ${esc(host)}</text>`});svg.innerHTML=out}
 async function selectRun(k){const r=runsList.find(x=>runKey(x)===k);if(!r)return;selectedRunId=k;runDemoKind='correct';runFailureDataset='all';runFailureKind='all';runFailurePage=0;renderRunManager();g('runDetail').textContent=bi('Loading run details…','실행 상세를 불러오는 중…');try{const d=await apiJSON(`/api/runs?name=${encodeURIComponent(r.name)}&version=${r.version}`,'run-detail');selectedRun=d.run;renderRunDetail()}catch(e){g('runDetail').textContent=bi('Could not load run details.','실행 상세를 불러오지 못했습니다.')}}
 function showRunCode(){
   if(!selectedRun)return;
@@ -637,9 +883,22 @@ function renderRunDetail(){
   const cohort=r.evaluation_set_sha256||'', cohortText=cohort?`${cohort.slice(0,12)}${r.evaluation_set_sha256_derived?(L?' · 레거시 결과에서 파생':' · derived from legacy results'):''}`:(L?'확인 불가':'unavailable');
   const snapshot=r.data_snapshot_sha256||'', snapshotText=snapshot?snapshot.slice(0,12):(L?'레거시 실행 · 확인 불가':'legacy run · unavailable');
   const exactAccuracy=Number.isFinite(Number(m.accuracy))?(100*Number(m.accuracy)).toFixed(1):Number(m.accuracy_pct||0).toFixed(1);
+  const canAcc=runCanonicalAccuracy(r);
+  const canLine=canAcc!=null
+    ? `<div style="font:12px var(--mono);color:var(--ink2);margin-top:3px">${bi('Canonical (strict ∪ reviewed aliases)','Canonical (strict ∪ 검토된 별칭)')}: <b style="color:var(--ink)">${canAcc.toFixed(1)}%</b> · ${m.correct_canonical??'—'}/${n}${m.match_kind_counts?` · ${Object.entries(m.match_kind_counts).map(([k,v])=>`${k}:${v}`).join(' ')}`:''}</div>`
+    : `<div style="font:11px var(--mono);color:var(--ink3);margin-top:3px">${bi('Canonical accuracy not recorded for this run (re-score with alias sidecar to populate).','이 실행에는 canonical 정확도가 없습니다. 별칭 사이드카로 재채점하면 채워집니다.')}</div>`;
   const kindLabel={error:label.errors,wrong:label.wrong,abstained:label.abstained};
-  const failRows=shown.map(c=>{const kind=c.error?'error':(c.prediction?'wrong':'abstained'),ctx=c.context||{};const title=ctx.input_place_name||c.gt||c.photo||'case';const location=[ctx.category,ctx.city,ctx.country].filter(Boolean).join(' · ');const prediction=c.error?`${label.error}: ${safeServerMessage(c.error,label.error)}`:(c.prediction||label.abstained);const ocr=ctx.ocr_text?`<span class="failreason">OCR: ${esc(ctx.ocr_text)}</span>`:'';const coords=(ctx.lat&&ctx.lon)?`<span class="failmeta">${esc(ctx.lat)}, ${esc(ctx.lon)}</span>`:'';const image=c.photo_url?`<img class="failthumb" src="${esc(c.photo_url)}" alt="" loading="lazy">`:'<span class="failthumb"></span>';return `<div class="failrow">${image}<span><span class="failtitle">${esc(title)}</span><span class="failmeta">${esc(location||c.dataset||'—')}</span><span class="failreason">GT: ${esc(c.gt||'—')} → ${esc(prediction)}</span>${ocr}${coords}<span class="failmeta">${esc(c.photo||'')}</span></span><span class="oc ${kind==='error'?'retrieval':kind==='wrong'?'selection':'other'}">${esc(kindLabel[kind])}</span></div>`}).join('')||`<div>${label.noFailures}</div>`;
-  g('runDetail').innerHTML=`<div style="display:flex;justify-content:space-between;gap:10px"><b style="color:var(--ink)">${esc(r.name)} v${r.version}</b><button class="btn danger" id="deleteRun">${label.del}</button></div><div class="dl"><b>${label.created}</b><span>${esc(r.created_at||'')}</span><b>${label.config}</b><span>${bi('scope','범위')} ${esc(r.scope)} · ${esc(r.mode)} · ${label.candidates} ${r.candidate_limit==null?label.all:r.candidate_limit}</span><b>${label.inputs}</b><span>${esc((r.params||[]).join(', ')||label.none)}</span><b>${label.cohort}</b><span title="${esc(cohort)}">${esc(cohortText)}</span><b>${label.snapshot}</b><span title="${esc(snapshot)}">${esc(snapshotText)}</span><b>${label.identity}</b><span title="${esc(hash||(L?'스크립트 텍스트가 없어 코드 식별값을 만들 수 없습니다.':'No script text was available to derive an identity.'))}">${esc(hashText)} <button class="btn" type="button" id="viewRunCode">${L?'코드 보기':'View code'}</button></span></div><div><b style="color:var(--ink)">${exactAccuracy}% · ${m.correct||0}/${n}</b> ${label.correct}</div><div class="outcomes">${part(m.correct||0,'var(--green)')}${part(m.abstained||0,'var(--orange)')}${part(m.errored||0,'var(--red)')}${part(wrong,'var(--pink)')}</div><div style="font:11px var(--mono);color:var(--ink3)">${label.correct} ${m.correct||0} · ${label.abstained} ${m.abstained||0} · ${label.errors} ${m.errored||0} · ${label.wrong} ${wrong}</div>${runDemoPlayback(r)}<div class="casefail"><b style="color:var(--ink3)">${label.failures} · ${allFails.length} ${label.total}, ${filtered.length} ${label.matching}</b><div class="detail-filters"><select id="failureDataset"><option value="all">${label.allDatasets}</option>${datasets.map(x=>`<option value="${esc(x)}" ${x===runFailureDataset?'selected':''}>${esc(x)}</option>`).join('')}</select><select id="failureKind"><option value="all">${label.allOutcomes}</option>${kinds.map(x=>`<option value="${x}" ${x===runFailureKind?'selected':''}>${esc(kindLabel[x]||x)}</option>`).join('')}</select></div>${failRows}<div class="pager"><button id="failurePrev" ${runFailurePage===0?'disabled':''}>${label.previous}</button><span>${filtered.length?`${runFailurePage+1} / ${pages}`:'0 / 0'}</span><button id="failureNext" ${runFailurePage>=pages-1?'disabled':''}>${label.next}</button></div></div>`;
+  const lat=m.latency_ms||{}, dur=m.duration_ms, rt=m.runtime||{};
+  const hostBits=[
+    dur!=null?`${bi('total','합계')} ${formatMs(dur)}`:'',
+    lat.mean!=null?`${bi('mean','평균')} ${formatMs(lat.mean)}`:'',
+    lat.p50!=null?`p50 ${formatMs(lat.p50)}`:'',
+    lat.p95!=null?`p95 ${formatMs(lat.p95)}`:'',
+    lat.max!=null?`max ${formatMs(lat.max)}`:'',
+  ].filter(Boolean).join(' · ')||bi('not recorded for this legacy run','이 레거시 실행에는 기록되지 않음');
+  const hostMeta=[rt.platform||rt.system,rt.machine,rt.python?`py ${rt.python}`:''].filter(Boolean).join(' · ');
+  const failRows=shown.map(c=>{const kind=c.error?'error':(c.prediction?'wrong':'abstained'),ctx=c.context||{};const title=ctx.input_place_name||c.gt||c.photo||'case';const location=[ctx.category,ctx.city,ctx.country].filter(Boolean).join(' · ');const prediction=c.error?`${label.error}: ${safeServerMessage(c.error,label.error)}`:(c.prediction||label.abstained);const mk=c.match_kind&&c.match_kind!=='wrong'&&c.match_kind!=='abstain'?` · ${c.match_kind}${c.matched_label?` (${c.matched_label})`:''}`:'';const ocr=ctx.ocr_text?`<span class="failreason">OCR: ${esc(ctx.ocr_text)}</span>`:'';const coords=(ctx.lat&&ctx.lon)?`<span class="failmeta">${esc(ctx.lat)}, ${esc(ctx.lon)}</span>`:'';const image=c.photo_url?`<img class="failthumb" src="${esc(c.photo_url)}" alt="" loading="lazy">`:'<span class="failthumb"></span>';return `<div class="failrow">${image}<span><span class="failtitle">${esc(title)}</span><span class="failmeta">${esc(location||c.dataset||'—')}</span><span class="failreason">GT: ${esc(c.gt||'—')} → ${esc(prediction)}${esc(mk)}</span>${ocr}${coords}<span class="failmeta">${esc(c.photo||'')}</span></span><span class="oc ${kind==='error'?'retrieval':kind==='wrong'?'selection':'other'}">${esc(kindLabel[kind])}</span></div>`}).join('')||`<div>${label.noFailures}</div>`;
+  g('runDetail').innerHTML=`<div style="display:flex;justify-content:space-between;gap:10px"><b style="color:var(--ink)">${esc(r.name)} v${r.version}</b><button class="btn danger" id="deleteRun">${label.del}</button></div><div class="dl"><b>${label.created}</b><span>${esc(r.created_at||'')}</span><b>${label.config}</b><span>${bi('scope','범위')} ${esc(r.scope)} · ${esc(r.mode)} · ${label.candidates} ${r.candidate_limit==null?label.all:r.candidate_limit}</span><b>${label.inputs}</b><span>${esc((r.params||[]).join(', ')||label.none)}</span><b>${label.cohort}</b><span title="${esc(cohort)}">${esc(cohortText)}</span><b>${label.snapshot}</b><span title="${esc(snapshot)}">${esc(snapshotText)}</span><b>${label.identity}</b><span title="${esc(hash||(L?'스크립트 텍스트가 없어 코드 식별값을 만들 수 없습니다.':'No script text was available to derive an identity.'))}">${esc(hashText)} <button class="btn" type="button" id="viewRunCode">${L?'코드 보기':'View code'}</button></span></div><div><b style="color:var(--ink)">${exactAccuracy}% strict · ${m.correct||0}/${n}</b> ${label.correct}</div>${canLine}<div class="host-runtime"><b>${esc(tr('hostRuntime'))}</b> · ${esc(hostBits)}${hostMeta?`<div class="note">${esc(hostMeta)}</div>`:''}<span class="note">${esc(tr('hostRuntimeNote'))}</span></div><div class="outcomes">${part(m.correct||0,'var(--green)')}${part(m.abstained||0,'var(--orange)')}${part(m.errored||0,'var(--red)')}${part(wrong,'var(--pink)')}</div><div style="font:11px var(--mono);color:var(--ink3)">${label.correct} ${m.correct||0} · ${label.abstained} ${m.abstained||0} · ${label.errors} ${m.errored||0} · ${label.wrong} ${wrong}</div>${runDemoPlayback(r)}<div class="casefail"><b style="color:var(--ink3)">${label.failures} · ${allFails.length} ${label.total}, ${filtered.length} ${label.matching}</b><div class="detail-filters"><select id="failureDataset"><option value="all">${label.allDatasets}</option>${datasets.map(x=>`<option value="${esc(x)}" ${x===runFailureDataset?'selected':''}>${esc(x)}</option>`).join('')}</select><select id="failureKind"><option value="all">${label.allOutcomes}</option>${kinds.map(x=>`<option value="${x}" ${x===runFailureKind?'selected':''}>${esc(kindLabel[x]||x)}</option>`).join('')}</select></div>${failRows}<div class="pager"><button id="failurePrev" ${runFailurePage===0?'disabled':''}>${label.previous}</button><span>${filtered.length?`${runFailurePage+1} / ${pages}`:'0 / 0'}</span><button id="failureNext" ${runFailurePage>=pages-1?'disabled':''}>${label.next}</button></div></div>`;
   g('deleteRun').onclick=()=>deleteSelectedRun(r);
   g('viewRunCode').onclick=showRunCode;
   g('runDetail').querySelectorAll('[data-demo-kind]').forEach(b=>b.onclick=()=>{runDemoKind=b.dataset.demoKind;renderRunDetail()});
@@ -658,6 +917,20 @@ async function loadRuns(){
   runs.forEach(r=>{ (REG[r.name]=REG[r.name]||[]).push(r.version); });
   Object.values(REG).forEach(a=>a.sort((x,y)=>x-y));
   runsList=runs;
+  const currentNames=new Set(runs.map(r=>r.name));
+  currentNames.forEach(name=>{
+    if(!knownRunGroupNames.has(name)){
+      knownRunGroupNames.add(name);
+      collapsedRunGroups.add(name);
+    }
+  });
+  // Do not retain state for a group that no longer has saved runs.
+  [...knownRunGroupNames].forEach(name=>{
+    if(!currentNames.has(name)){
+      knownRunGroupNames.delete(name);
+      collapsedRunGroups.delete(name);
+    }
+  });
   g('runNameOptions').innerHTML=Object.keys(REG).sort().map(name=>`<option value="${esc(name)}"></option>`).join('');
   renderRuns();updVer();
   // one bar per algorithm name, latest version wins
@@ -668,6 +941,15 @@ async function loadRuns(){
   renderRunManager();
 }
 renderParams();updVer();loadRuns();
+(function bindRunManagerControls(){
+  const search=g('runSearch'), sort=g('runSort'), latest=g('runLatestOnly');
+  if(search)search.oninput=()=>{runListFilter.q=search.value||'';resetVirtualRunList();renderRunManager()};
+  if(sort)sort.onchange=()=>{runListFilter.sort=sort.value||'newest';resetVirtualRunList();renderRunManager()};
+  if(latest)latest.onchange=()=>{runListFilter.latestOnly=!!latest.checked;resetVirtualRunList();renderRunManager()};
+  const exp=g('expandAllGroups'), col=g('collapseAllGroups');
+  if(exp)exp.onclick=()=>{collapsedRunGroups.clear();renderRunManager()};
+  if(col)col.onclick=()=>{groupRunsByName(filteredSortedRuns()).forEach(g0=>collapsedRunGroups.add(g0.name));renderRunManager()};
+})();
 
 // ================= ④ dataset management + jobs + ① live progress =================
 const gid=id=>document.getElementById(id);

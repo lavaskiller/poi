@@ -199,15 +199,46 @@
   .stt{font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:5px}
   .stt.ok{background:rgba(95,211,123,.15);color:var(--green)} .stt.run2{background:rgba(255,159,69,.15);color:var(--orange)}
   .runmanage{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:14px}
+  .run-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}
+  .run-toolbar input[type=search],.run-toolbar select{padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--card2);color:var(--ink);font:12px var(--mono);min-width:0}
+  .run-toolbar input[type=search]{flex:1 1 160px}
+  .run-toolbar label.chk{display:flex;gap:6px;align-items:center;color:var(--ink2);font-size:12px;white-space:nowrap}
+  .run-toolbar .btn.tiny{padding:5px 8px;font-size:11px}
   .runrows{max-height:430px;overflow:auto;display:flex;flex-direction:column;gap:6px}
-  .runrow{width:100%;text-align:left;color:var(--ink);background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:10px;cursor:pointer}
+  .run-group{border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.02);overflow:hidden}
+  .run-group-h{width:100%;display:flex;justify-content:space-between;gap:8px;align-items:center;padding:9px 10px;border:0;background:transparent;color:var(--ink);cursor:pointer;text-align:left;font:12px var(--mono)}
+  .run-group-h:hover{background:rgba(255,255,255,.03)}
+  .run-group-h b{color:var(--ink)}
+  .run-group-h span{color:var(--ink3)}
+  .run-group-body{display:flex;flex-direction:column;gap:6px;padding:0 8px 8px}
+  .run-group.collapsed .run-group-body{display:none}
+  /* Keep expanded rows inside the group: width:100% plus padding otherwise overflows
+     the clipped group container and loses content at the right edge. */
+  .runrow{box-sizing:border-box;width:100%;min-width:0;text-align:left;color:var(--ink);background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:10px;cursor:pointer}
   .runrow.sel{border-color:var(--blue);box-shadow:0 0 0 1px rgba(59,130,246,.3)}
   .runrow .rt{display:flex;justify-content:space-between;gap:8px;font:12px var(--mono)}
-  .runrow .rm{margin-top:4px;color:var(--ink3);font:11px var(--mono)}
+  .runrow .rm{min-width:0;margin-top:4px;color:var(--ink3);font:11px var(--mono);overflow-wrap:anywhere}
+  .run-virtual-spacer{flex:0 0 auto;width:100%;pointer-events:none}
   .compare{display:flex;gap:8px;align-items:center;margin:0 0 10px;color:var(--ink2);font-size:12px}
   .compare input{accent-color:var(--blue)}
+  .compare-tray{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px;padding:8px;border:1px dashed var(--line);border-radius:9px;background:rgba(59,130,246,.05);min-height:40px}
+  .compare-tray .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;border:1px solid rgba(59,130,246,.35);background:rgba(59,130,246,.12);color:var(--ink);font:11px var(--mono)}
+  .compare-tray .chip button{border:0;background:transparent;color:var(--ink2);cursor:pointer;font:11px var(--mono);padding:0}
+  .compare-tray .empty{color:var(--ink3);font-size:11.5px}
+  .compare-tray .actions{margin-left:auto;display:flex;gap:6px;align-items:center}
   .compare-warning{display:none;margin:8px 0 12px;padding:9px 11px;border:1px solid rgba(255,159,69,.35);border-radius:8px;background:rgba(255,159,69,.08);color:var(--orange);font-size:11.5px;line-height:1.45}
   .compare-warning.on{display:block}
+  .compare-table-wrap{overflow:auto;margin:10px 0 12px;border:1px solid var(--line);border-radius:9px}
+  .compare-table{width:100%;border-collapse:collapse;font:11.5px var(--mono);min-width:720px}
+  .compare-table th,.compare-table td{padding:8px 9px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+  .compare-table th{color:var(--ink3);font-weight:600;background:rgba(255,255,255,.03);position:sticky;top:0}
+  .compare-table td.num{text-align:right}
+  .compare-table .delta-up{color:var(--green)}
+  .compare-table .delta-down{color:var(--pink)}
+  .compare-table .delta-same{color:var(--ink3)}
+  .host-runtime{margin:10px 0;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.03);font:11.5px var(--mono);color:var(--ink2)}
+  .host-runtime b{color:var(--ink)}
+  .host-runtime .note{display:block;margin-top:4px;color:var(--ink3);font:11px var(--sans)}
   .rundetail{min-height:260px;font-size:12.5px;color:var(--ink2)}
   .rundetail .dl{display:grid;grid-template-columns:86px 1fr;gap:6px;margin-bottom:7px}.rundetail .dl b{color:var(--ink3);font:11px var(--mono)}
   .outcomes{display:flex;height:13px;border-radius:7px;overflow:hidden;background:rgba(255,255,255,.06);margin:9px 0}.outcomes span{height:100%}
@@ -354,10 +385,32 @@
     <div class="result-toolbar"><p data-i18n="resultsIntro">Manage persisted results here. Select a run to inspect it, compare up to four runs, or delete it.</p></div>
     <h2 data-i18n="savedRuns">Saved runs</h2>
     <div class="runmanage">
-      <div class="panel"><div class="compare"><span data-i18n="compareSelect">Compare (up to 4)</span><span id="compareHint" style="margin-left:auto;font-family:var(--mono);color:var(--ink3)"></span></div><div class="runrows" id="runManagerList"></div></div>
+      <div class="panel">
+        <div class="compare"><span data-i18n="compareSelect">Compare (up to 4)</span><span id="compareHint" style="margin-left:auto;font-family:var(--mono);color:var(--ink3)"></span></div>
+        <div class="run-toolbar">
+          <input type="search" id="runSearch" data-i18n-placeholder="runSearchPlaceholder" placeholder="Search name, scope, params…" autocomplete="off">
+          <select id="runSort">
+            <option value="newest" data-i18n="sortNewest">Newest</option>
+            <option value="accuracy" data-i18n="sortAccuracy">Accuracy</option>
+            <option value="name" data-i18n="sortName">Name</option>
+            <option value="latency" data-i18n="sortLatency">Host latency</option>
+          </select>
+          <label class="chk"><input type="checkbox" id="runLatestOnly"> <span data-i18n="latestOnly">Latest version only</span></label>
+          <button type="button" class="btn tiny" id="expandAllGroups" data-i18n="expandAll">Expand all</button>
+          <button type="button" class="btn tiny" id="collapseAllGroups" data-i18n="collapseAll">Collapse all</button>
+        </div>
+        <div class="compare-tray" id="compareTray" aria-live="polite"></div>
+        <div class="runrows" id="runManagerList"></div>
+      </div>
       <div class="panel rundetail" id="runDetail" data-i18n="runDetailEmpty">Select a run on the left to view its configuration, metrics, and failures.</div>
     </div>
-    <div class="panel" style="margin-top:14px"><h2 style="margin-top:0" data-i18n="selectedCompare">Compare selected runs</h2><div id="compareWarning" class="compare-warning" role="status"></div><svg id="compareBars" width="580" height="210" viewBox="0 0 580 210"></svg><div class="note" data-i18n="compareHelp">Bars show exact accuracy and correct/eligible counts. Only runs with the same evaluation cohort and scoring mode can be compared.</div></div>
+    <div class="panel" style="margin-top:14px">
+      <h2 style="margin-top:0" data-i18n="selectedCompare">Compare selected runs</h2>
+      <div id="compareWarning" class="compare-warning" role="status"></div>
+      <div class="compare-table-wrap"><table class="compare-table" id="compareTable"><thead></thead><tbody></tbody></table></div>
+      <svg id="compareBars" width="580" height="210" viewBox="0 0 580 210"></svg>
+      <div class="note" data-i18n="compareHelp">Bars and table show exact accuracy, correct/eligible counts, and host runtime (this machine). Only runs with the same evaluation cohort and scoring mode can be compared. Host latency is not mobile runtime.</div>
+    </div>
     <details class="analysis-disclosure">
       <summary><b data-i18n="retrievalDiagnostics">Retrieval diagnostics</b> <span data-i18n="retrievalDiagnosticsHelp">— candidate-provider coverage, separate from algorithm results</span></summary>
       <div class="inside">
