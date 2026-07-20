@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POI Eval Dataset — 구성 개요 (live)</title>
+<style>
+  :root{
+    --bg:#050A30; --bg2:#080E38; --card:#101744; --card2:#0c123a;
+    --ink:#eef3ff; --ink2:#aeb9e6; --ink3:#7683b8;
+    --line:rgba(255,255,255,.09);
+    --blue:#3B82F6; --cyan:#38E0D0; --gold:#F5C451; --green:#5FD37B;
+    --pink:#FF5C87; --violet:#8B62FF; --orange:#FF9F45; --red:#FF6B5C;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,var(--bg),var(--bg2) 60%,#05082a);
+    color:var(--ink);font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1120px;margin:0 auto;padding:40px 24px 80px}
+  header .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);margin:0 0 10px}
+  h1{font-size:34px;line-height:1.15;margin:0 0 12px;font-weight:700;letter-spacing:-.02em}
+  header .sub{color:var(--ink2);font-size:16px;max-width:760px;margin:0}
+  .live{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;
+    color:var(--green);border:1px solid rgba(95,211,123,.3);background:rgba(95,211,123,.08);
+    padding:4px 10px;border-radius:20px;margin-top:16px}
+  .live .pulse{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:28px 0 40px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
+  .kpi .n{font-size:30px;font-weight:700;letter-spacing:-.02em}
+  .kpi .l{color:var(--ink3);font-size:12.5px;margin-top:2px}
+  .kpi .s{color:var(--ink2);font-size:12px;margin-top:8px;font-family:var(--mono)}
+  section{margin:38px 0}
+  h2{font-size:13px;font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);
+    border-bottom:1px solid var(--line);padding-bottom:10px;margin:0 0 20px;font-weight:600}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
+  .card h3{margin:0 0 4px;font-size:16px;font-weight:650}
+  .card .cap{color:var(--ink3);font-size:12.5px;margin:0 0 16px}
+  .bars{display:flex;flex-direction:column;gap:9px}
+  .bar{display:grid;grid-template-columns:150px 1fr 44px;align-items:center;gap:10px;font-size:13px}
+  .bar .lbl{color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar .track{height:15px;background:rgba(255,255,255,.05);border-radius:7px;overflow:hidden}
+  .bar .fill{height:100%;border-radius:7px;transition:width .5s ease}
+  .bar .v{font-family:var(--mono);font-size:12px;color:var(--ink);text-align:right}
+  .donutrow{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+  .legend{display:flex;flex-direction:column;gap:8px;flex:1;min-width:180px}
+  .lg{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--ink2)}
+  .dot{width:11px;height:11px;border-radius:3px;flex:none}
+  .lg b{color:var(--ink);font-family:var(--mono);margin-left:auto;font-size:12.5px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--ink3);font-family:var(--mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase;font-weight:600}
+  td code{font-family:var(--mono);font-size:12px;color:var(--cyan)}
+  td .desc{color:var(--ink3);font-size:12px}
+  .mini{display:inline-flex;align-items:center;gap:7px;min-width:96px}
+  .mini .mt{flex:1;height:7px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}
+  .mini .mf{height:100%;border-radius:4px}
+  .mini .mp{font-family:var(--mono);font-size:11px;color:var(--ink2);width:34px;text-align:right}
+  .tag{display:inline-block;font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:5px;letter-spacing:.03em}
+  .t-in{background:rgba(59,130,246,.16);color:#9dc0ff}
+  .t-gt{background:rgba(245,196,81,.15);color:#f5d689}
+  .t-bl{background:rgba(95,211,123,.15);color:#8fe3a5}
+  .t-mt{background:rgba(118,131,184,.16);color:#b3bce6}
+  .note{background:var(--card2);border:1px solid var(--line);border-left:3px solid var(--gold);
+    border-radius:10px;padding:14px 16px;color:var(--ink2);font-size:13.5px;margin-top:14px}
+  .note b{color:var(--ink)}
+  .samples{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .srow{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:16px;font-size:12.5px}
+  .srow .src{font-family:var(--mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:12px}
+  .srow .kv{display:grid;grid-template-columns:82px 1fr;gap:4px 8px;margin-bottom:5px}
+  .srow .k{color:var(--ink3);font-family:var(--mono);font-size:11px}
+  .srow .val{color:var(--ink);word-break:break-word}
+  .srow .val.gt{color:var(--gold);font-weight:600}
+  .pipe{display:flex;flex-direction:column;gap:12px}
+  .pl{display:grid;grid-template-columns:180px 1fr 150px;align-items:center;gap:12px;font-size:13px}
+  .pl .lbl{color:var(--ink2)}
+  .pl .track{height:22px;background:rgba(255,255,255,.05);border-radius:8px;overflow:hidden;display:flex}
+  .pl .seg{height:100%;transition:width .5s ease}
+  .pl .seg.merged{background:var(--green)}
+  .pl .seg.pending{background:repeating-linear-gradient(45deg,var(--orange),var(--orange) 5px,#e08a30 5px,#e08a30 10px)}
+  .pl .nums{font-family:var(--mono);font-size:11px;text-align:right;white-space:nowrap}
+  .pl .nums .m{color:var(--green)} .pl .nums .p{color:var(--orange)} .pl .nums .sl{color:var(--ink3)}
+  .pl .st{font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:5px;text-align:center}
+  .st.done{color:#04122a;background:var(--green)} .st.run{color:#04122a;background:var(--orange)} .st.wait{color:var(--ink2);background:#2a3160}
+  .pipelegend{display:flex;gap:18px;flex-wrap:wrap;margin:2px 0 16px;font-size:12px;color:var(--ink3)}
+  .pipelegend span{display:inline-flex;align-items:center;gap:6px}
+  .pipelegend i{width:22px;height:11px;border-radius:3px;display:inline-block}
+  /* tooltip */
+  .hastip{cursor:help;border-bottom:1px dotted var(--ink3)}
+  .hastip .info{display:inline-block;width:14px;height:14px;line-height:14px;text-align:center;border-radius:50%;
+    background:rgba(255,255,255,.1);color:var(--ink2);font-size:10px;font-family:var(--mono);margin-left:5px;vertical-align:middle}
+  #tip{position:fixed;z-index:100;max-width:320px;background:#0a1140;border:1px solid var(--line);
+    border-radius:10px;padding:11px 13px;font-size:12.5px;line-height:1.5;color:var(--ink);
+    box-shadow:0 12px 34px rgba(0,0,0,.5);pointer-events:none;opacity:0;transition:opacity .12s;display:none}
+  #tip.show{opacity:1;display:block}
+  #tip .tk{font-family:var(--mono);color:var(--cyan);font-size:11px;display:block;margin-bottom:5px}
+  footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);color:var(--ink3);font-size:12px;font-family:var(--mono)}
+  .refresh{cursor:pointer;color:var(--cyan);text-decoration:underline;background:none;border:none;font-family:var(--mono);font-size:12px;padding:0}
+  #err{display:none;background:rgba(255,107,92,.12);border:1px solid var(--red);color:#ffb3aa;padding:14px 16px;border-radius:10px;font-family:var(--mono);font-size:13px}
+  #warn{display:none;background:rgba(255,159,69,.1);border:1px solid rgba(255,159,69,.4);color:#ffcf9c;padding:14px 16px;border-radius:10px;font-size:13px;margin-bottom:24px}
+  #warn code{font-family:var(--mono);color:var(--gold)}
+  @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}.samples{grid-template-columns:1fr}.bar{grid-template-columns:120px 1fr 40px}.pl{grid-template-columns:120px 1fr 76px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <p class="eyebrow">Bloggo · KS2-32 / KS2-34 · POI Identification Eval</p>
+  <h1>POI 평가 데이터셋 — 어떻게 구성되어 있나</h1>
+  <p class="sub">현재 앱의 POI 추천을 <b>사용자가 최종 선택한 장소</b>와 얼마나 맞추는지 측정하기 위한 평가셋.
+  실사용자 방문 기록(In&nbsp;Seo export)과 손으로 라벨링한 코너케이스를 합쳐 정합시킨 상태.</p>
+  <span class="live"><span class="pulse"></span>LIVE — <span id="livesrc">eval_set_reconciled.csv</span> 실시간 집계</span>
+</header>
+
+<div id="err"></div>
+<div id="warn"></div>
+<div id="tip"></div>
+
+<div class="kpis" id="kpis"></div>
+
+<section>
+  <h2>1 · 출처와 라벨 신뢰도</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>출처 (dataset)</h3>
+      <p class="cap">실사용자 export + 우리가 만든 코너케이스</p>
+      <div class="donutrow"><div id="donut"></div><div class="legend" id="srclegend"></div></div>
+    </div>
+    <div class="card">
+      <h3>정답(GT) 신뢰도 등급</h3>
+      <p class="cap">"이 라벨을 얼마나 믿을 수 있나" — 매치율 계산 시 등급별로 다르게 취급</p>
+      <div class="bars" id="confbars"></div>
+      <div class="note"><b>왜 등급을 나누나:</b> 실사용자가 앱에서 직접 고른 <span style="color:var(--gold)">user_selected</span>만이 진짜 "사용자 선택" 지표. 나머지 코너케이스는 손으로 붙인 라벨이라 회귀 앵커로만 쓰고 매치율 숫자에는 분리 집계.</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>2 · 지역과 카테고리 분포</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>국가</h3>
+      <p class="cap">미국 중심 (MapKit 베이스라인은 non-Korea만)</p>
+      <div class="bars" id="countrybars"></div>
+      <div class="note"><b>KR 행:</b> Kakao Local 경로라 이번 MapKit 베이스라인에서 제외(<code>kr_deferred</code>). 이미지 신호(OCR/LLM/FastVLM)는 KR도 포함.</div>
+    </div>
+    <div class="card">
+      <h3>카테고리 (상위 12)</h3>
+      <p class="cap" id="catcap">POI 타입이 고르게 퍼져 있음 — 특정 타입 편향 없음</p>
+      <div class="bars" id="catbars"></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>3 · 한 행의 구조 (라벨 컬럼)</h2>
+  <div class="card">
+    <p class="cap">각 컬럼을 역할별로 분류. <span class="tag t-in">입력신호</span> 모델이 받는 것 ·
+      <span class="tag t-gt">정답</span> 채점 기준 ·
+      <span class="tag t-bl">베이스라인</span> 현재 앱 동작 ·
+      <span class="tag t-mt">메타</span> 식별용. 오른쪽 채움 비율은 CSV에서 실시간.</p>
+    <table><thead><tr><th>컬럼</th><th>역할</th><th style="width:150px">채움 (CSV 머지 기준)</th><th>설명</th></tr></thead>
+      <tbody id="schema"></tbody></table>
+  </div>
+</section>
+
+<section>
+  <h2>4 · 실제 행 예시 (출처별 1개)</h2>
+  <div class="samples" id="samples"></div>
+</section>
+
+<section>
+  <h2>5 · 신호 추출 파이프라인 — 지금 어디까지</h2>
+  <div class="card">
+    <p class="cap">각 신호가 몇 행까지 처리됐는지 실제 결과 파일에서 집계. 바는 <b>전체 280행 대비</b> 비율.</p>
+    <div class="pipelegend" id="pipelegend"></div>
+    <div class="pipe" id="pipeline"></div>
+    <div class="note"><b>다음 단계:</b> 신호(OCR·MapKit 베이스라인)를 reconciled CSV에 머지 → cross-signal 합의로 "신뢰 케이스" 추출 → 실사용자 GT 대비 방법별 매치율 & 실패 유형 분류.</div>
+  </div>
+</section>
+
+<footer>
+  <span id="footmeta">loading…</span> ·
+  <button class="refresh" onclick="load()">↻ 새로고침</button>
+</footer>
+</div>
+
+<script>
+// Fully data-driven. NO hardcoded labels/roles/descriptions here —
+// everything comes from /api/overview (which merges eval_set_reconciled.csv + dashboard_config.json).
+// Colors arrive as tokens ("blue","gold","ink3") and resolve to CSS vars.
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const col = t => `var(--${t||'ink3'})`;
+const pctOf = (a,b) => b ? Math.round(100*a/b) : 0;
+
+function render(d){
+  $('#err').style.display='none';
+  $('#livesrc').textContent = d.generated_from;
+
+  // config warnings — surface new/unlabeled data instead of hiding it
+  const w = $('#warn');
+  if (d.config_warnings && d.config_warnings.length){
+    w.style.display='block';
+    w.innerHTML = `<b>⚠ config 없는 새 값 ${d.config_warnings.length}건</b> — 아래 항목에 라벨/설명을 <code>dashboard_config.json</code>에 추가하세요:`
+      + `<ul style="margin:8px 0 0;padding-left:20px">${d.config_warnings.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`;
+  } else { w.style.display='none'; w.innerHTML=''; }
+
+  const total = d.total;
+  const userSel = (d.confidence.find(c=>c.key==='user_selected')||{}).count || 0;
+
+  // KPIs
+  $('#kpis').innerHTML = [
+    [total, '총 행 (사진·방문 1건 = 1행)', d.sources.map(s=>s.count).join(' + ')],
+    [userSel, '실사용자 GT (user_selected)', '<span style="color:var(--gold)">진짜 지표 대상</span>'],
+    [d.photo_present, '사진 있는 행', (total-d.photo_present)+'행 no-photo'],
+    [d.countries.length, '국가', d.countries.slice(0,4).map(c=>c.flag).join(' ')],
+  ].map(([n,l,s])=>`<div class="kpi"><div class="n">${n}</div><div class="l">${l}</div><div class="s">${s}</div></div>`).join('');
+
+  // donut (sources)
+  let cum=0;
+  const segs = d.sources.map(s=>{
+    const pct = 100*s.count/total, off = 25 - cum; cum += pct;
+    return `<circle cx="21" cy="21" r="15.915" fill="none" stroke="${col(s.color)}" stroke-width="7"
+      stroke-dasharray="${pct.toFixed(2)} ${(100-pct).toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/>`;
+  }).join('');
+  $('#donut').innerHTML = `<svg width="150" height="150" viewBox="0 0 42 42">
+    <circle cx="21" cy="21" r="15.915" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="7"/>${segs}
+    <text x="21" y="20" text-anchor="middle" fill="var(--ink)" font-size="7" font-weight="700">${total}</text>
+    <text x="21" y="26" text-anchor="middle" fill="var(--ink3)" font-size="3.4">rows</text></svg>`;
+  $('#srclegend').innerHTML = d.sources.map(s=>{
+    const label = s.known ? s.label : `<span style="color:var(--orange)">⚠ config 없음</span>`;
+    const provenance = [s.owner && `owner: ${s.owner}`, s.source_type && `type: ${s.source_type}`, s.desc]
+      .filter(Boolean).join('\n');
+    const tip = provenance
+      ? `<span class="hastip" data-tip="${esc(provenance)}" data-tipkey="${esc(s.key)}">${esc(s.key)}<span class="info">i</span></span>`
+      : esc(s.key);
+    return `<div class="lg"><span class="dot" style="background:${col(s.color)}"></span>${tip}
+      <span style="color:var(--ink3)">· ${label}</span><b>${s.count}</b></div>`;
+  }).join('');
+
+  // generic horizontal bars from [{count,...}] with a color + label
+  const barList = (el, items, labelFn) => {
+    const max = Math.max(1, ...items.map(i=>i.count));
+    el.innerHTML = items.map(it=>{
+      const wpct = Math.max(1.5, 100*it.count/max);
+      return `<div class="bar"><span class="lbl">${labelFn(it)}</span>
+        <div class="track"><div class="fill" style="width:${wpct}%;background:${col(it.color)}"></div></div>
+        <span class="v">${it.count}</span></div>`;
+    }).join('');
+  };
+
+  // confidence bars — each label is hoverable, tooltip shows the tier's meaning (from config)
+  $('#confbars').innerHTML = (()=>{
+    const max = Math.max(1, ...d.confidence.map(c=>c.count));
+    return d.confidence.map(it=>{
+      const wpct = Math.max(1.5, 100*it.count/max);
+      const warn = it.known ? '' : ' <span style="color:var(--orange)">⚠ rollup 없음</span>';
+      const members = (it.members && it.members.length>1)
+        ? '\n\n포함 raw 등급: ' + it.members.map(m=>`${m[0]} (${m[1]})`).join(', ')
+        : '';
+      const tipTxt = (it.desc||'') + members;
+      const tip = tipTxt ? `<span class="hastip" data-tip="${esc(tipTxt)}" data-tipkey="${esc(it.key)}">${esc(it.key)}<span class="info">i</span></span>`
+                         : esc(it.key);
+      return `<div class="bar"><span class="lbl">${tip}${warn}</span>
+        <div class="track"><div class="fill" style="width:${wpct}%;background:${col(it.color)}"></div></div>
+        <span class="v">${it.count}</span></div>`;
+    }).join('');
+  })();
+
+  // country bars (palette by index since config has no per-country color)
+  d.countries.forEach((c,i)=>c.color = d.palette[i % d.palette.length]);
+  barList($('#countrybars'), d.countries, it => `${it.flag} ${esc(it.key)}`);
+
+  // category bars (palette by index)
+  const cats = d.categories.map(([k,v],i)=>({key:k,count:v,color:d.palette[i%d.palette.length]}));
+  barList($('#catbars'), cats, it => esc(it.key));
+  $('#catcap').innerHTML = `POI 타입이 고르게 퍼져 있음 — 총 <b>${d.category_total_kinds}종</b>, 특정 타입 편향 없음`;
+
+  // schema table — driven by real columns; unmapped ones show ⚠ instead of vanishing
+  $('#schema').innerHTML = d.schema.map(g=>{
+    const pct = pctOf(g.fill, total);
+    const c = !g.known ? 'var(--orange)' : (pct>=90?'var(--green)':(pct===0?'var(--ink3)':'var(--orange)'));
+    const grp = g.known ? esc(g.group) : `${esc(g.group)} <span style="color:var(--orange)">⚠</span>`;
+    return `<tr><td><code>${grp}</code></td><td><span class="tag ${g.role_tag}">${esc(g.role_label)}</span></td>
+      <td><span class="mini"><span class="mt"><span class="mf" style="width:${pct}%;background:${c}"></span></span><span class="mp">${pct}%</span></span></td>
+      <td class="desc">${g.desc}</td></tr>`;
+  }).join('');
+
+  // samples
+  $('#samples').innerHTML = d.sources.filter(s=>d.samples[s.key]).map(s=>{
+    const r=d.samples[s.key];
+    const label = s.known ? s.label : '⚠ config 없음';
+    const gtval = r.gt_mapkit || r.gt_kakao || r.input_place_name;
+    const gt = gtval ? `<span class="val gt">${esc(gtval)}</span>` : `<span class="val" style="color:var(--ink3)">(비어있음)</span>`;
+    const rows = [
+      ['input', `<span class="val">${esc(r.input_place_name||'')}</span>`],
+      ['gt', gt],
+      ['conf', `<span class="val">${esc(r.gt_confidence)}</span>`],
+      ['category', `<span class="val">${esc(r.category)}</span>`],
+      ['coord', `<span class="val">${(+r.capture_lat).toFixed(4)}, ${(+r.capture_lon).toFixed(4)}</span>`],
+      ['city', `<span class="val">${esc(r.city||'—')}${r.country?', '+esc(r.country):''}</span>`],
+      ['photo', `<span class="val">${esc((r.photo||'').slice(-26)||'—')}</span>`],
+    ];
+    return `<div class="srow"><div class="src" style="color:${col(s.color)}">■ ${esc(s.key)} · ${label}</div>
+      ${rows.map(([kk,vv])=>`<div class="kv"><span class="k">${kk}</span>${vv}</div>`).join('')}</div>`;
+  }).join('');
+
+  // pipeline legend + rule (data, not prose)
+  $('#pipelegend').innerHTML =
+    `<span><i style="background:var(--green)"></i>CSV 머지 완료</span>
+     <span><i class="pending" style="background:repeating-linear-gradient(45deg,var(--orange),var(--orange) 4px,#e08a30 4px,#e08a30 8px)"></i>추출됐으나 머지 대기</span>
+     <span class="hastip" data-tip="완료 = 머지/전체 ≥ 95% · 진행중 = 추출됐지만 머지 미완 또는 부분 · 대기 = 미착수" data-tipkey="상태 판정 규칙">상태 규칙 <span class="info">i</span></span>`;
+
+  // pipeline — segmented bar: merged (green) + extracted-but-unmerged (striped orange)
+  $('#pipeline').innerHTML = d.pipeline.map(p=>{
+    const mPct = pctOf(p.merged, p.total);
+    const pPct = pctOf(Math.max(0,p.extracted-p.merged), p.total);
+    const stlabel = {done:'완료',run:'진행중',wait:'대기'}[p.status];
+    const nums = p.extracted===p.merged
+      ? `<span class="m">${p.merged}</span><span class="sl"> / ${p.total}</span>`
+      : `<span class="m">${p.merged}</span><span class="sl"> 머지 · </span><span class="p">${p.extracted}</span><span class="sl"> 추출 / ${p.total}</span>`;
+    return `<div class="pl"><span class="lbl">${esc(p.label)}</span>
+      <div class="track"><div class="seg merged" style="width:${mPct}%"></div><div class="seg pending" style="width:${pPct}%"></div></div>
+      <span class="nums">${nums} <span class="st ${p.status}">${stlabel}</span></span></div>`;
+  }).join('');
+
+  $('#footmeta').textContent = `${d.generated_from} · ${total} rows · ${d.n_columns} cols · fetched ${new Date().toLocaleTimeString()}`;
+}
+
+// ---- tooltip engine (event-delegated; survives re-render; hover + tap) ----
+const tip = $('#tip');
+function showTip(el, x, y){
+  const key = el.getAttribute('data-tipkey'), body = el.getAttribute('data-tip');
+  tip.innerHTML = (key?`<span class="tk">${esc(key)}</span>`:'') + esc(body).replace(/\n/g,'<br>');
+  tip.classList.add('show');
+  const pad=14, w=tip.offsetWidth, h=tip.offsetHeight;
+  let px = x + pad, py = y + pad;
+  if (px + w > innerWidth - 8) px = x - w - pad;
+  if (py + h > innerHeight - 8) py = y - h - pad;
+  tip.style.left = Math.max(8,px)+'px'; tip.style.top = Math.max(8,py)+'px';
+}
+function hideTip(){ tip.classList.remove('show'); }
+document.addEventListener('mouseover', e=>{ const t=e.target.closest('[data-tip]'); if(t) showTip(t, e.clientX, e.clientY); });
+document.addEventListener('mousemove', e=>{ const t=e.target.closest('[data-tip]'); if(t) showTip(t, e.clientX, e.clientY); else if(tip.classList.contains('show')) hideTip(); });
+document.addEventListener('mouseout', e=>{ if(e.target.closest('[data-tip]')) hideTip(); });
+document.addEventListener('click', e=>{ const t=e.target.closest('[data-tip]'); if(t){ showTip(t, e.clientX, e.clientY); setTimeout(hideTip, 4000);} });
+
+async function load(){
+  try{
+    const r = await fetch('/api/overview', {cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    render(await r.json());
+  }catch(e){
+    const el=$('#err'); el.style.display='block';
+    el.textContent = 'API 로드 실패: '+e.message+' — server.py가 8420에서 떠 있는지 확인 (python3 server.py)';
+  }
+}
+load();
+</script>
+</body>
+</html>
