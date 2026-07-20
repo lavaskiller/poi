@@ -9,7 +9,7 @@ working in this repo, especially for **Jira**, **Slack**, **git**, and
 ## 1. Team communication language = **English**
 
 **Mistake (2026-07-20):** Jira comments on PWE-5 and PWE-12 were first posted in
-**Korean**. The user corrected: *“소통 언어는 영어야”* (team language is English).
+**Korean**. The user corrected that the **team communication language is English**.
 
 **Rule:**
 
@@ -37,9 +37,9 @@ immediately (do not leave Korean as the visible history for the team).
 |---|---|
 | Site | https://linkedspaces.atlassian.net |
 | Project | **PWE** (“POI wizard evaluator”) |
-| Tracking epic | **PWE-5** “EPIC for POI wizard enhancement” (hierarchy: 워크스트림) |
+| Tracking epic | **PWE-5** “EPIC for POI wizard enhancement” (Jira hierarchy level 1) |
 | cloudId | `93b69f57-862b-4ebe-8db6-a84a9692be56` |
-| Child issues | Type **스토리** / 작업 / 버그 under parent **PWE-5** |
+| Child issues | Story / Task / Bug under parent **PWE-5** (Jira type names may be localized in the UI) |
 
 Stories under PWE-5 (PWE-6…11) were generated from **git commit history** to
 track progress (same pattern as KS2-47). Prefer **git-derived** stories for

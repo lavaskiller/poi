@@ -1,42 +1,42 @@
-# POI dataset upload template
+# Dataset upload template
 
-사용자는 이 폴더 구조를 유지한 뒤 ZIP으로 압축해서 업로드한다.
+Keep this folder layout, then ZIP and upload it in the dashboard.
 
-## 필수 입력
+## Required inputs
 
-- `photos/`: 평가할 이미지 파일
-- `manifest.csv`: 이미지와 사용자가 고른 GT 원문 매핑
+- `photos/`: evaluation images
+- `manifest.csv`: mapping from image to the user-chosen raw GT text
 
-## manifest.csv 최소 컬럼
+## Minimum `manifest.csv` columns
 
-| column | required | description |
-|---|---:|---|
-| `photo` | O | ZIP 루트 기준 이미지 상대 경로. 예: `photos/IMG_0001.jpg` |
-| `gt_input_raw` | O | 사용자가 고른 정답 원문. 장소명, 지도 공유 URL, provider place id, 이름+주소 등 허용 |
-| `notes` | 선택 | 사람이 남기는 참고 메모 |
+| column | required | meaning |
+|---|---|---|
+| `photo` | yes | Image path relative to the ZIP root, e.g. `photos/IMG_0001.jpg` |
+| `gt_input_raw` | yes | Raw ground-truth text from the user (place name, map share URL, provider place id, name+address, …) |
+| `notes` | optional | Human notes |
 
-## 선택 컬럼 (EXIF fallback)
+## Optional columns (EXIF fallback)
 
-기본적으로 `capture_lat`, `capture_lon`, `timestamp`, `country`, `city`는 사용자가 직접 넣지 않는다. 도구가 이미지 EXIF와 좌표 기반 조회로 자동 추출/추정하고, 실패한 행만 보정 대상으로 표시한다.
+By default you do **not** fill `capture_lat`, `capture_lon`, `timestamp`, `country`, or `city`. The tool extracts them from EXIF and coordinate lookups; only failed rows need manual correction.
 
-다만 사진에서 위치·촬영정보가 제거된 export(예: 지도 앱에서 재인코딩되어 EXIF GPS가 비어 있는 경우)라면, 아래 컬럼을 manifest에 직접 채워 넣을 수 있다. 값이 있으면 ingest가 그대로 사용하고(빈 값만 EXIF에서 보충), 없으면 기존대로 EXIF 추출을 시도한다.
+If an export stripped location/capture metadata (for example re-encoded map-app photos with empty EXIF GPS), you may fill the columns below in the manifest. Non-empty values are kept as-is; empty cells still fall back to EXIF.
 
-| column | description |
+| column | meaning |
 |---|---|
-| `capture_lat` / `capture_lon` | 촬영 위도/경도 (십진수). `lat`/`lon` 별칭도 허용 |
-| `timestamp` | 촬영 시각 (ISO 8601, 예: `2026-07-05T00:25:23Z`) |
+| `capture_lat` / `capture_lon` | Capture latitude/longitude (decimal). Aliases `lat`/`lon` accepted |
+| `timestamp` | Capture time (ISO 8601, e.g. `2026-07-05T00:25:23Z`) |
 
-## manifest.csv 예시
+## Example `manifest.csv`
 
 ```csv
 photo,gt_input_raw,notes
-photos/IMG_0001.jpg,Blue Bottle Coffee Shibuya,optional note
-photos/IMG_0002.jpg,https://map.kakao.com/link/map/...,optional note
+photos/IMG_0001.jpg,Safeway,
+photos/IMG_0002.jpg,Capilano Suspension Bridge,plaque readable
 ```
 
-EXIF가 비어 있는 export를 좌표·촬영시각과 함께 올리는 경우:
+When EXIF is empty but you still know coordinates and time:
 
 ```csv
 photo,gt_input_raw,capture_lat,capture_lon,timestamp,notes
-photos/0001.jpg,Example Place Name,37.000000,-122.000000,2026-01-01T00:00:00Z,Category
+photos/IMG_0003.jpg,Example Cafe,37.7749,-122.4194,2026-07-05T12:00:00Z,no EXIF GPS
 ```

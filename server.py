@@ -231,8 +231,8 @@ STEP_REGISTRY = {
     "pipeline":       {"builtin": "post_ingest_pipeline"},
     "exif":           {"script": os.path.join(REPO_DIR, "tools", "rerun_exif.py")},
     # These are intentionally unavailable rather than pretending enrichment ran.
-    "geocode":        {"disabled": "미구현 (CLGeocoder worker 없음)"},
-    "vlm_caption":    {"disabled": "미구현"},
+    "geocode":        {"disabled": "Not implemented (no CLGeocoder worker)"},
+    "vlm_caption":    {"disabled": "Not implemented"},
 }
 
 _jobs = {}                      # job_id -> job dict
@@ -466,10 +466,10 @@ def _post_ingest_pipeline(params, log):
     first,_=run_batch(["exif"],0); exif=first.get("exif") or {}
     targets,no_gps=exif.get("targets",0),exif.get("no_gps",0)
     if targets and no_gps:
-        w={"code":"exif_gps_missing","dataset":dataset,"count":no_gps,"targets":targets,"message":f"원본 사진 {no_gps}/{targets}장에 EXIF GPS 좌표가 없습니다. 좌표 기반 단계는 실행 대상이 없습니다."}; warnings.append(w); print("WARNING "+json.dumps(w,ensure_ascii=False),file=log,flush=True)
+        w={"code":"exif_gps_missing","dataset":dataset,"count":no_gps,"targets":targets,"message":f"{no_gps}/{targets} source photos are missing EXIF GPS coordinates. Coordinate-based steps have no targets."}; warnings.append(w); print("WARNING "+json.dumps(w,ensure_ascii=False),file=log,flush=True)
     no_timestamp=exif.get("no_timestamp",0)
     if targets and no_timestamp:
-        w={"code":"exif_timestamp_missing","dataset":dataset,"count":no_timestamp,"targets":targets,"message":f"원본 사진 {no_timestamp}/{targets}장에 EXIF 촬영시각이 없습니다."}; warnings.append(w); print("WARNING "+json.dumps(w,ensure_ascii=False),file=log,flush=True)
+        w={"code":"exif_timestamp_missing","dataset":dataset,"count":no_timestamp,"targets":targets,"message":f"{no_timestamp}/{targets} source photos are missing EXIF capture timestamps."}; warnings.append(w); print("WARNING "+json.dumps(w,ensure_ascii=False),file=log,flush=True)
     print("PROGRESS "+json.dumps({"done":1,"total":len(sequence),"step":"exif"}),file=log,flush=True)
     parallel=["ocr","mapkit_nearby","gt_mapkit"] + (["gt_kakao"] if "gt_kakao" in sequence else [])
     _,live=run_batch(parallel,1)
@@ -633,7 +633,7 @@ def build_overview():
     for i, (k, v) in enumerate(src_counts.most_common()):
         c = cfg["sources"].get(k)
         if c is None:
-            warnings.append(f"source '{k}' — config 없음 (dashboard_config.json > sources 에 추가)")
+            warnings.append(f"source '{k}' — missing from config (add under dashboard_config.json > sources)")
         sources.append({"key": k, "count": v,
                         "label": (c or {}).get("label", ""),
                         "color": (c or {}).get("color", cfg["palette"][i % len(cfg["palette"])]),
@@ -648,7 +648,7 @@ def build_overview():
     for raw, cnt in raw_counts.items():
         canon = cfg["confidence_rollup"].get(raw)
         if canon is None:
-            warnings.append(f"gt_confidence '{raw}' — confidence_rollup 없음 (매핑 추가)")
+            warnings.append(f"gt_confidence '{raw}' — missing from confidence_rollup (add a mapping)")
             canon = raw  # surface as its own tier rather than dropping
         tier_counts[canon] += cnt
         tier_members.setdefault(canon, []).append([raw, cnt])
@@ -657,7 +657,7 @@ def build_overview():
     for canon in sorted(tier_counts, key=lambda k: (tiers_cfg.get(k, {}).get("order", 99), -tier_counts[k])):
         meta = tiers_cfg.get(canon)
         if meta is None:
-            warnings.append(f"canonical tier '{canon}' — confidence_tiers 에 정의 없음")
+            warnings.append(f"canonical tier '{canon}' — not defined in confidence_tiers")
         members = sorted(tier_members[canon], key=lambda m: -m[1])
         confidence.append({"key": canon, "count": tier_counts[canon],
                            "color": (meta or {}).get("color", "ink3"),
@@ -702,9 +702,9 @@ def build_overview():
                        "desc": g["desc"], "known": True})
     uncovered = [c for c in cols if c not in covered]
     for c in uncovered:
-        warnings.append(f"column '{c}' — schema_groups 에 없음 (역할/설명 추가 필요)")
-        schema.append({"group": c, "role_key": "?", "role_label": "미분류", "role_tag": "t-mt",
-                       "fill": fill[c], "cols": [c], "desc": "⚠ config에 설명 없음 — dashboard_config.json > schema_groups 에 추가하세요.", "known": False})
+        warnings.append(f"column '{c}' — missing from schema_groups (add role/description)")
+        schema.append({"group": c, "role_key": "?", "role_label": "Unclassified", "role_tag": "t-mt",
+                       "fill": fill[c], "cols": [c], "desc": "⚠ Missing config description — add under dashboard_config.json > schema_groups.", "known": False})
 
     # ---- sample rows (one per dataset) ----
     samples = {}
@@ -731,18 +731,18 @@ def build_overview():
 
     ls_ocr_text, _ = tsv_counts(os.path.join(DIRECTORY, "ls_ocr_text.tsv"))
     our_ocr_text, _ = tsv_counts(os.path.join(DIRECTORY, "ocr_text.tsv"))
-    ocr_photos = tsv_photoset("ls_ocr_text.tsv") | tsv_photoset("ocr_text.tsv")   # 처리된 사진 (텍스트 유무 무관)
-    base_photos = tsv_photoset("ls_nearby_results.tsv")                            # 베이스라인 계산된 사진
+    ocr_photos = tsv_photoset("ls_ocr_text.tsv") | tsv_photoset("ocr_text.tsv")   # processed photos (with or without text)
+    base_photos = tsv_photoset("ls_nearby_results.tsv")                            # photos with baseline computed
     csv_photos = [(r.get("photo") or "").strip() for r in rows]
-    ocr_cov = sum(1 for p in csv_photos if p and p in ocr_photos)                  # OCR 커버된 CSV 행
+    ocr_cov = sum(1 for p in csv_photos if p and p in ocr_photos)                  # CSV rows covered by OCR
     base_avail = sum(1 for r in rows if (r.get("photo") or "").strip() in base_photos
-                     or (r.get("app_poi_rank") or "").strip())                     # 베이스라인 있는 행(파일∪CSV)
+                     or (r.get("app_poi_rank") or "").strip())                     # rows with baseline (file ∪ CSV)
 
     # Status rule (single source of truth, shown in UI):
-    #   extracted = 신호가 존재하는(계산된) 행수  ·  merged = 그게 CSV에 실제 반영된 행수
-    #   wait : extracted==0        (미착수)
-    #   done : merged >= extracted (추출된 게 전부 CSV에 들어감; scope 밖 행은 애초에 extracted에 없음)
-    #   run  : 그 외              (추출됐지만 아직 CSV 미머지)
+    #   extracted = rows with signal computed · merged = rows reflected in CSV
+    #   wait : extracted==0        (not started)
+    #   done : merged >= extracted (all extracted rows are in CSV; out-of-scope never extracted)
+    #   run  : otherwise           (extracted but not yet merged into CSV)
     def mk(p, extracted, merged, note=""):
         st = "wait" if extracted == 0 else ("done" if merged >= extracted else "run")
         return {"label": p["label"], "extracted": extracted, "merged": merged,
@@ -752,16 +752,16 @@ def build_overview():
         kind = p["kind"]
         if kind == "column":
             f = fill.get(p["column"], 0)
-            return mk(p, f, f)  # 컬럼 데이터는 추출=머지
+            return mk(p, f, f)  # column data: extracted == merged
         if kind == "ocr":
             txt = ls_ocr_text + our_ocr_text
-            return mk(p, ocr_cov, ocr_cov, f"{txt} 텍스트 검출 · {ocr_cov-txt} 텍스트 없음")
+            return mk(p, ocr_cov, ocr_cov, f"{txt} with text · {ocr_cov-txt} empty OCR")
         if kind == "baseline":
             merged = fill.get("app_poi_rank", 0)
             deferred = n - base_avail
-            return mk(p, base_avail, merged, f"{deferred}행 제외(한국·무사진, kr_deferred)")
+            return mk(p, base_avail, merged, f"{deferred} rows excluded (Korea / no photo, kr_deferred)")
         if kind == "tsv":
-            return mk(p, tsv_datarows(os.path.join(DIRECTORY, p["file"])), 0, "CSV 미머지")
+            return mk(p, tsv_datarows(os.path.join(DIRECTORY, p["file"])), 0, "Not merged into CSV")
         if kind == "file_exists":
             ok = os.path.exists(os.path.join(DIRECTORY, p["file"]))
             r = mk(p, n if ok else 0, n if ok else 0)
@@ -1071,7 +1071,7 @@ def build_datasets():
                 count = sum(1 for r in drows if has_coverage(r))
                 coverage_metrics.append({
                     "key": metric.get("key", ""),
-                    "label": metric.get("label", "결과 보유"),
+                    "label": metric.get("label", "Result available"),
                     "count": count,
                     "pct": round(100 * count / total) if total else 0,
                 })
@@ -1117,7 +1117,7 @@ def build_datasets():
                                            if processed is not None else None),
                          "coverage_metrics": coverage_metrics,
                          "label_breakdown": label_breakdown,
-                         "result_label": meta.get("result_label", "결과 채움"),
+                         "result_label": meta.get("result_label", "Result filled"),
                          "step": meta.get("step"), "status": meta.get("status", "ok")}
         src = sources.get(ds) or {}
         out.append({"key": ds, "label": src.get("label", ""), "count": total,
@@ -1190,19 +1190,19 @@ def build_records(dataset_filter):
         conf = roll.get((r.get("gt_confidence") or "").strip(), "")
         rk = (r.get("app_poi_rank") or "").strip()
         if provider == "kakao_local":
-            return ("korea_pending_kakao", "Kakao 후보 대기")
+            return ("korea_pending_kakao", "Awaiting Kakao candidates")
         if conf == "non_poi":
             return ("non_poi", "non_poi")
         if gt_status != "canonical":
-            return (gt_status, f"GT 제외: {gt_status}")
+            return (gt_status, f"GT excluded: {gt_status}")
         if not rk:
             return ("deferred", "deferred")
         if rk == "MISS":
-            return ("retrieval", "검색실패")
+            return ("retrieval", "retrieval miss")
         if rk == "1":
-            return ("correct", "정답")
+            return ("correct", "correct")
         if rk.isdigit():
-            return ("selection", "식별실패")
+            return ("selection", "selection miss")
         return ("other", rk)
 
     recs = []

@@ -24,7 +24,7 @@ Open <http://127.0.0.1:8420/>. A fresh clone with no data is a supported state: 
 ## Add a dataset
 
 1. Prepare a ZIP using [`templates/poi-dataset-upload-template.zip`](templates/poi-dataset-upload-template.zip).
-2. In the dashboard, open **④ 데이터셋 추가**, validate the package, then ingest it.
+2. In the dashboard, open **Dataset management**, validate the package, then ingest it.
 3. The first successful ingestion bootstraps `eval_set_reconciled.csv` and a runtime `dashboard_config.json` in the data directory. The newly added dataset is immediately available without restarting the server.
 
 The empty template deliberately fails validation because it has no manifest rows. Fill `manifest.csv` and include its referenced images before uploading.
@@ -66,14 +66,14 @@ def predict(case):
     return candidates[0]["name"] if candidates else ""
 ```
 
-Use **② 평가 실행** to select only the signals your algorithm may receive, attach the script, choose a scope, and run it. The harness never exposes ground truth in `case`. The included baseline is available in the UI and at [`examples/baseline_nearest.py`](examples/baseline_nearest.py):
+Use **Run algorithm** to select only the signals your algorithm may receive, attach the script, choose a scope, and run it. The harness never exposes ground truth in `case`. The included baseline is available in the UI and at [`examples/baseline_nearest.py`](examples/baseline_nearest.py):
 
 ```bash
 python3 tools/run_algorithm.py examples/baseline_nearest.py \
   --name baseline --params nearby_candidates
 ```
 
-Results are written below `<data-root>/generated/runs/` and shown in **③ 평가 결과**. Select persisted executions there to inspect their configuration, outcome distribution, and failed cases; compare up to four executions, and delete one only after a confirmation. The UI labels runs with the same SHA-256 submitted-code hash, so equal scores from identical code are not mistaken for a display problem. Deleting a run permanently removes only its saved run JSON—not a dataset, photo, or source script.
+Results are written below `<data-root>/generated/runs/` and shown under **Run results**. Select persisted executions there to inspect their configuration, outcome distribution, and failed cases; compare up to four executions, and delete one only after a confirmation. The UI labels runs with the same SHA-256 submitted-code hash, so equal scores from identical code are not mistaken for a display problem. Deleting a run permanently removes only its saved run JSON—not a dataset, photo, or source script.
 
 Identification accuracy (`prediction == GT`) is distinct from candidate-retrieval coverage. Current MVP scoring uses same-provider exact-name matching; Korea/Kakao, `non_poi`, blank provider GT, and provider-resolution sentinels (for example `NON_MAPKIT` and `SIM_MAPKIT`) are held out. A raw `input_place_name` is never substituted for a missing provider-canonical GT. Likewise, a scalar `app_nearby_top1` is not a candidate-list artifact: evaluation refuses an eligible case without stored candidate records rather than synthesizing a rank-one candidate.
 

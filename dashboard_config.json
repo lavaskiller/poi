@@ -1,32 +1,32 @@
 {
-  "_comment": "편집 가능한 대시보드 설명 레이어. 서버가 매 요청마다 읽음(라이브). 라벨/색/설명을 여기서 고치면 코드 수정 없이 반영. config에 없는 dataset/컬럼/등급은 API가 config_warnings로 드러내고 뷰에 '⚠ config 없음' 표시.",
+  "_comment": "Editable dashboard description layer. The server reloads this on each request. Labels, colors, and descriptions apply without code changes. Datasets/columns/tiers missing from config surface as config_warnings and '⚠ missing config' in the UI.",
 
   "palette": ["blue", "cyan", "violet", "gold", "green", "pink", "orange", "red"],
 
-  "_sources_note": "데이터셋 = 1급 개념. 새 데이터셋은 여기 한 항목 등록 + 사진/GT 제공 → 나머지 컬럼은 ingest가 자동 채움. owner/source_type은 provenance(누구 블로그/실사용자)와 기본 신뢰등급을 정함.",
+  "_sources_note": "A dataset is a first-class concept. Register a source here, provide photos + GT, and ingest fills remaining columns. owner/source_type set provenance and the default confidence tier.",
   "sources": {
-    "linkedspaces": { "label": "실사용자 방문",   "color": "blue",   "owner": "실사용자", "source_type": "real-user-export", "default_confidence": "user_selected", "photo_dir": "linkedspaces-photos", "desc": "실사용자들의 실제 장소 방문 기록 (In Seo export, KS2-10)." },
-    "union-city":   { "label": "우혁 개인블로그",  "color": "cyan",   "owner": "우혁",    "source_type": "personal-blog",    "default_confidence": "confirmed_user", "photo_dir": "union-city-trip", "desc": "우혁의 Union City 여행 블로그." },
-    "vancouver":    { "label": "인소 개인블로그",  "color": "violet", "owner": "인소",    "source_type": "personal-blog",    "default_confidence": "confirmed_user", "photo_dir": "photos", "desc": "인소의 Vancouver 여행 블로그." }
+    "linkedspaces": { "label": "Real-user visits", "color": "blue", "owner": "real users", "source_type": "real-user-export", "default_confidence": "user_selected", "photo_dir": "linkedspaces-photos", "desc": "Real place visits from users (In Seo export, KS2-10)." },
+    "union-city":   { "label": "Woohyuk personal blog", "color": "cyan", "owner": "Woohyuk", "source_type": "personal-blog", "default_confidence": "confirmed_user", "photo_dir": "union-city-trip", "desc": "Union City travel blog." },
+    "vancouver":    { "label": "In Seo personal blog", "color": "violet", "owner": "In Seo", "source_type": "personal-blog", "default_confidence": "confirmed_user", "photo_dir": "photos", "desc": "Vancouver travel blog." }
   },
 
-  "_signals_note": "자동 채움 신호 레지스트리. tab ④의 재실행 단계 드롭다운과 /api/datasets 신호 채움을 구동. step은 STEP_REGISTRY(server.py)의 실행 매핑과 연결. status:미구현이면 UI 회색·서버 501.",
+  "_signals_note": "Auto-fill signal registry. Drives the rerun step dropdown on tab ④ and /api/datasets signal coverage. step maps to STEP_REGISTRY in server.py. status 'not_implemented' greys out the UI and returns 501.",
   "signals": {
-    "exif":          { "label": "EXIF 좌표/시각",   "cols": ["capture_lat", "capture_lon", "timestamp"], "step": "exif", "coverage_metrics": [{ "key": "coordinates", "label": "좌표 보유", "cols": ["capture_lat", "capture_lon"], "require": "all" }, { "key": "timestamp", "label": "촬영 시각 보유", "cols": ["timestamp"], "require": "all" }] },
-    "ocr":           { "label": "OCR 텍스트",       "cols": ["caption_ondevice"], "step": "ocr", "processed_col": "ocr_processed", "result_label": "텍스트 검출" },
-    "geocode":       { "label": "역지오코딩",       "cols": ["city", "country", "address"], "step": "geocode", "status": "미구현" },
-    "mapkit_nearby": { "label": "MapKit 주변후보",  "cols": ["app_poi_rank", "app_nearby_top1", "app_nearby_n_wide", "app_poi_dist_m"], "step": "mapkit_nearby", "processed_col": "mapkit_nearby_processed", "result_label": "후보 검출", "result_rule": "mapkit_candidates" },
-    "gt_mapkit":     { "label": "MapKit 정규명(GT)", "cols": ["gt_mapkit"], "step": "gt_mapkit", "result_rule": "mapkit_gt_labels" },
-    "gt_kakao":      { "label": "Kakao 정규명(GT)",  "cols": ["gt_kakao"], "step": "gt_kakao" },
-    "vlm_caption":   { "label": "VLM 캡션",         "cols": ["vlm_caption"], "step": "vlm_caption", "status": "미구현" }
+    "exif":          { "label": "EXIF coordinates / time", "cols": ["capture_lat", "capture_lon", "timestamp"], "step": "exif", "coverage_metrics": [{ "key": "coordinates", "label": "Has coordinates", "cols": ["capture_lat", "capture_lon"], "require": "all" }, { "key": "timestamp", "label": "Has capture time", "cols": ["timestamp"], "require": "all" }] },
+    "ocr":           { "label": "OCR text", "cols": ["caption_ondevice"], "step": "ocr", "processed_col": "ocr_processed", "result_label": "Text detected" },
+    "geocode":       { "label": "Reverse geocoding", "cols": ["city", "country", "address"], "step": "geocode", "status": "not_implemented" },
+    "mapkit_nearby": { "label": "MapKit nearby candidates", "cols": ["app_poi_rank", "app_nearby_top1", "app_nearby_n_wide", "app_poi_dist_m"], "step": "mapkit_nearby", "processed_col": "mapkit_nearby_processed", "result_label": "Candidates found", "result_rule": "mapkit_candidates" },
+    "gt_mapkit":     { "label": "MapKit canonical name (GT)", "cols": ["gt_mapkit"], "step": "gt_mapkit", "result_rule": "mapkit_gt_labels" },
+    "gt_kakao":      { "label": "Kakao canonical name (GT)", "cols": ["gt_kakao"], "step": "gt_kakao" },
+    "vlm_caption":   { "label": "VLM caption", "cols": ["vlm_caption"], "step": "vlm_caption", "status": "not_implemented" }
   },
 
-  "_confidence_note": "신뢰등급은 '채점 시 이 행을 어떻게 다루나'가 달라질 때만 존재. raw gt_confidence(CSV)는 그대로 두고 confidence_rollup으로 4개 캐노니컬 등급에 묶음. 라벨 출처(사용자 구두확인/OCR/추론)는 신뢰등급 아니라 메타데이터라 tiers에서 뺌.",
+  "_confidence_note": "Confidence tiers change how a row is used in scoring. Raw gt_confidence stays in the CSV; confidence_rollup maps it to four canonical tiers. Label provenance is metadata, not a tier.",
   "confidence_tiers": {
-    "user_selected": { "color": "gold",  "order": 1, "desc": "사용자가 확정한 실제 정답(GT). 앱에서 직접 선택했거나 구두로 확인해준 장소. 헤드라인 매치율은 이 등급으로만 계산." },
-    "confident":     { "color": "green", "order": 2, "desc": "우리가 신뢰하는 정답을 보유한 행(강한 콘텐츠 증거·합성 명명·맥락 추론). 사용자 확정은 아니라 회귀 앵커로만 사용, 헤드라인 지표엔 미포함." },
-    "non_poi":       { "color": "ink3",  "order": 3, "desc": "애초에 POI가 아님(기내·이동 중 등). 정답은 '거절'. 모델 환각(hallucination) 측정용." },
-    "unresolved":    { "color": "red",   "order": 4, "desc": "정답을 하나로 확정 불가(미확인·후보 상충). 밴쿠버 미확인 카페 등 '아무도 못 푸는' 하드 케이스." }
+    "user_selected": { "color": "gold",  "order": 1, "desc": "User-confirmed ground truth (in-app selection or verbal confirm). Headline match rate uses this tier only." },
+    "confident":     { "color": "green", "order": 2, "desc": "Trusted labels we hold (strong content evidence, synthetic naming, context). Not user-confirmed; regression anchors only, not headline metrics." },
+    "non_poi":       { "color": "ink3",  "order": 3, "desc": "Not a POI (in-flight, transit, etc.). Correct action is reject. Used to measure model hallucination." },
+    "unresolved":    { "color": "red",   "order": 4, "desc": "Cannot pin a single GT (unconfirmed or conflicting candidates). Hard cases no one can fully resolve." }
   },
   "confidence_rollup": {
     "user_selected": "user_selected",
@@ -55,43 +55,43 @@
   },
 
   "roles": {
-    "in": { "label": "입력신호", "tag": "t-in" },
-    "gt": { "label": "정답",     "tag": "t-gt" },
-    "bl": { "label": "베이스라인", "tag": "t-bl" },
-    "mt": { "label": "메타",     "tag": "t-mt" }
+    "in": { "label": "Input signal", "tag": "t-in" },
+    "gt": { "label": "Ground truth", "tag": "t-gt" },
+    "bl": { "label": "Baseline", "tag": "t-bl" },
+    "mt": { "label": "Metadata", "tag": "t-mt" }
   },
 
   "schema_groups": [
-    { "group": "capture_lat/lon", "role": "in", "cols": ["capture_lat", "capture_lon"], "desc": "사진 EXIF GPS 좌표. 모든 행에 존재." },
-    { "group": "caption_ondevice", "role": "in", "cols": ["caption_ondevice"], "desc": "Vision OCR로 뽑은 사진 속 텍스트. linkedspaces OCR은 <b>머지 대기</b>." },
-    { "group": "photo_url / photo", "role": "in", "cols": ["photo", "photo_url"], "desc": "S3 URL + 로컬 파일명. FastVLM·OCR 입력." },
-    { "group": "timestamp", "role": "in", "cols": ["timestamp"], "desc": "촬영 시각. 우리 세트만 보존, export엔 없음." },
-    { "group": "input_place_name", "role": "in", "cols": ["input_place_name"], "desc": "사용자 원본 입력(정답 후보) — provider 정규화 전 raw 문자열." },
-    { "group": "gt_mapkit", "role": "gt", "cols": ["gt_mapkit"], "desc": "MapKit 정규 정답명(비한국 행) = <b>채점 기준</b>. MapKit 재조회로 채움(비면 input_place_name 폴백)." },
-    { "group": "gt_kakao", "role": "gt", "cols": ["gt_kakao"], "desc": "Kakao 정규 정답명(한국 행) = <b>채점 기준</b>. Kakao 데이터 확보 전까지 홀드아웃(현재 전부 빈 상태)." },
-    { "group": "gt_confidence", "role": "gt", "cols": ["gt_confidence"], "desc": "라벨 신뢰 등급(섹션1)." },
-    { "group": "category", "role": "gt", "cols": ["category"], "desc": "POI 타입. 실패 유형 분류에 사용." },
-    { "group": "city / country / address", "role": "gt", "cols": ["city", "country", "address"], "desc": "export가 제공한 역지오코딩 문자열." },
-    { "group": "app_poi_rank", "role": "bl", "cols": ["app_poi_rank"], "desc": "현재 앱(MapKit) 검색 시 정답 순위. <b>190행 추출됐으나 CSV 머지 대기</b>." },
-    { "group": "app_nearby_top1", "role": "bl", "cols": ["app_nearby_top1"], "desc": "MapKit 250m 반경 최근접 1위 결과." },
-    { "group": "app_nearby_n_wide", "role": "bl", "cols": ["app_nearby_n_wide"], "desc": "MapKit 반경 내 후보 수(wide)." },
-    { "group": "app_poi_dist_m", "role": "bl", "cols": ["app_poi_dist_m"], "desc": "매칭된 POI까지 거리(m)." },
-    { "group": "baseline_place_title", "role": "bl", "cols": ["baseline_place_title"], "desc": "앱이 실제로 붙였을 제목(예: \"Near Downtown\")." },
-    { "group": "poi_match_keyword", "role": "bl", "cols": ["poi_match_keyword"], "desc": "정답을 MapKit 결과에서 찾을 매칭 키워드 (예: Safeway)." },
-    { "group": "poi_list_match", "role": "bl", "cols": ["poi_list_match"], "desc": "정답 매칭 상세·주석 (예: Safeway | 1790 Decoto…, n/a in-flight). 일부 행만." },
-    { "group": "dataset / notes / username", "role": "mt", "cols": ["dataset", "notes", "username"], "desc": "출처·작성자·수기 메모." },
-    { "group": "ocr_processed / mapkit_nearby_processed", "role": "mt", "cols": ["ocr_processed", "mapkit_nearby_processed"], "desc": "OCR 및 MapKit 조회의 처리 완료 상태. 결과 검출 여부와 별도로 유지." },
-    { "group": "caption_oracle", "role": "mt", "cols": ["caption_oracle"], "desc": "<s>강한 비전모델 캡션</s> — 순환참조라 <b>전량 삭제</b>(의도적 0%)." }
+    { "group": "capture_lat/lon", "role": "in", "cols": ["capture_lat", "capture_lon"], "desc": "EXIF GPS coordinates. Present on every row." },
+    { "group": "caption_ondevice", "role": "in", "cols": ["caption_ondevice"], "desc": "On-device Vision OCR text from the photo." },
+    { "group": "photo_url / photo", "role": "in", "cols": ["photo", "photo_url"], "desc": "S3 URL + local filename. Inputs for FastVLM and OCR." },
+    { "group": "timestamp", "role": "in", "cols": ["timestamp"], "desc": "Capture time. Kept in our set; may be missing in some exports." },
+    { "group": "input_place_name", "role": "in", "cols": ["input_place_name"], "desc": "User raw input (pre-provider normalization)." },
+    { "group": "gt_mapkit", "role": "gt", "cols": ["gt_mapkit"], "desc": "MapKit canonical GT for non-Korea rows = <b>scoring reference</b>." },
+    { "group": "gt_kakao", "role": "gt", "cols": ["gt_kakao"], "desc": "Kakao canonical GT for Korea rows = <b>scoring reference</b> (holdout until Kakao data is available)." },
+    { "group": "gt_confidence", "role": "gt", "cols": ["gt_confidence"], "desc": "Label confidence tier (see confidence_tiers)." },
+    { "group": "category", "role": "gt", "cols": ["category"], "desc": "POI type. Used for failure taxonomy." },
+    { "group": "city / country / address", "role": "gt", "cols": ["city", "country", "address"], "desc": "Reverse-geocode strings from the export." },
+    { "group": "app_poi_rank", "role": "bl", "cols": ["app_poi_rank"], "desc": "Rank of the GT in the current MapKit search results." },
+    { "group": "app_nearby_top1", "role": "bl", "cols": ["app_nearby_top1"], "desc": "Nearest MapKit result within ~250 m." },
+    { "group": "app_nearby_n_wide", "role": "bl", "cols": ["app_nearby_n_wide"], "desc": "Candidate count in the wide MapKit radius." },
+    { "group": "app_poi_dist_m", "role": "bl", "cols": ["app_poi_dist_m"], "desc": "Distance (m) to the matched POI." },
+    { "group": "baseline_place_title", "role": "bl", "cols": ["baseline_place_title"], "desc": "Title the app would have shown (e.g. \"Near Downtown\")." },
+    { "group": "poi_match_keyword", "role": "bl", "cols": ["poi_match_keyword"], "desc": "Keyword used to find the GT in MapKit results (e.g. Safeway)." },
+    { "group": "poi_list_match", "role": "bl", "cols": ["poi_list_match"], "desc": "Match detail / notes (sparse)." },
+    { "group": "dataset / notes / username", "role": "mt", "cols": ["dataset", "notes", "username"], "desc": "Source, author, free-form notes." },
+    { "group": "ocr_processed / mapkit_nearby_processed", "role": "mt", "cols": ["ocr_processed", "mapkit_nearby_processed"], "desc": "Processing completion flags (separate from detection)." },
+    { "group": "caption_oracle", "role": "mt", "cols": ["caption_oracle"], "desc": "<s>Strong vision captions</s> — removed (circular; intentional 0%)." }
   ],
 
   "pipeline": [
-    { "label": "GPS 좌표",          "kind": "column", "column": "capture_lat" },
-    { "label": "사진 다운로드+변환",  "kind": "column", "column": "photo" },
-    { "label": "입력 장소명",        "kind": "column", "column": "input_place_name" },
-    { "label": "Vision OCR",       "kind": "ocr" },
-    { "label": "MapKit 베이스라인",  "kind": "baseline" },
-    { "label": "MapKit 정규명(GT)",  "kind": "column", "column": "gt_mapkit" },
-    { "label": "온디바이스 LLM (v2)", "kind": "tsv", "file": "ai_ocr_v2.tsv" },
-    { "label": "FastVLM (이미지)",   "kind": "file_exists", "file": "fastvlm_results.tsv", "detail_wait": "셋업·스모크" }
+    { "label": "GPS coordinates", "kind": "column", "column": "capture_lat" },
+    { "label": "Photo download + convert", "kind": "column", "column": "photo" },
+    { "label": "Input place name", "kind": "column", "column": "input_place_name" },
+    { "label": "Vision OCR", "kind": "ocr" },
+    { "label": "MapKit baseline", "kind": "baseline" },
+    { "label": "MapKit canonical name (GT)", "kind": "column", "column": "gt_mapkit" },
+    { "label": "On-device LLM (v2)", "kind": "tsv", "file": "ai_ocr_v2.tsv" },
+    { "label": "FastVLM (image)", "kind": "file_exists", "file": "fastvlm_results.tsv", "detail_wait": "setup / smoke" }
   ]
 }

@@ -208,7 +208,7 @@ def main() -> int:
             live.setdefault("sources", {})[slug] = {
                 "label": slug, "color": "cyan", "owner": "upload",
                 "source_type": "upload", "default_confidence": default_conf,
-                "photo_dir": photo_dir, "desc": f"업로드 데이터셋 {slug}",
+                "photo_dir": photo_dir, "desc": f"Uploaded dataset {slug}",
             }
             os.makedirs(data_dir, exist_ok=True)
             with open(tmp_cfg, "w", encoding="utf-8") as f:
@@ -247,7 +247,7 @@ def main() -> int:
              "photos_copied": photos_copied, "photos_missing": photos_missing,
              "photo_dir": photo_dir, "config_source_added": config_source_added,
              "backup": backup,
-             "note": "좌표(EXIF)·OCR·MapKit·GT는 비어 있음 — 재실행 잡으로 채우세요"})
+             "note": "Coordinates (EXIF), OCR, MapKit, and GT start empty — fill them with rerun jobs"})
     return 0
 
 

@@ -2,7 +2,7 @@
 
 This is the trivial "just pick the closest point of interest" algorithm. Its
 identification accuracy is the natural floor every real algorithm should beat,
-and it makes the 식별 정확도 (identification-accuracy) chart show a real bar
+and it makes the identification-accuracy chart show a real bar
 before any custom algorithm is submitted.
 
 Contract: define predict(case) -> str (the predicted place name), or "" to
