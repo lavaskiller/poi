@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MVP — POI Evaluation</title>
+<style>
+  :root{
+    --bg:#050A30; --bg2:#080E38; --card:#101744; --card2:#0c123a;
+    --ink:#eef3ff; --ink2:#aeb9e6; --ink3:#7683b8; --line:rgba(255,255,255,.09);
+    --blue:#3B82F6; --cyan:#38E0D0; --gold:#F5C451; --green:#5FD37B;
+    --pink:#FF5C87; --violet:#8B62FF; --orange:#FF9F45; --red:#FF6B5C;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,var(--bg),var(--bg2) 60%,#05082a);color:var(--ink);font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1060px;margin:0 auto;padding:30px 24px 80px}
+  h1{font-size:24px;margin:0 0 4px;font-weight:700;letter-spacing:-.02em}
+  .sub{color:var(--ink3);font-size:13px;font-family:var(--mono);margin:0 0 18px}
+  .apphead{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:18px}
+  .headtools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .langswitch{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card2)}
+  .langswitch button{border:0;background:transparent;color:var(--ink3);font:11px var(--mono);padding:7px 9px;cursor:pointer}
+  .langswitch button.on{background:var(--blue);color:#04122a;font-weight:700}
+  .health{display:flex;align-items:center;gap:8px;color:var(--ink2);font:12px var(--mono);padding:7px 10px;background:var(--card2);border:1px solid var(--line);border-radius:8px}
+  .health::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--orange)}
+  .health.ok::before{background:var(--green)} .health.err::before{background:var(--red)}
+  .apierror{display:none;background:rgba(255,107,92,.1);border:1px solid rgba(255,107,92,.45);color:#ffc0ba;border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:13px}
+  .apierror.on{display:flex;justify-content:space-between;gap:16px;align-items:center}
+  .apierror button{background:none;border:1px solid rgba(255,255,255,.2);color:inherit;border-radius:6px;padding:4px 8px;cursor:pointer}
+  /* tabs */
+  .tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);margin-bottom:24px}
+  .tabs button{background:none;border:none;border-bottom:2px solid transparent;color:var(--ink3);padding:11px 16px;font-size:14px;cursor:pointer;font-family:var(--sans)}
+  .tabs button.on{color:var(--ink);border-bottom-color:var(--blue);font-weight:650}
+  .view{display:none} .view.on{display:block}
+  /* shared */
+  h2{font-size:12px;font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);border-bottom:1px solid var(--line);padding-bottom:9px;margin:30px 0 16px;font-weight:600}
+  h2:first-child{margin-top:6px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px}
+  .note{background:var(--card2);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:10px;padding:12px 14px;color:var(--ink2);font-size:12.5px;margin-top:14px}
+  .note b{color:var(--ink)}
+  .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(59,130,246,.45);background:rgba(59,130,246,.12);color:var(--ink);border-radius:9px;padding:7px 10px;text-decoration:none;font-size:12px;font-weight:650}
+  .btn:hover{background:rgba(59,130,246,.22)}
+  .bars{display:flex;flex-direction:column;gap:8px}
+  .bar{display:grid;grid-template-columns:150px 1fr 44px;align-items:center;gap:10px;font-size:13px}
+  .bar .lbl{color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar .track{height:14px;background:rgba(255,255,255,.05);border-radius:7px;overflow:hidden}
+  .bar .fill{height:100%;border-radius:7px}
+  .bar .v{font-family:var(--mono);font-size:12px;text-align:right}
+  /* ===== OVERVIEW ===== */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:8px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:15px}
+  .kpi .n{font-size:26px;font-weight:700} .kpi .l{color:var(--ink3);font-size:12px;margin-top:2px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .srccard{display:flex;flex-direction:column;gap:10px}
+  .src{display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:center;font-size:13px}
+  .src .dot{width:12px;height:12px;border-radius:3px}
+  .src .prov{color:var(--ink3);font-size:11.5px;font-family:var(--mono)}
+  .src b{font-family:var(--mono)}
+  .pipe{display:flex;flex-direction:column;gap:9px}
+  .pl{display:grid;grid-template-columns:120px 1fr 60px;align-items:center;gap:10px;font-size:12.5px}
+  .pl .lbl{color:var(--ink2)} .pl .track{height:16px;background:rgba(255,255,255,.05);border-radius:7px;display:flex;overflow:hidden}
+  .pl .seg{height:100%} .pl .st{font-family:var(--mono);font-size:11px;text-align:right}
+  .done{color:var(--green)} .run{color:var(--orange)} .wait{color:var(--ink3)}
+  /* ===== EVAL ===== */
+  .controls{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  .ctl{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink2)}
+  select{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-family:var(--mono);font-size:13px}
+  .toggle{display:inline-flex;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .toggle button{background:none;border:none;color:var(--ink3);padding:7px 14px;font-family:var(--mono);font-size:12.5px;cursor:pointer}
+  .toggle button.on{background:var(--blue);color:#04122a;font-weight:700}
+  .meta{color:var(--ink3);font-size:12px;font-family:var(--mono);margin:10px 0 18px}
+  .meta b{color:var(--ink2)}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:10px}
+  .rc{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:15px 17px}
+  .rc .k{font-family:var(--mono);font-size:11.5px;color:var(--ink3)}
+  .rc .pct{font-size:28px;font-weight:700;margin-top:4px} .rc .cnt{font-family:var(--mono);font-size:12px;color:var(--ink2)}
+  .rc.r1 .pct{color:var(--green)} .rc.t3 .pct{color:var(--cyan)} .rc.t5 .pct{color:var(--blue)} .rc.miss .pct{color:var(--red)}
+  .flip{font-family:var(--mono);font-size:12.5px;color:var(--gold);margin:2px 0 26px} .flip.hidden{visibility:hidden}
+  .chartwrap{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
+  .legend{display:flex;flex-direction:column;gap:9px;font-size:13px}
+  .lg{display:flex;align-items:center;gap:9px;color:var(--ink2)} .lg .sw{width:22px;height:3px;border-radius:2px} .lg .soon{font-size:11px;color:var(--ink3);font-family:var(--mono)}
+  .fgwrap{display:grid;grid-template-columns:320px 1fr;gap:18px}
+  .fb{display:grid;grid-template-columns:130px 1fr 28px;gap:9px;align-items:center;font-size:12.5px;cursor:pointer;padding:4px;border-radius:8px}
+  .fb:hover,.fb.sel{background:var(--card2)} .fb .track{height:12px;background:rgba(255,255,255,.05);border-radius:6px;overflow:hidden}
+  .fb .fill{height:100%;background:var(--orange);border-radius:6px} .fb .v{font-family:var(--mono);font-size:12px;text-align:right;color:var(--ink2)}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
+  .tile{border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+  .tile .img{height:66px;display:flex;align-items:flex-end}.tile .badge{font-size:10px;padding:2px 6px;margin:5px;border-radius:5px;background:rgba(0,0,0,.5)}
+  .tile .cap{padding:6px 8px;font-size:11px} .tile .gt{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tile .rk{font-family:var(--mono);font-size:10px} .ok{color:var(--green)} .bad{color:var(--red)} .neutral{color:var(--ink3)}
+  /* ===== ADD DATASET ===== */
+  .steps{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;align-items:stretch}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;position:relative}
+  .step .num{font-family:var(--mono);font-size:11px;color:var(--blue);letter-spacing:.05em}
+  .step h3{margin:5px 0 10px;font-size:15px}
+  .step .who{font-size:11px;font-family:var(--mono);padding:2px 7px;border-radius:5px;display:inline-block;margin-bottom:10px}
+  .who.human{background:rgba(245,196,81,.15);color:var(--gold)} .who.tool{background:rgba(95,211,123,.15);color:var(--green)}
+  .step ul{margin:0;padding-left:16px;font-size:12.5px;color:var(--ink2)} .step li{margin-bottom:5px}
+  .step code{font-family:var(--mono);font-size:11.5px;color:var(--cyan)}
+  .arrow{position:absolute;right:-11px;top:50%;transform:translateY(-50%);color:var(--ink3);font-size:18px;z-index:2}
+  .req{color:var(--gold)} .opt{color:var(--ink3)}
+  .cli{background:#0a1140;border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-family:var(--mono);font-size:12.5px;color:var(--cyan);margin-top:16px;overflow-x:auto}
+  .cli .c{color:var(--ink3)}
+  .flagrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .flag{font-family:var(--mono);font-size:11.5px;padding:5px 10px;border-radius:7px;background:rgba(255,107,92,.12);border:1px solid rgba(255,107,92,.3);color:#ffb3aa}
+  /* ===== RUN ===== */
+  .field{margin-bottom:14px}
+  .field .fl{display:block;font-size:11.5px;color:var(--ink3);font-family:var(--mono);margin-bottom:6px;letter-spacing:.04em}
+  input[type=text]{background:var(--card2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-family:var(--mono);font-size:13px;width:280px}
+  .run-settings-grid{display:grid;grid-template-columns:minmax(240px,1fr) minmax(220px,.8fr);gap:18px 28px}.run-settings-grid .field{margin:0}.run-name-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.run-name-row input{min-width:240px;flex:1}.dataset-picks{display:flex;gap:8px;flex-wrap:wrap}.dataset-pick{display:flex;gap:7px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card2);font:12px var(--mono);cursor:pointer}.dataset-pick:has(input:checked){border-color:rgba(56,224,208,.6);background:rgba(56,224,208,.08);color:var(--cyan)}.gt-scope{grid-column:1/-1;border-top:1px solid var(--line);padding-top:14px}.gt-cards{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:8px}.gt-card{padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--card2)}.gt-card-head{display:flex;justify-content:space-between;gap:12px;font:12px var(--mono)}.gt-card strong{color:var(--cyan);font-size:15px}.gt-card small{display:block;color:var(--ink3);margin-top:5px;font:10.5px var(--mono)}.scope-total{margin-top:9px;color:var(--ink2);font:11.5px var(--mono)}@media(max-width:720px){.run-settings-grid,.gt-cards{grid-template-columns:1fr}.gt-scope{grid-column:auto}}
+  .ver{font-family:var(--mono);font-size:12px;color:var(--ink2);margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .ver .bg{color:var(--gold)}
+  .params{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .param{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--ink2);background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;cursor:pointer}
+  .param input{accent-color:var(--blue);width:15px;height:15px}
+  .param .pk{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  .param .fl2{margin-left:auto;font-size:10px;font-family:var(--mono);color:var(--orange)}
+  .sig{font-family:var(--mono);font-size:11.5px;color:var(--cyan);background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:8px 11px;margin-bottom:10px;word-break:break-all}
+  .plist{display:flex;flex-direction:column;gap:6px}
+  .input-builder{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.9fr);gap:14px;align-items:start}.input-picker,.input-preview{min-width:0}.input-toolbar,.preview-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}.input-actions{display:flex;gap:6px;flex-wrap:wrap}.mini-btn{border:1px solid var(--line);border-radius:6px;background:var(--card2);color:var(--ink2);padding:5px 8px;font:10.5px var(--mono);cursor:pointer}.mini-btn:hover{border-color:var(--blue);color:var(--ink)}.mini-btn:active{transform:translateY(1px)}.selected-count{font:11px var(--mono);color:var(--cyan);white-space:nowrap}.input-preview{position:sticky;top:14px;border-left:1px solid var(--line);padding-left:14px}.preview-title{font:11px var(--mono);color:var(--ink2);text-transform:uppercase;letter-spacing:.08em}.preview-summary{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px}.preview-chip{padding:4px 7px;border-radius:5px;background:rgba(56,224,208,.08);color:var(--cyan);font:10.5px var(--mono)}.preview-empty{color:var(--ink3);font:11.5px var(--mono)}
+  .prow{display:grid;grid-template-columns:18px minmax(110px,.7fr) minmax(120px,.8fr) minmax(180px,1.4fr);gap:10px;align-items:center;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:13px;cursor:pointer;transition:border-color .15s,background .15s}
+  .prow.on{border-color:rgba(56,224,208,.45);background:rgba(56,224,208,.045)}.prow:not(.on){opacity:.72}.prow:focus-within{outline:1px solid var(--blue);outline-offset:1px}
+  .prow .nm{color:var(--ink2)} .prow .warn2{color:var(--orange);font-size:11px}
+  .prow .pk{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+  .prow .m{font-family:var(--mono);font-size:11px;color:var(--cyan)}
+  .prow select{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:4px 7px;font-family:var(--mono);font-size:11px;max-width:100%}
+  .mcell{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}
+  .topk{border-color:rgba(59,130,246,.5)!important;color:var(--cyan)!important}
+  .prow input{accent-color:var(--blue);width:15px;height:15px}
+  @media(max-width:900px){.input-builder{grid-template-columns:1fr}.input-preview{position:static;border-left:0;border-top:1px solid var(--line);padding:14px 0 0}.prow{grid-template-columns:18px minmax(100px,.7fr) minmax(110px,.8fr) minmax(160px,1.2fr)}}
+  @media(max-width:620px){.prow{grid-template-columns:18px 1fr}.prow .pk,.prow .mcell{grid-column:2}.input-toolbar{align-items:flex-start;flex-direction:column}.input-actions{width:100%}}
+  #prov .pv{color:var(--ink);display:block} #prov .mm{color:var(--cyan)}
+  /* ===== CASE ANALYSIS ===== */
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+  .chip{font-family:var(--mono);font-size:12px;padding:6px 12px;border-radius:20px;border:1px solid var(--line);background:var(--card2);color:var(--ink2);cursor:pointer}
+  .chip.on{background:var(--blue);color:#04122a;font-weight:700;border-color:var(--blue)}
+  .chip .c{opacity:.65;margin-left:5px}
+  .caselayout{display:grid;grid-template-columns:290px 1fr;gap:16px}
+  .caselist{max-height:560px;overflow-y:auto;display:flex;flex-direction:column;gap:7px;padding-right:6px}
+  .ci{display:grid;grid-template-columns:44px 1fr auto;gap:9px;align-items:center;background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:6px;cursor:pointer}
+  .ci.sel{outline:1.5px solid var(--blue)}
+  .ci img{width:44px;height:44px;object-fit:cover;border-radius:6px;background:#0c123a}
+  .ci .g{font-size:12px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ci .oc{font-family:var(--mono);font-size:9px;padding:2px 5px;border-radius:4px;white-space:nowrap}
+  .oc.correct{background:rgba(95,211,123,.18);color:var(--green)}
+  .oc.selection{background:rgba(255,159,69,.18);color:var(--orange)}
+  .oc.retrieval{background:rgba(255,107,92,.18);color:var(--red)}
+  .oc.non_poi,.oc.deferred,.oc.no_gt,.oc.other{background:rgba(118,131,184,.18);color:var(--ink3)}
+  .cd{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:16px;min-height:420px;font-size:13px}
+  .cd img{width:100%;max-height:230px;object-fit:cover;border-radius:10px;margin-bottom:12px;background:#0c123a}
+  .cd .drow{display:flex;gap:10px;margin-bottom:7px}
+  .cd .lab{color:var(--ink3);font-family:var(--mono);font-size:11px;width:78px;flex:none;padding-top:2px}
+  .cd .val{color:var(--ink);word-break:break-word} .cd .val.gt{color:var(--gold);font-weight:600}
+  .cd .expl{border-radius:8px;padding:10px 12px;font-size:12.5px;margin:8px 0 12px;border:1px solid var(--line)}
+  .cand{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-radius:7px;background:var(--card);border:1px solid var(--line);margin-bottom:5px;font-size:12.5px}
+  .cand.isgt{border-color:var(--green);background:rgba(95,211,123,.09)}
+  .cand.ispick{border-color:var(--orange)}
+  .cand .tg{font-family:var(--mono);font-size:9.5px;padding:2px 6px;border-radius:4px;margin-left:8px}
+  /* ===== ROW STRUCTURE ===== */
+  .rst{width:100%;border-collapse:collapse;font-size:12.5px}
+  .rst th,.rst td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .rst th{color:var(--ink3);font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
+  .rst .nm3{color:var(--ink)} .rst .m3{font-family:var(--mono);font-size:11px;color:var(--cyan)}
+  .rst .rl{font-family:var(--mono);font-size:11px}
+  .rst .fb2{display:flex;align-items:center;gap:8px}
+  .rst .mt2{width:80px;height:7px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}
+  .rst .mf2{height:100%;border-radius:4px} .rst .mp2{font-family:var(--mono);font-size:11px;color:var(--ink2);width:34px}
+  /* Dataset signal status: consistent hierarchy for processing and detection. */
+  .dataset-table th:nth-child(1){width:19%}.dataset-table th:nth-child(2){width:8%}.dataset-table th:nth-child(3){width:65%}
+  .dataset-signals{display:grid}.signal-status{display:grid;grid-template-columns:130px minmax(0,1fr);gap:12px;align-items:center;padding:9px 0}
+  .signal-status+.signal-status{border-top:1px solid rgba(255,255,255,.065)}.signal-title{color:var(--ink2);font-size:12px;line-height:1.35}
+  .signal-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.signal-metrics.single{grid-template-columns:minmax(0,1fr)}.signal-metric{min-width:0}
+  .signal-metric-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px}.signal-metric-label{color:var(--ink3);font-size:10.5px;white-space:nowrap}
+  .signal-metric-value{display:flex;align-items:baseline;gap:7px;white-space:nowrap;font-family:var(--mono)}.signal-metric-count{color:var(--ink3);font-size:10px}.signal-metric-pct{color:var(--ink);font-size:12px;font-weight:650;min-width:35px;text-align:right}
+  .signal-track{height:4px;background:rgba(255,255,255,.065);border-radius:2px;overflow:hidden}.signal-fill{height:100%;border-radius:2px;background:var(--cyan)}.signal-metric.processed .signal-fill{background:var(--green)}.signal-metric.empty .signal-fill{background:var(--ink3)}
+  .gt-breakdown{min-width:0}.gt-stacked-track{display:flex;height:7px;margin-bottom:7px;background:rgba(255,255,255,.065);border-radius:4px;overflow:hidden}.gt-segment{height:100%}.gt-segment.canonical,.gt-label-item.canonical i{background:var(--green)}.gt-segment.similar,.gt-label-item.similar i{background:var(--cyan)}.gt-segment.not_found,.gt-label-item.not_found i{background:var(--orange)}
+  .gt-label-legend{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.gt-label-item{display:grid;grid-template-columns:7px minmax(0,1fr) auto;align-items:center;gap:5px;color:var(--ink3);font-size:10.5px;min-width:0}.gt-label-item i{width:7px;height:7px;border-radius:2px}.gt-label-item b{color:var(--ink);font:650 12px var(--mono)}.gt-label-item small{grid-column:2/4;color:var(--ink3);font:9.5px var(--mono)}.gt-excluded{display:block;margin-top:5px;color:var(--ink3);font:9.5px var(--mono);text-align:right}
+  .signal-unavailable{color:var(--ink3);font:11px var(--mono);text-align:right}
+  .fieldprofile{display:none;margin-top:12px;padding:14px;border:1px solid rgba(86,200,255,.28);border-radius:8px;background:rgba(86,200,255,.035);font-size:12px;color:var(--ink2)}
+  .fieldprofile.on{display:block}.fieldprofile h3{margin:0 0 10px;color:var(--ink);font-size:14px}.fieldprofile h4{margin:14px 0 7px;font:11px var(--mono);color:var(--cyan)}
+  .fieldprofile-row td{padding:0 0 12px;border-bottom:1px solid rgba(86,200,255,.18)}.fieldprofile-row .fieldprofile{display:block;margin-top:0}.fieldprofile-row section+section{border-top:1px solid rgba(255,255,255,.08);margin-top:14px;padding-top:14px}.profile-summary{display:flex;gap:16px;align-items:center;flex-wrap:wrap}.profile-completeness{width:96px;height:96px;flex:0 0 96px}.profile-completeness circle{fill:none;stroke-width:9}.profile-completeness .base{stroke:rgba(255,255,255,.09)}.profile-completeness .value{stroke:var(--cyan);stroke-linecap:round}.profile-completeness text{fill:var(--ink);font:700 16px var(--mono)}.profile-overview{display:grid;gap:3px}.profile-overview b{color:var(--ink);font:600 13px var(--mono)}.profile-histogram{height:105px;display:flex;gap:4px;align-items:end;border-bottom:1px solid rgba(255,255,255,.14);padding:6px 3px 0}.profile-hist-bin{min-width:0;flex:1;height:100%;display:flex;align-items:end;position:relative}.profile-hist-bin i{display:block;width:100%;background:linear-gradient(180deg,var(--cyan),rgba(86,200,255,.35));border-radius:3px 3px 0 0}.profile-hist-bin span{position:absolute;bottom:-20px;left:50%;transform:translateX(-50%);white-space:nowrap;font:9px var(--mono);color:var(--ink3)}.profile-chart-label{display:flex;justify-content:space-between;margin-top:24px;color:var(--ink3);font:10px var(--mono)}.profile-bars .profile-bar{grid-template-columns:minmax(90px,200px) 1fr 32px}.profile-bars{max-width:760px}.profile-empty{color:var(--ink3);padding:10px 0}.field-detail-trigger{margin-left:5px;padding:1px 5px;border:0;border-radius:3px;background:transparent;color:var(--ink3);font:11px var(--mono);cursor:pointer}.field-detail-trigger:hover,.field-detail-trigger:focus{background:rgba(86,200,255,.12);color:var(--cyan);outline:none}
+  .rst tr[data-group]{cursor:pointer}.rst tr[data-group]:hover td,.rst tr[data-group]:focus td,.rst tr[data-group].selected td{background:rgba(86,200,255,.06)}.rst tr[data-group]:focus{outline:none}.rst tr[data-group]:focus-visible{outline:1px solid var(--cyan);outline-offset:-1px}
+  .profile-stats{display:flex;flex-wrap:wrap;gap:7px}.profile-stat{padding:5px 7px;background:rgba(255,255,255,.045);border-radius:4px;font-family:var(--mono);font-size:11px}.profile-stat b{color:var(--ink)}
+  .profile-bars{display:grid;gap:4px}.profile-bar{display:grid;grid-template-columns:minmax(80px,1fr) minmax(70px,2fr) 34px;gap:7px;align-items:center;font:11px var(--mono)}.profile-bar .track{height:6px}.profile-samples{margin:0;padding-left:18px;display:grid;gap:4px;font:11px var(--mono);color:var(--ink2);word-break:break-word}
+  .profile-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:14px}.profile-metric{display:grid;gap:2px;padding:10px;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:7px}.profile-metric b{font:650 15px var(--mono);color:var(--ink)}.profile-metric span{font-size:11px;color:var(--ink2)}.profile-metric small{font:10px var(--mono);color:var(--cyan)}.profile-split{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(220px,.6fr);gap:24px}.profile-examples{display:grid;gap:8px}.profile-example{display:grid;grid-template-columns:88px minmax(0,1fr);gap:12px;padding:10px;background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:8px}.profile-example>img,.profile-example-placeholder{width:88px;height:76px;border-radius:6px;object-fit:cover;background:#080e38}.profile-example-placeholder{display:grid;place-items:center;color:var(--ink3);font:12px var(--mono)}.profile-example-meta{display:flex;justify-content:space-between;align-items:center;gap:8px}.profile-example-meta b{color:var(--ink);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.profile-quality{padding:2px 6px;border-radius:10px;background:rgba(56,224,208,.1);color:var(--cyan);font:9px var(--mono);white-space:nowrap}.profile-quality.noisy{background:rgba(255,159,69,.12);color:var(--orange)}.profile-example p{margin:5px 0;color:var(--ink2);font-size:11px;line-height:1.45;word-break:break-word}.profile-example small{color:var(--ink3);font:9.5px var(--mono)}.profile-example details{margin-top:5px}.profile-example summary{cursor:pointer;color:var(--cyan);font-size:10px}.profile-example pre{max-height:160px;overflow:auto;white-space:pre-wrap;word-break:break-word;color:var(--ink2);font:10px/1.5 var(--mono)}.profile-geo{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 12px;margin-bottom:12px;background:rgba(56,224,208,.06);border-radius:7px}.profile-geo b{color:var(--ink)}.profile-geo span{font:12px var(--mono);color:var(--cyan)}.profile-geo small{color:var(--ink3);font:10px var(--mono)}.profile-other{margin-top:6px;color:var(--ink3);font:10px var(--mono)}
+  .editor{width:100%;min-height:200px;background:#0a1140;color:#cfe3ff;border:1px solid var(--line);border-radius:10px;padding:14px;font-family:var(--mono);font-size:12.5px;line-height:1.6;resize:vertical;white-space:pre}
+  .loadsnippet{margin:0;background:#0a1140;color:#cfe3ff;border:1px solid var(--line);border-radius:10px;padding:14px;font-family:var(--mono);font-size:12.5px;line-height:1.65;overflow-x:auto;white-space:pre}
+  .filedrop{display:flex;align-items:center;justify-content:center;gap:8px;border:1.5px dashed var(--line);border-radius:10px;padding:24px;cursor:pointer;color:var(--ink2);font-size:13px;background:var(--card2);transition:border-color .2s}
+  .filedrop:hover{border-color:var(--blue)} .filedrop.has{border-color:var(--green);color:var(--green)}
+  .runbar{display:flex;gap:12px;align-items:center;margin-top:14px}
+  .runbtn{background:var(--blue);color:#04122a;border:none;border-radius:9px;padding:10px 22px;font-weight:700;font-size:14px;cursor:pointer;font-family:var(--sans)}
+  .runs{width:100%;border-collapse:collapse;font-size:12.5px}
+  .runs th,.runs td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  .runs th{color:var(--ink3);font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
+  .runs td code{font-family:var(--mono);color:var(--cyan);font-size:11px}
+  .runs td.name{font-family:var(--mono);color:var(--ink)}
+  .stt{font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:5px}
+  .stt.ok{background:rgba(95,211,123,.15);color:var(--green)} .stt.run2{background:rgba(255,159,69,.15);color:var(--orange)}
+  .runmanage{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:14px}
+  .run-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}
+  .run-toolbar input[type=search],.run-toolbar select{padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--card2);color:var(--ink);font:12px var(--mono);min-width:0}
+  .run-toolbar input[type=search]{flex:1 1 160px}
+  .run-toolbar label.chk{display:flex;gap:6px;align-items:center;color:var(--ink2);font-size:12px;white-space:nowrap}
+  .run-toolbar .btn.tiny{padding:5px 8px;font-size:11px}
+  .runrows{max-height:430px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+  .run-group{border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.02);overflow:hidden}
+  .run-group-h{width:100%;display:flex;justify-content:space-between;gap:8px;align-items:center;padding:9px 10px;border:0;background:transparent;color:var(--ink);cursor:pointer;text-align:left;font:12px var(--mono)}
+  .run-group-h:hover{background:rgba(255,255,255,.03)}
+  .run-group-h b{color:var(--ink)}
+  .run-group-h span{color:var(--ink3)}
+  .run-group-body{display:flex;flex-direction:column;gap:6px;padding:0 8px 8px}
+  .run-group.collapsed .run-group-body{display:none}
+  /* Keep expanded rows inside the group: width:100% plus padding otherwise overflows
+     the clipped group container and loses content at the right edge. */
+  .runrow{box-sizing:border-box;width:100%;min-width:0;text-align:left;color:var(--ink);background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:10px;cursor:pointer}
+  .runrow.sel{border-color:var(--blue);box-shadow:0 0 0 1px rgba(59,130,246,.3)}
+  .runrow .rt{display:flex;justify-content:space-between;gap:8px;font:12px var(--mono)}
+  .runrow .rm{min-width:0;margin-top:4px;color:var(--ink3);font:11px var(--mono);overflow-wrap:anywhere}
+  .run-virtual-spacer{flex:0 0 auto;width:100%;pointer-events:none}
+  .compare{display:flex;gap:8px;align-items:center;margin:0 0 10px;color:var(--ink2);font-size:12px}
+  .compare input{accent-color:var(--blue)}
+  .compare-tray{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px;padding:8px;border:1px dashed var(--line);border-radius:9px;background:rgba(59,130,246,.05);min-height:40px}
+  .compare-tray .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;border:1px solid rgba(59,130,246,.35);background:rgba(59,130,246,.12);color:var(--ink);font:11px var(--mono)}
+  .compare-tray .chip button{border:0;background:transparent;color:var(--ink2);cursor:pointer;font:11px var(--mono);padding:0}
+  .compare-tray .empty{color:var(--ink3);font-size:11.5px}
+  .compare-tray .actions{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .compare-warning{display:none;margin:8px 0 12px;padding:9px 11px;border:1px solid rgba(255,159,69,.35);border-radius:8px;background:rgba(255,159,69,.08);color:var(--orange);font-size:11.5px;line-height:1.45}
+  .compare-warning.on{display:block}
+  .compare-table-wrap{overflow:auto;margin:10px 0 12px;border:1px solid var(--line);border-radius:9px}
+  .compare-table{width:100%;border-collapse:collapse;font:11.5px var(--mono);min-width:720px}
+  .compare-table th,.compare-table td{padding:8px 9px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+  .compare-table th{color:var(--ink3);font-weight:600;background:rgba(255,255,255,.03);position:sticky;top:0}
+  .compare-table td.num{text-align:right}
+  .compare-table .delta-up{color:var(--green)}
+  .compare-table .delta-down{color:var(--pink)}
+  .compare-table .delta-same{color:var(--ink3)}
+  .host-runtime{margin:10px 0;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.03);font:11.5px var(--mono);color:var(--ink2)}
+  .host-runtime b{color:var(--ink)}
+  .host-runtime .note{display:block;margin-top:4px;color:var(--ink3);font:11px var(--sans)}
+  .rundetail{min-height:260px;font-size:12.5px;color:var(--ink2)}
+  .rundetail .dl{display:grid;grid-template-columns:86px 1fr;gap:6px;margin-bottom:7px}.rundetail .dl b{color:var(--ink3);font:11px var(--mono)}
+  .outcomes{display:flex;height:13px;border-radius:7px;overflow:hidden;background:rgba(255,255,255,.06);margin:9px 0}.outcomes span{height:100%}
+  .casefail{max-height:300px;overflow:auto;border-top:1px solid var(--line);margin-top:12px;padding-top:9px}
+  .casefail div{padding:5px 0;border-bottom:1px solid var(--line);font:11px var(--mono)}
+  .casefail .failrow{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:9px;align-items:start;padding:9px 0}
+  .casefail .failthumb{width:52px;height:52px;object-fit:cover;border-radius:6px;background:#080e38;border:1px solid var(--line)}
+  .casefail .failtitle{color:var(--ink);font:12px var(--sans);font-weight:650}
+  .casefail .failmeta{display:block;color:var(--ink3);font:10.5px var(--mono);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .casefail .failreason{display:block;color:var(--ink2);font:11px var(--sans);margin-top:3px}
+  .detail-filters{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:12px 0 8px}
+  .detail-filters select{padding:5px 7px;font-size:11px}
+  .pager{display:flex;gap:7px;align-items:center;margin-top:8px;font:11px var(--mono);color:var(--ink3)}
+  .pager button{border:1px solid var(--line);border-radius:5px;background:var(--card);color:var(--ink2);padding:3px 7px;cursor:pointer}
+  .pager button:disabled{opacity:.4;cursor:not-allowed}
+  /* Derived from the selected run, not hand-picked fictional results. */
+  .demoplay{border-top:1px solid var(--line);margin-top:16px;padding-top:13px}.demoplay h3{margin:0 0 4px;color:var(--ink);font-size:13px}.demoplay>p{margin:0 0 10px;color:var(--ink3);font-size:11.5px;line-height:1.45}
+  .demotabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.demotab{border:1px solid var(--line);border-radius:20px;background:var(--card2);color:var(--ink2);padding:5px 9px;font:10.5px var(--mono);cursor:pointer}.demotab.on{background:var(--blue);border-color:var(--blue);color:#04122a;font-weight:700}
+  .democard{display:grid;grid-template-columns:112px minmax(0,1fr);gap:12px;padding:10px;border:1px solid var(--line);border-radius:10px;background:#080e38}.democard>img,.demoph{width:112px;height:142px;object-fit:cover;border-radius:7px;background:var(--card2)}.demoph{display:grid;place-items:center;color:var(--ink3);font:10px var(--mono);text-align:center;padding:8px}
+  .demokicker{font:10px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--cyan)}.demotitle{color:var(--ink);font-size:14px;font-weight:700;margin:4px 0}.demotext{color:var(--ink2);font-size:11.5px;line-height:1.45;margin:0 0 9px}.locationmock{display:flex;align-items:center;justify-content:space-between;gap:7px;padding:8px;border:1px solid rgba(56,224,208,.32);border-radius:7px;background:rgba(56,224,208,.06);font-size:11.5px;color:var(--ink)}.locationmock.bad{border-color:rgba(255,107,92,.45);background:rgba(255,107,92,.08)}.locationmock.none{border-color:rgba(255,159,69,.4);background:rgba(255,159,69,.07)}.locationmock small{color:var(--ink3);display:block;font:9.5px var(--mono);margin-top:2px}.demobtn{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:5px;padding:4px 6px;font:10px var(--mono);white-space:nowrap}.demowarning{margin-top:8px;padding:7px 8px;border-left:2px solid var(--red);background:rgba(255,107,92,.08);color:#ffc0ba;font-size:10.5px;line-height:1.4}
+  @media(max-width:540px){.democard{grid-template-columns:82px minmax(0,1fr)}.democard>img,.demoph{width:82px;height:120px}}
+  .result-toolbar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:0 0 12px}
+  .result-toolbar p{margin:0;color:var(--ink2);font-size:13px;max-width:68ch}
+  .analysis-disclosure{margin-top:18px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+  .analysis-disclosure summary{cursor:pointer;padding:13px 15px;color:var(--ink2);font-size:13px}
+  .analysis-disclosure summary b{color:var(--ink)}
+  .analysis-disclosure .inside{padding:0 16px 16px}
+  .danger{border-color:rgba(255,107,92,.5)!important;background:rgba(255,107,92,.12)!important;color:#ffb3aa!important;cursor:pointer}
+  .modal{display:none;position:fixed;inset:0;z-index:10;background:rgba(1,4,24,.72);padding:24px;align-items:center;justify-content:center}
+  .modal.on{display:flex}.modalbox{width:min(900px,100%);max-height:min(760px,90vh);display:flex;flex-direction:column;background:var(--card);border:1px solid rgba(59,130,246,.55);border-radius:14px;box-shadow:0 22px 70px rgba(0,0,0,.48);padding:16px}
+  .modalhead{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}.modalhead b{font:13px var(--mono);color:var(--ink)}
+  .modalclose{border:1px solid var(--line);background:var(--card2);color:var(--ink2);border-radius:7px;padding:5px 9px;cursor:pointer}
+  .codeview{margin:0;overflow:auto;background:#070d32;border:1px solid var(--line);border-radius:9px;padding:14px;color:#cfe3ff;font:12px/1.65 var(--mono);white-space:pre}
+  footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);color:var(--ink3);font-size:12px;font-family:var(--mono)}
+  @media(max-width:800px){.kpis,.cards{grid-template-columns:repeat(2,1fr)}.grid2,.fgwrap,.steps,.runmanage,.profile-split{grid-template-columns:1fr}.grid{grid-template-columns:repeat(3,1fr)}.arrow{display:none}.dataset-table{min-width:760px}.dataset-table-wrap{overflow-x:auto}.signal-status{grid-template-columns:1fr;gap:5px}.profile-example{grid-template-columns:64px minmax(0,1fr)}.profile-example>img,.profile-example-placeholder{width:64px;height:64px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="apphead"><div><h1>POI Evaluation</h1><p class="sub" data-i18n="appSubtitle">Check data health → run an algorithm → inspect results and failures</p></div><div class="headtools"><div class="langswitch" aria-label="Language"><button data-lang="ko">한국어</button><button data-lang="en" class="on">EN</button></div><div class="health" id="apiHealth">Checking data connection</div></div></header>
+  <div class="apierror" id="apiError" role="alert"><span id="apiErrorText"></span><button id="retryLoad" data-i18n="retry">Retry</button></div>
+
+  <div class="tabs">
+    <button data-t="overview" class="on" data-i18n="tabOverview">Overview</button>
+    <button data-t="run" data-i18n="tabRun">Run algorithm</button>
+    <button data-t="eval" data-i18n="tabResults">Run results</button>
+    <button data-t="add" data-i18n="tabData">Dataset management</button>
+  </div>
+
+  <!-- ================= OVERVIEW ================= -->
+  <div class="view on" id="v-overview">
+    <div class="kpis">
+      <div class="kpi"><div class="n" id="k-total">–</div><div class="l" data-i18n="totalRows">Total rows</div></div>
+      <div class="kpi"><div class="n" id="k-gt">–</div><div class="l" data-i18n="rowsWithGt">Rows with GT labels</div></div>
+      <div class="kpi"><div class="n" id="k-photo">–</div><div class="l" data-i18n="rowsWithPhotos">Rows with photo references</div></div>
+      <div class="kpi"><div class="n" id="k-country">–</div><div class="l" data-i18n="countries">Countries</div></div>
+    </div>
+    <div class="note" id="overviewEmpty" style="display:none" data-i18n="overviewEmpty"><b>No dataset has been added yet.</b> The API is connected. Validate and add a ZIP in ④ Dataset management to enable this view and evaluation.</div>
+    <div class="grid2" style="margin-top:16px">
+      <div class="panel">
+        <h2 style="margin-top:0" data-i18n="provenance">Provenance</h2>
+        <div class="srccard" id="sourcebars"></div>
+        <h2 data-i18n="confidenceTier">Confidence tier (scoring)</h2>
+        <div class="bars" id="confidencebars"></div>
+      </div>
+      <div class="panel">
+        <h2 style="margin-top:0" data-i18n="countries">Countries</h2>
+        <div class="bars" id="countrybars"></div>
+        <h2 data-i18n="signalPipeline">Signal pipeline</h2>
+        <div class="pipe" id="pipelinebars"></div>
+      </div>
+    </div>
+    <h2 data-i18n="rowStructure">Row structure — label columns, coverage, and input vector</h2>
+    <div class="panel">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+        <span style="font-size:12px;font-family:var(--mono);color:var(--ink3)" data-i18n="coverageByDataset">Coverage by dataset</span>
+        <select id="rowstruct-src"></select>
+      </div>
+      <table class="rst"><thead><tr><th data-i18n="field">Field</th><th data-i18n="role">Role</th><th data-i18n="coverage">Coverage</th><th data-i18n="extractionMethod">Extraction method</th></tr></thead><tbody id="rowstruct"></tbody></table>
+      <div class="note" style="margin-top:14px" data-i18n="coverageHelp"><b>Coverage determines algorithm-input availability.</b> Selecting sparse signals reduces eligible rows and the performance ceiling.</div>
+    </div>
+
+  </div>
+
+  <!-- ================= RUN ================= -->
+  <div class="view" id="v-run">
+    <p style="color:var(--ink2);font-size:14px;margin:0 0 18px" data-i18n="runIntro">Upload a script that implements one prediction function. It runs against the evaluation set and saves the scored result under Run results.</p>
+
+    <h2 style="margin-top:6px" data-i18n="runSettings">Run settings</h2>
+    <div class="panel run-settings-grid">
+      <div class="field"><span class="fl" data-i18n="runName">Run name</span>
+        <div class="run-name-row"><input type="text" id="tname" value="new-algorithm" spellcheck="false" list="runNameOptions"><datalist id="runNameOptions"></datalist></div>
+        <div class="ver" id="verstat"></div>
+      </div>
+      <div class="field"><span class="fl" data-i18n="saveMode">Save mode</span>
+        <select id="savemode"><option value="auto" data-i18n="saveAuto">Automatic (next version)</option></select>
+        <div class="ver" data-i18n="versioningSimpleHelp">Existing names create a new version automatically. Choose overwrite only when needed.</div>
+      </div>
+      <div class="field" style="grid-column:1/-1"><span class="fl" data-i18n="datasetsMulti">Datasets · multiple selection</span><div class="dataset-picks" id="datasetPicks"></div></div>
+      <div class="gt-scope"><span class="fl" data-i18n="gtInspectionScope">Ground Truth inspection scope</span><div class="gt-cards" id="gtScopeCards"></div><div class="scope-total" id="gtScopeTotal"></div></div>
+    </div>
+
+    <h2><span data-i18n="selectInputs">Select inputs</span> <span style="color:var(--ink3);text-transform:none;letter-spacing:0" data-i18n="selectInputsHelp">— values passed to the function, extraction method, and candidate limit</span></h2>
+    <div class="panel input-builder">
+      <div class="input-picker">
+        <div class="input-toolbar"><div class="input-actions"><button class="mini-btn" type="button" id="inputRecommended" data-i18n="inputRecommended">Recommended</button><button class="mini-btn" type="button" id="inputAll" data-i18n="inputAll">Select all</button><button class="mini-btn" type="button" id="inputClear" data-i18n="inputClear">Clear</button></div><span class="selected-count" id="selectedInputCount"></span></div>
+        <div id="params"></div>
+      </div>
+      <div class="input-preview">
+        <div class="preview-head"><span class="preview-title" data-i18n="usage">Usage</span><button class="mini-btn" type="button" id="copySnippet" data-i18n="copyCode">Copy code</button></div>
+        <div class="preview-summary" id="inputSummary"></div>
+        <pre class="loadsnippet" id="loadsnippet"></pre>
+      </div>
+    </div>
+
+    <h2><span data-i18n="predictionFunction">Prediction function</span> <span style="color:var(--ink3);text-transform:none;letter-spacing:0" data-i18n="attachFileTypes">— upload .py, .c, .cpp, .rs, .js, or .sh</span></h2>
+    <div class="panel">
+      <label class="filedrop" for="scriptfile">
+        <input type="file" id="scriptfile" accept=".py,.c,.cpp,.rs,.js,.sh" hidden>
+        <span id="filelabel" data-i18n="attachScript">📎 Upload a script that implements predict — click or drop</span>
+      </label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+        <button class="btn" type="button" id="loadExample" data-i18n="loadExample">Load example code</button>
+        <a class="btn" href="examples/baseline_nearest.py" download data-i18n="downloadExample">Download example .py</a>
+        <span style="color:var(--ink3);font-size:11.5px" data-i18n="exampleHelp">Minimal example that returns the nearest candidate</span>
+      </div>
+      <div style="color:var(--ink3);font-size:11.5px;font-family:var(--mono);margin-top:8px"><span data-i18n="contract">Contract</span>: Python <span style="color:var(--cyan)">def predict(case) → str | {"prediction","reason"}</span> · <span data-i18n="otherLanguages">other languages read JSON from stdin and write the prediction to stdout</span></div>
+      <div class="runbar">
+        <button class="runbtn" id="runbtn" data-i18n="runAction">▶ Run</button>
+        <span style="color:var(--ink3);font-size:12px;font-family:var(--mono)" id="runhint"></span>
+      </div>
+    </div>
+
+    <h2><span data-i18n="recentRuns">Recent runs</span> <span style="color:var(--ink3);text-transform:none;letter-spacing:0" data-i18n="versioningHelp">— matching names are versioned automatically</span></h2>
+    <div class="panel">
+      <table class="runs"><thead><tr><th data-i18n="name">Name</th><th data-i18n="version">Version</th><th data-i18n="script">Script</th><th data-i18n="inputs">Inputs</th><th data-i18n="scope">Scope</th><th>rank-1</th><th data-i18n="status">Status</th></tr></thead>
+        <tbody id="runsbody"></tbody></table>
+    </div>
+
+  </div>
+
+  <!-- ================= EVAL ================= -->
+  <div class="view" id="v-eval">
+    <div class="result-toolbar"><p data-i18n="resultsIntro">Manage persisted results here. Select a run to inspect it, compare up to four runs, or delete it.</p></div>
+    <h2 data-i18n="savedRuns">Saved runs</h2>
+    <div class="runmanage">
+      <div class="panel">
+        <div class="compare"><span data-i18n="compareSelect">Compare (up to 4)</span><span id="compareHint" style="margin-left:auto;font-family:var(--mono);color:var(--ink3)"></span></div>
+        <div class="run-toolbar">
+          <input type="search" id="runSearch" data-i18n-placeholder="runSearchPlaceholder" placeholder="Search name, scope, params…" autocomplete="off">
+          <select id="runSort">
+            <option value="newest" data-i18n="sortNewest">Newest</option>
+            <option value="accuracy" data-i18n="sortAccuracy">Accuracy</option>
+            <option value="name" data-i18n="sortName">Name</option>
+            <option value="latency" data-i18n="sortLatency">Host latency</option>
+          </select>
+          <label class="chk"><input type="checkbox" id="runLatestOnly"> <span data-i18n="latestOnly">Latest version only</span></label>
+          <button type="button" class="btn tiny" id="expandAllGroups" data-i18n="expandAll">Expand all</button>
+          <button type="button" class="btn tiny" id="collapseAllGroups" data-i18n="collapseAll">Collapse all</button>
+        </div>
+        <div class="compare-tray" id="compareTray" aria-live="polite"></div>
+        <div class="runrows" id="runManagerList"></div>
+      </div>
+      <div class="panel rundetail" id="runDetail" data-i18n="runDetailEmpty">Select a run on the left to view its configuration, metrics, and failures.</div>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <h2 style="margin-top:0" data-i18n="selectedCompare">Compare selected runs</h2>
+      <div id="compareWarning" class="compare-warning" role="status"></div>
+      <div class="compare-table-wrap"><table class="compare-table" id="compareTable"><thead></thead><tbody></tbody></table></div>
+      <svg id="compareBars" width="580" height="210" viewBox="0 0 580 210"></svg>
+      <div class="note" data-i18n="compareHelp">Bars and table show exact accuracy, correct/eligible counts, and host runtime (this machine). Only runs with the same evaluation cohort and scoring mode can be compared. Host latency is not mobile runtime.</div>
+    </div>
+    <details class="analysis-disclosure">
+      <summary><b data-i18n="retrievalDiagnostics">Retrieval diagnostics</b> <span data-i18n="retrievalDiagnosticsHelp">— candidate-provider coverage, separate from algorithm results</span></summary>
+      <div class="inside">
+    <div class="controls">
+      <div class="ctl"><span data-i18n="scope">Scope</span> <select id="scope">
+        <option value="all" data-i18n="all">All</option>
+        <option value="linkedspaces">linkedspaces</option>
+        <option value="union-city">union-city</option>
+        <option value="vancouver">vancouver</option>
+      </select></div>
+      <div class="ctl"><span data-i18n="matching">Matching</span> <b>provider exact name</b></div>
+    </div>
+    <div class="meta" id="meta"></div>
+    <div class="cards">
+      <div class="rc r1"><div class="k" data-i18n="candidateRank1">Candidate rank 1 · GT is first</div><div class="pct" id="p-r1">–</div><div class="cnt" id="c-r1"></div></div>
+      <div class="rc t3"><div class="k" data-i18n="candidateTop3">Candidate top 3 · includes GT</div><div class="pct" id="p-t3">–</div><div class="cnt" id="c-t3"></div></div>
+      <div class="rc t5"><div class="k" data-i18n="candidateTop5">Candidate top 5 · includes GT</div><div class="pct" id="p-t5">–</div><div class="cnt" id="c-t5"></div></div>
+      <div class="rc t5"><div class="k" data-i18n="candidateTop10">Candidate top 10 · includes GT</div><div class="pct" id="p-t10">–</div><div class="cnt" id="c-t10"></div></div>
+      <div class="rc t5"><div class="k" data-i18n="candidateTop20">Candidate top 20 · includes GT</div><div class="pct" id="p-t20">–</div><div class="cnt" id="c-t20"></div></div>
+      <div class="rc t5"><div class="k" data-i18n="candidateTop50">Candidate top 50 · includes GT</div><div class="pct" id="p-t50">–</div><div class="cnt" id="c-t50"></div></div>
+      <div class="rc miss"><div class="k" data-i18n="candidateMiss">Miss · GT absent from candidates</div><div class="pct" id="p-miss">–</div><div class="cnt" id="c-miss"></div></div>
+    </div>
+    <div class="flip" id="flip"></div>
+
+    <h2 data-i18n="retrievalCoverage">Retrieval coverage — top N by candidate provider</h2>
+    <div class="panel"><div class="chartwrap">
+      <svg id="curve" width="580" height="260" viewBox="0 0 580 260"></svg>
+      <div class="legend">
+        <div class="lg"><span class="sw" style="background:var(--green)"></span>MapKit <span class="soon" data-i18n="currentProvider">current provider</span></div>
+        <div class="lg" style="margin-top:6px;color:var(--ink3);font-size:12px" data-i18n="curveAxes">y = GT present in top-N candidates<br>x = N (measured ranks)</div>
+      </div>
+    </div>
+    <div class="note" data-i18n="retrievalNote"><b>Retrieval only.</b> This measures whether the provider returned the GT place. It is a coverage ceiling, not algorithm accuracy.</div></div>
+
+    <h2 data-i18n="selectionAccuracy">Selection accuracy by algorithm</h2>
+    <div class="panel">
+      <svg id="bars" width="580" height="250" viewBox="0 0 580 250"></svg>
+      <div class="note" data-i18n="selectionNote"><b>Each bar is a submitted algorithm.</b> It shows exact-match accuracy for the latest version of each run name.</div>
+    </div>
+
+    <h2><span data-i18n="caseAnalysis">Case analysis — retrieval success and failure</span> <span style="color:var(--green);text-transform:none;letter-spacing:0" data-i18n="caseAnalysisHelp"> · live data · provider rank</span></h2>
+    <div class="panel">
+      <div class="chips" id="chips"></div>
+      <div class="caselayout">
+        <div class="caselist" id="caselist"></div>
+        <div class="cd" id="casedetail" style="color:var(--ink3)" data-i18n="selectCase">Select a case on the left.</div>
+      </div>
+      <div class="note" data-i18n="caseHelp"><b>Retrieval failure</b> means GT is absent from all candidates. <b>Rank &gt; 1</b> means GT was returned but was not first.</div>
+    </div>
+      </div>
+    </details>
+  </div>
+
+  <!-- ================= ADD DATASET ================= -->
+  <div class="view" id="v-add">
+    <p style="color:var(--ink2);font-size:14px;margin:0 0 18px" data-i18n="datasetIntro">Review datasets, rerun extraction steps, or add and remove data.</p>
+
+    <h2 style="margin-top:6px"><span data-i18n="datasets">Datasets</span> <span style="color:var(--ink3);text-transform:none;letter-spacing:0" data-i18n="datasetCoverageHelp">— processing and result coverage</span></h2>
+    <div class="panel dataset-table-wrap">
+      <table class="rst dataset-table"><thead><tr><th data-i18n="dataset">Dataset</th><th data-i18n="rows">Rows</th><th data-i18n="signalCoverage">Processing and detection</th><th></th></tr></thead>
+        <tbody id="dsTable"><tr><td colspan="4" style="color:var(--ink3)" data-i18n="loading">Loading…</td></tr></tbody></table>
+    </div>
+
+    <h2><span data-i18n="rerunStepTitle">Rerun extraction</span> <span style="color:var(--ink3);text-transform:none;letter-spacing:0" data-i18n="rerunStepHelp">— process rows not yet attempted</span></h2>
+    <div class="panel">
+      <div class="controls">
+        <div class="ctl"><span data-i18n="step">Step</span> <select id="rerunStep"></select></div>
+        <div class="ctl"><span data-i18n="dataset">Dataset</span> <select id="rerunDataset"></select></div>
+        <label class="ctl" style="cursor:pointer"><input type="checkbox" id="rerunOnlyEmpty" checked style="accent-color:var(--blue);width:15px;height:15px"> <span data-i18n="emptyRowsOnly">Unprocessed rows only</span></label>
+        <button class="runbtn" id="rerunBtn" data-i18n="rerun">▶ Rerun</button>
+        <span id="rerunHint" style="color:var(--ink3);font-size:12px;font-family:var(--mono)"></span>
+      </div>
+      <div class="note" style="margin-top:14px" data-i18n="jobLimitHelp">Only one data job can run at a time. Unavailable steps are disabled.</div>
+    </div>
+
+    <h2><span data-i18n="jobs">Jobs</span> <span style="color:var(--ink3);text-transform:none;letter-spacing:0" data-i18n="jobsHelp">— progress and logs</span></h2>
+    <div class="panel">
+      <div id="jobActive" style="margin-bottom:10px;color:var(--ink3);font-family:var(--mono);font-size:12.5px" data-i18n="noActiveJob">No active job.</div>
+      <table class="runs"><thead><tr><th data-i18n="step">Step</th><th data-i18n="scope">Scope</th><th data-i18n="status">Status</th><th data-i18n="elapsed">Elapsed</th><th data-i18n="result">Result</th></tr></thead>
+        <tbody id="jobList"></tbody></table>
+      <pre id="jobLog" class="loadsnippet" style="display:none;margin-top:10px;max-height:180px;overflow:auto"></pre>
+    </div>
+
+    <h2><span data-i18n="addDataset">Add a dataset</span> <span style="color:var(--ink3);text-transform:none;letter-spacing:0" data-i18n="addDatasetHelp">— upload a ZIP and track ingestion above</span></h2>
+    <div class="panel">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a class="btn" href="templates/poi-dataset-upload-template.zip" download data-i18n="downloadTemplate">Download template ZIP</a>
+        <label class="btn" style="cursor:pointer"><span data-i18n="validateZip">Validate ZIP</span><input id="uploadZip" type="file" accept=".zip,application/zip" style="display:none"></label>
+        <label class="btn" style="cursor:pointer;border-color:rgba(95,211,123,.5);background:rgba(95,211,123,.12);color:var(--green)"><span data-i18n="ingestDataset">＋ Add dataset</span><input id="ingestZip" type="file" accept=".zip,application/zip" style="display:none"></label>
+      </div>
+      <div id="uploadStatus" class="note" style="margin-top:12px" data-i18n="uploadHelp">Validate a ZIP before adding it. Ingestion runs as a job; derived signals can be filled afterward with Rerun extraction.</div>
+    </div>
+  </div>
+
+  <footer data-i18n="footer">POI evaluation dashboard</footer>
+</div>
+
+<div class="modal" id="codeModal" role="dialog" aria-modal="true" aria-labelledby="codeModalTitle">
+  <div class="modalbox"><div class="modalhead"><b id="codeModalTitle" data-i18n="submittedCode">Submitted algorithm code</b><button class="modalclose" type="button" id="closeCodeModal" data-i18n="close">Close</button></div><pre class="codeview" id="codeModalContent"></pre></div>
+</div>
+
+<script src="mvp-eval-ui.js"></script>
+</body>
+</html>

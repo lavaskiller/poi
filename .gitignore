@@ -1,0 +1,33 @@
+# Local/generated/private-heavy POI artifacts
+poi-data/
+*.csv
+*.tsv
+*.backup-*.csv
+photos/
+linkedspaces-photos/
+# Diagnostic artifacts that embed real user photos — never commit
+docs/reports/poi-case-types.html
+docs/reports/poi-case-types-thumbs/
+docs/reports/poi-case-types-*.html
+# Failure-analysis reports that cite user photo IDs / filenames / coords — keep local
+docs/reports/mapkit-bloggo-baseline-failure-decomposition-ko.md
+docs/reports/mapkit-bloggo-baseline-semantic-false-positive-audit-ko.md
+docs/reports/mapkit_bloggo_baseline_failure_candidate_audit.json
+docs/reports/semantic-evaluation-policy-proposal-ko.md
+linkedspaces_visual_solvability_audit.md
+union-city-trip/
+tools/fastvlm-venv/
+tools/ml-fastvlm/
+*_err.txt
+ai_poi_run
+scratch/
+tmp/
+.DS_Store
+__pycache__/
+*.pyc
+.ssh/
+generated/
+# machine-specific local launch/preview config (absolute paths)
+.claude/
+# local agent tool config
+.grok/
