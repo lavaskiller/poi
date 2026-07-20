@@ -89,6 +89,22 @@ logs can include photo filenames + place names.
 
 ---
 
+## 3b. What goes where (think before every publish)
+
+**Mistake (2026-07-20):** Pushed a full personal tree to
+`inseokr/eval_poi_wizard` including **daily journals, AGENTS.md, archive PRDs,
+experiments, process HTML**. That is intern process noise, not the product.
+
+| Destination | Purpose | Include | Exclude |
+|---|---|---|---|
+| **`lavaskiller/poi` (`main`)** | Working repo | Code + product docs; process docs only if intentionally tracked | `poi-data/`, photo HTML |
+| **`inseokr/eval_poi_wizard` (snapshot branch only; never force their `main`)** | **Runnable eval tool** | `server.py`, UI, `examples/`, `tools/` (runtime), `tests/`, `templates/`, short `README`, **`docs/API.md` + `docs/functional-spec.md` only** if needed to run | **`docs/reports/**` (daily, analysis)**, **`docs/archive/**`**, **`AGENTS.md`**, **`archive/`**, **`experiments/`**, stitch/daily-only scripts, photo IDs |
+
+Before any In Seo push, list paths and ask: **runtime surface or my process log?**  
+Process logs stay on the personal repo / local disk only.
+
+---
+
 ## 4. Evaluation / accuracy claims
 
 - Report **strict** and **canonical** separately when both are used.
