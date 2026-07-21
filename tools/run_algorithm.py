@@ -492,6 +492,10 @@ def list_runs(runs_dir: str) -> List[Dict[str, Any]]:
     for fn in sorted(os.listdir(runs_dir)):
         if not fn.endswith(".json"):
             continue
+        # Skip raw/unscored intermediate snapshots: they carry a duplicate
+        # version number with no accuracy and would surface as bogus 0% runs.
+        if fn.endswith("__raw.json"):
+            continue
         try:
             with open(os.path.join(runs_dir, fn), encoding="utf-8") as f:
                 r = json.load(f)
@@ -541,6 +545,15 @@ def list_runs(runs_dir: str) -> List[Dict[str, Any]]:
             "latency_ms": m.get("latency_ms"),
             "runtime": m.get("runtime"),
         })
+    # Dedupe by (name, version): if two files claim the same identity, keep the
+    # scored one (real accuracy) over an unscored/None entry.
+    dedup: Dict[Any, Dict[str, Any]] = {}
+    for r in out:
+        key = (r.get("name"), r.get("version"))
+        prev = dedup.get(key)
+        if prev is None or (prev.get("accuracy_pct") is None and r.get("accuracy_pct") is not None):
+            dedup[key] = r
+    out = list(dedup.values())
     out.sort(key=lambda r: (r.get("created_at") or "", r.get("version") or 0), reverse=True)
     return out
 
