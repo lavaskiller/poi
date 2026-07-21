@@ -3,6 +3,7 @@ import Sidebar from "./components/Sidebar";
 import Home from "./pages/Home";
 import NewRun from "./pages/NewRun";
 import Results from "./pages/Results";
+import CaseInspector from "./pages/CaseInspector";
 import Placeholder from "./pages/Placeholder";
 
 function Layout() {
@@ -21,6 +22,7 @@ export default function App() {
         <Route index element={<Home />} />
         <Route path="new-run" element={<NewRun />} />
         <Route path="results" element={<Results />} />
+        <Route path="case" element={<CaseInspector />} />
         <Route path="compare" element={<Placeholder title="Compare" />} />
         <Route path="datasets" element={<Placeholder title="Datasets" />} />
         <Route path="jobs" element={<Placeholder title="Jobs" />} />
