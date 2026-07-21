@@ -1,0 +1,131 @@
+.main {
+  flex: 1 0 0;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 32px 40px 40px;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kicker {
+  color: var(--accent-default);
+}
+.h1 {
+  font-weight: 600;
+  font-size: 24px;
+  line-height: 1.2;
+  letter-spacing: -0.36px;
+  color: var(--text-primary);
+}
+.sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 900px;
+}
+
+/* tiles */
+.tiles {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+/* charts */
+.charts {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+  width: 100%;
+}
+.card {
+  flex: 1 0 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 22px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+.miniLabel {
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.chart {
+  width: 100%;
+  height: auto;
+}
+.axisText {
+  fill: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+}
+.caption {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* algo bars */
+.algoCard {
+  width: 400px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 22px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+.algoRow {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+}
+.algoHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.algoName {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.algoNameBest {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+.algoPct {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 11.5px;
+}
+.algoTrack {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+.algoFill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+}
+.captionSmall {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}

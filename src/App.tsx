@@ -6,6 +6,7 @@ import Results from "./pages/Results";
 import CaseInspector from "./pages/CaseInspector";
 import Compare from "./pages/Compare";
 import Datasets from "./pages/Datasets";
+import RetrievalDiagnostics from "./pages/RetrievalDiagnostics";
 import Placeholder from "./pages/Placeholder";
 
 function Layout() {
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="case" element={<CaseInspector />} />
         <Route path="compare" element={<Compare />} />
         <Route path="datasets" element={<Datasets />} />
+        <Route path="retrieval" element={<RetrievalDiagnostics />} />
         <Route path="jobs" element={<Placeholder title="Jobs" />} />
       </Route>
     </Routes>
