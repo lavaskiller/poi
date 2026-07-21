@@ -1,0 +1,414 @@
+.main {
+  flex: 1 0 0;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 32px 40px 40px;
+}
+
+/* titles */
+.titles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kicker {
+  color: var(--accent-default);
+}
+.h1 {
+  font-weight: 600;
+  font-size: 24px;
+  line-height: 1.2;
+  letter-spacing: -0.36px;
+  color: var(--text-primary);
+}
+.sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* stepper */
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.stepGroup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.stepNum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 11px;
+}
+.stepActive {
+  background: var(--accent-default);
+  color: var(--text-on-accent);
+}
+.stepLabel {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-right: 4px;
+}
+.stepLabelActive {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.connector {
+  width: 60px;
+  height: 1px;
+  background: var(--border-default);
+}
+
+/* card */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  padding: 20px 24px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.stepTag {
+  color: var(--accent-default);
+}
+.headHint {
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+}
+
+/* 1 · algorithm */
+.algoRow {
+  display: flex;
+  gap: 16px;
+  align-items: stretch;
+  width: 100%;
+}
+.dropzone {
+  flex: 1 0 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 24px;
+  background: var(--bg-subtle);
+  border: 1.5px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.dropIcon {
+  font-size: 20px;
+  color: var(--text-tertiary);
+}
+.dropTitle {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.dropTypes {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.attached {
+  width: 360px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-default);
+  border-radius: var(--radius-md);
+}
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fileName {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.fileSize {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+}
+.signature {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-default);
+}
+.fileActions {
+  display: flex;
+  gap: 14px;
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.linkAccent {
+  color: var(--accent-default);
+}
+.linkMuted {
+  color: var(--text-tertiary);
+}
+.exampleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 2 · inputs */
+.presets {
+  display: flex;
+  gap: 6px;
+}
+.preset {
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-default);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+.presetOn {
+  background: var(--accent-default);
+  color: var(--text-on-accent);
+  border-color: transparent;
+}
+.inputsRow {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  width: 100%;
+}
+.inputGrid {
+  flex: 1 0 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+.chipOn {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-default);
+}
+.chipOff {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+}
+.box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--bg-panel);
+  border: 1.5px solid var(--border-default);
+  color: var(--text-on-accent);
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.boxOn {
+  background: var(--accent-default);
+  border-color: var(--accent-default);
+}
+.chipName {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.chipPath {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chipSpacer {
+  flex: 1 0 0;
+  min-width: 8px;
+}
+.chipPct {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.warnPct {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 11.5px;
+  color: var(--warning-fg);
+}
+.warnText {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--warning-fg);
+  white-space: nowrap;
+}
+.mutedText {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.chipName {
+  white-space: nowrap;
+}
+
+/* eligibility */
+.eligibility {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+}
+.eligLabel {
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.eligValueRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.eligValue {
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: -0.26px;
+  color: var(--text-primary);
+}
+.eligOf {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+.eligNote {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+/* 3 · scope */
+.scopeRow {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  width: 100%;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fieldLabel {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+.inputText {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.caret {
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+.fieldHint {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+}
+.datasetRow {
+  display: flex;
+  gap: 6px;
+}
+.dataset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--bg-panel);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.datasetOn {
+  background: var(--accent-soft);
+  border-color: var(--accent-default);
+  color: var(--text-primary);
+}
+.scopeSpacer {
+  flex: 1 0 0;
+}
+.runCol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+.runHint {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+}
