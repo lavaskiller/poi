@@ -8,12 +8,35 @@ export interface OverviewSource {
   known?: boolean;
 }
 
+export interface OverviewCountry {
+  key: string;
+  count: number;
+  flag?: string;
+}
+
 export interface Overview {
   data_state: string; // "ready" | "empty" | ...
   csv_present: boolean;
   total: number;
   n_columns?: number;
   sources: OverviewSource[];
+  countries?: OverviewCountry[];
+  datasets?: string[];
+  photo_present?: number;
+  gt_present?: number;
+  config_warnings?: string[];
+}
+
+export interface Run {
+  name: string;
+  version: number;
+  scope: string;
+  accuracy_pct: number | null;
+  accuracy_canonical_pct: number | null;
+  n_eligible: number;
+  correct: number;
+  created_at: string;
+  runtime?: string;
 }
 
 async function getJSON<T>(path: string): Promise<T> {
@@ -45,6 +68,8 @@ export interface ReconcileQueue {
 
 export const api = {
   overview: () => getJSON<Overview>("/api/overview"),
+
+  runs: () => getJSON<{ runs: Run[] }>("/api/runs"),
 
   /** GT↔MapKit reconciliation queue — NON_MAPKIT cases with candidate lists. */
   reconcileQueue: () => getJSON<ReconcileQueue>("/api/gt/reconcile"),

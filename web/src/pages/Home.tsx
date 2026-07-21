@@ -1,108 +1,120 @@
 import Button from "../components/Button";
 import StatTile from "../components/StatTile";
-import ProgressBar from "../components/ProgressBar";
+import { api, type Overview, type Run } from "../lib/api";
+import { useAsync } from "../lib/useAsync";
 import styles from "./Home.module.css";
 
-const TREND = [
-  { label: "v3", h: 70 },
-  { label: "v4", h: 82 },
-  { label: "v5", h: 89 },
-  { label: "v6", h: 100 },
-  { label: "v7", h: 105, active: true },
-];
-
-const OUTCOMES = [
-  { key: "correct", w: 58.7, color: "var(--success-fg)", legend: "Correct 753 (58.6%)" },
-  { key: "miss", w: 12.5, color: "var(--warning-fg)", legend: "Selection miss 161" },
-  { key: "retrieval", w: 8.7, color: "var(--danger-fg)", legend: "Retrieval miss 112" },
-  { key: "deferred", w: 20.1, color: "var(--bg-subtle)", legend: "No GT / deferred 258" },
-];
-
-const STEPS = [
-  {
-    title: "Inspect 89 new failures",
-    body: "heuristic-v2 v7 · selection misses ranked by confidence",
-    cta: "Open failures →",
-  },
-  {
-    title: "Compare v7 against v6",
-    body: "31 cases flipped between versions — see what changed",
-    cta: "Open compare →",
-  },
-  {
-    title: "Fill OCR for 112 rows",
-    body: "Sparse signals reduce eligible rows and cap accuracy",
-    cta: "Run enrichment →",
-  },
-];
-
-type RunStatus = { text: string; tone: "done" | "running" };
-interface RunRow {
-  name: string;
-  ver: string;
-  datasets: string;
-  accuracy: string | number; // number → progress (0–1)
-  delta?: string;
-  deltaTone?: "success" | "danger";
-  status: RunStatus;
+function pct(part: number, whole: number): number {
+  return whole > 0 ? Math.round((part / whole) * 100) : 0;
 }
 
-const RUNS: RunRow[] = [
-  {
-    name: "heuristic-v2",
-    ver: "v7",
-    datasets: "linkedspaces +2",
-    accuracy: "78.4%",
-    delta: "+2.1",
-    deltaTone: "success",
-    status: { text: "done", tone: "done" },
-  },
-  {
-    name: "vlm-fewshot",
-    ver: "v1",
-    datasets: "linkedspaces",
-    accuracy: 0.62,
-    delta: "—",
-    status: { text: "running · 64%", tone: "running" },
-  },
-  {
-    name: "gpt-rerank",
-    ver: "v2",
-    datasets: "all datasets",
-    accuracy: "71.0%",
-    delta: "−0.4",
-    deltaTone: "danger",
-    status: { text: "done", tone: "done" },
-  },
-  {
-    name: "baseline-nearest",
-    ver: "v3",
-    datasets: "all datasets",
-    accuracy: "52.1%",
-    delta: "—",
-    status: { text: "done", tone: "done" },
-  },
-];
+function relTime(iso: string): string {
+  if (!iso) return "—";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "—";
+  const mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 60) return `${Math.max(1, mins)} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
 
-function StatusPill({ status }: { status: RunStatus }) {
-  return <span className={`${styles.pill} ${styles[status.tone]}`}>{status.text}</span>;
+interface HomeData {
+  overview: Overview;
+  runs: Run[];
 }
 
 export default function Home() {
+  const state = useAsync<HomeData>(async () => {
+    const [overview, runs] = await Promise.all([api.overview(), api.runs()]);
+    return { overview, runs: runs.runs };
+  }, []);
+
+  if (state.status === "loading") {
+    return (
+      <main className={styles.main}>
+        <div className={styles.skeletonBlock} style={{ height: 64, width: 360 }} />
+        <div className={styles.skeletonBlock} style={{ height: 200 }} />
+        <div className={styles.skeletonBlock} style={{ height: 120 }} />
+      </main>
+    );
+  }
+  if (state.status === "error") {
+    return <main className={styles.main}>Couldn’t load overview — {state.error.message}</main>;
+  }
+
+  const { overview, runs } = state.data;
+  const total = overview.total;
+  const nDatasets = overview.sources.length;
+  const gtCov = pct(overview.gt_present ?? 0, total);
+  const photoCov = pct(overview.photo_present ?? 0, total);
+  const countries = overview.countries ?? [];
+
+  const scored = runs.filter((r) => typeof r.accuracy_pct === "number");
+  const best = scored.reduce<Run | null>(
+    (b, r) => (b === null || (r.accuracy_pct ?? 0) > (b.accuracy_pct ?? 0) ? r : b),
+    null,
+  );
+  const prevOfBest = best
+    ? runs.find((r) => r.name === best.name && r.version === best.version - 1)
+    : undefined;
+  const delta =
+    best && prevOfBest && typeof prevOfBest.accuracy_pct === "number"
+      ? (best.accuracy_pct ?? 0) - prevOfBest.accuracy_pct
+      : null;
+
+  const trend = best
+    ? runs
+        .filter((r) => r.name === best.name && typeof r.accuracy_pct === "number")
+        .sort((a, b) => a.version - b.version)
+    : [];
+  const trendMax = Math.max(1, ...trend.map((r) => r.accuracy_pct ?? 0));
+
+  // outcome composition from the best run (honest 3-way split)
+  const nElig = best?.n_eligible ?? 0;
+  const correct = best ? Math.round(((best.accuracy_pct ?? 0) / 100) * nElig) : 0;
+  const incorrect = Math.max(0, nElig - correct);
+  const noGt = Math.max(0, total - nElig);
+  const outcomes = [
+    { key: "correct", n: correct, color: "var(--success-fg)", label: `Correct ${correct}` },
+    { key: "incorrect", n: incorrect, color: "var(--warning-fg)", label: `Incorrect ${incorrect}` },
+    { key: "nogt", n: noGt, color: "var(--bg-subtle)", label: `Ineligible / no GT ${noGt}` },
+  ];
+  const outcomeTotal = Math.max(1, correct + incorrect + noGt);
+
+  const recent = [...runs]
+    .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
+    .slice(0, 5);
+  const latest = recent[0];
+
   return (
     <main className={styles.main}>
       {/* header */}
       <header className={styles.header}>
         <div className={styles.titles}>
           <p className={`sectionLabel ${styles.kicker}`}>POI Evaluation · Internal</p>
-          <h1 className={styles.h1}>Selection accuracy is improving.</h1>
+          <h1 className={styles.h1}>
+            {best && delta != null && delta > 0
+              ? "Selection accuracy is improving."
+              : "POI evaluation overview"}
+          </h1>
           <p className={styles.sub}>
-            Last run 2 hours ago · data healthy · 1,284 cases across 3 datasets
+            {latest ? `Last run ${relTime(latest.created_at)} · ` : ""}
+            {gtCov}% GT coverage · {total.toLocaleString()} cases across {nDatasets} datasets
           </p>
         </div>
         <Button kind="secondary">Upload data</Button>
         <Button kind="primary">▶&nbsp;&nbsp;New run</Button>
       </header>
+
+      {/* config warnings (config-gap state) */}
+      {(overview.config_warnings?.length ?? 0) > 0 && (
+        <div className={styles.warnStrip}>
+          {overview.config_warnings!.map((w, i) => (
+            <span key={i}>⚠ {w}</span>
+          ))}
+        </div>
+      )}
 
       {/* hero */}
       <section className={styles.hero}>
@@ -110,54 +122,72 @@ export default function Home() {
           <div className={styles.metric}>
             <p className={`sectionLabel ${styles.metricLabel}`}>Selection accuracy — best run</p>
             <div className={styles.metricRow}>
-              <span className={styles.metricValue}>78.4%</span>
-              <span className={`${styles.delta} ${styles.deltaUp}`}>▲ +2.1 pts vs v6</span>
+              <span className={styles.metricValue}>{best ? `${best.accuracy_pct}%` : "—"}</span>
+              {delta != null && (
+                <span className={`${styles.delta} ${delta >= 0 ? styles.deltaUp : styles.deltaDown}`}>
+                  {delta >= 0 ? "▲" : "▼"} {delta >= 0 ? "+" : ""}
+                  {delta.toFixed(1)} pts vs v{best!.version - 1}
+                </span>
+              )}
             </div>
             <p className={styles.metricMeta}>
-              heuristic-v2 · v7 · strict exact-match · eligible 1,032 / 1,284
+              {best
+                ? `${best.name} · v${best.version} · ${best.scope || "all"} · eligible ${best.n_eligible.toLocaleString()} / ${total.toLocaleString()}`
+                : "no scored runs yet"}
             </p>
-            <div className={styles.toggle}>
-              <span className={`${styles.chip} ${styles.chipActive}`}>Strict · 78.4%</span>
-              <span className={styles.chip}>Canonical · 84.9%</span>
-            </div>
+            {best && (
+              <div className={styles.toggle}>
+                <span className={`${styles.chip} ${styles.chipActive}`}>Strict · {best.accuracy_pct}%</span>
+                {best.accuracy_canonical_pct != null && (
+                  <span className={styles.chip}>Canonical · {best.accuracy_canonical_pct}%</span>
+                )}
+              </div>
+            )}
           </div>
 
-          <div className={styles.trend}>
-            <p className={`sectionLabel ${styles.trendLabel}`}>Version trend</p>
-            <div className={styles.bars}>
-              {TREND.map((b) => (
-                <div key={b.label} className={styles.bar}>
-                  <div
-                    className={styles.barFill}
-                    style={{
-                      height: b.h,
-                      background: b.active ? "var(--accent-default)" : "var(--bg-subtle)",
-                    }}
-                  />
-                  <span
-                    className={styles.barLabel}
-                    style={{ color: b.active ? "var(--accent-default)" : "var(--text-tertiary)" }}
-                  >
-                    {b.label}
-                  </span>
-                </div>
-              ))}
+          {trend.length > 0 && (
+            <div className={styles.trend}>
+              <p className={`sectionLabel ${styles.trendLabel}`}>Version trend</p>
+              <div className={styles.bars}>
+                {trend.map((r) => {
+                  const active = best && r.version === best.version;
+                  return (
+                    <div key={r.version} className={styles.bar}>
+                      <div
+                        className={styles.barFill}
+                        style={{
+                          height: 40 + ((r.accuracy_pct ?? 0) / trendMax) * 70,
+                          background: active ? "var(--accent-default)" : "var(--bg-subtle)",
+                        }}
+                      />
+                      <span
+                        className={styles.barLabel}
+                        style={{ color: active ? "var(--accent-default)" : "var(--text-tertiary)" }}
+                      >
+                        v{r.version}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className={styles.outcomes}>
-          <p className={`sectionLabel ${styles.outcomeLabel}`}>Outcome composition — 1,284 cases</p>
+          <p className={`sectionLabel ${styles.outcomeLabel}`}>
+            Outcome composition — best run · {nElig.toLocaleString()} eligible
+          </p>
           <div className={styles.stack}>
-            {OUTCOMES.map((o) => (
-              <span key={o.key} style={{ width: `${o.w}%`, background: o.color }} />
+            {outcomes.map((o) => (
+              <span key={o.key} style={{ width: `${(o.n / outcomeTotal) * 100}%`, background: o.color }} />
             ))}
           </div>
           <div className={styles.legend}>
-            {OUTCOMES.map((o) => (
+            {outcomes.map((o) => (
               <span key={o.key} className={styles.legendItem}>
                 <span className={styles.legendDot} style={{ background: o.color }} />
-                {o.legend}
+                {o.label}
               </span>
             ))}
           </div>
@@ -173,26 +203,23 @@ export default function Home() {
           </a>
         </div>
         <div className={styles.tiles}>
-          <StatTile label="Total rows" value="1,284" note="across 3 datasets" />
-          <StatTile label="GT coverage" value="81%" note="247 rows missing GT ⚠" noteTone="warning" />
-          <StatTile label="Photo refs" value="92%" note="1,181 rows with photos" />
-          <StatTile label="Countries" value="4" note="KR · US · CA · JP" />
-        </div>
-      </section>
-
-      {/* next steps */}
-      <section className={styles.block}>
-        <p className={`sectionLabel ${styles.blockLabel}`}>What&apos;s next</p>
-        <div className={styles.steps}>
-          {STEPS.map((s) => (
-            <div key={s.title} className={styles.step}>
-              <p className={styles.stepTitle}>{s.title}</p>
-              <p className={styles.stepBody}>{s.body}</p>
-              <a className={styles.link} href="#">
-                {s.cta}
-              </a>
-            </div>
-          ))}
+          <StatTile label="Total rows" value={total.toLocaleString()} note={`across ${nDatasets} datasets`} />
+          <StatTile
+            label="GT coverage"
+            value={`${gtCov}%`}
+            note={`${(total - (overview.gt_present ?? 0)).toLocaleString()} rows missing GT${gtCov < 100 ? " ⚠" : ""}`}
+            noteTone={gtCov < 100 ? "warning" : "tertiary"}
+          />
+          <StatTile
+            label="Photo refs"
+            value={`${photoCov}%`}
+            note={`${(overview.photo_present ?? 0).toLocaleString()} rows with photos`}
+          />
+          <StatTile
+            label="Countries"
+            value={String(countries.length)}
+            note={countries.map((c) => c.flag || c.key).slice(0, 5).join(" · ") || "—"}
+          />
         </div>
       </section>
 
@@ -203,41 +230,44 @@ export default function Home() {
           <div className={`${styles.row} ${styles.headRow}`}>
             <div className={styles.cName}>Name</div>
             <div className={styles.cVer}>Ver</div>
-            <div className={styles.cData}>Datasets</div>
+            <div className={styles.cData}>Scope</div>
             <div className={styles.cAcc}>Accuracy</div>
             <div className={styles.cDelta}>Δ</div>
-            <div className={styles.cStatus}>Status</div>
+            <div className={styles.cStatus}>Eligible</div>
           </div>
-          {RUNS.map((r) => (
-            <div key={r.name} className={styles.row}>
-              <div className={`${styles.cName} mono ${styles.strong}`}>{r.name}</div>
-              <div className={`${styles.cVer} mono ${styles.muted}`}>{r.ver}</div>
-              <div className={styles.cData}>{r.datasets}</div>
-              <div className={styles.cAcc}>
-                {typeof r.accuracy === "number" ? (
-                  <ProgressBar value={r.accuracy} width={120} />
-                ) : (
-                  <span className={`mono ${styles.strong}`}>{r.accuracy}</span>
-                )}
+          {recent.map((r) => {
+            const prev = runs.find((x) => x.name === r.name && x.version === r.version - 1);
+            const d =
+              typeof r.accuracy_pct === "number" && typeof prev?.accuracy_pct === "number"
+                ? r.accuracy_pct - prev.accuracy_pct
+                : null;
+            return (
+              <div key={`${r.name}-${r.version}`} className={styles.row}>
+                <div className={`${styles.cName} mono ${styles.strong}`}>{r.name}</div>
+                <div className={`${styles.cVer} mono ${styles.muted}`}>v{r.version}</div>
+                <div className={styles.cData}>{r.scope || "all"}</div>
+                <div className={`${styles.cAcc} mono ${styles.strong}`}>
+                  {r.accuracy_pct != null ? `${r.accuracy_pct}%` : "—"}
+                </div>
+                <div
+                  className={`${styles.cDelta} mono`}
+                  style={{
+                    color:
+                      d == null
+                        ? "var(--text-tertiary)"
+                        : d >= 0
+                          ? "var(--success-fg)"
+                          : "var(--danger-fg)",
+                  }}
+                >
+                  {d == null ? "—" : `${d >= 0 ? "+" : ""}${d.toFixed(1)}`}
+                </div>
+                <div className={`${styles.cStatus} mono ${styles.muted}`}>
+                  {r.n_eligible?.toLocaleString?.() ?? r.n_eligible}
+                </div>
               </div>
-              <div
-                className={`${styles.cDelta} mono`}
-                style={{
-                  color:
-                    r.deltaTone === "success"
-                      ? "var(--success-fg)"
-                      : r.deltaTone === "danger"
-                        ? "var(--danger-fg)"
-                        : "var(--text-tertiary)",
-                }}
-              >
-                {r.delta}
-              </div>
-              <div className={styles.cStatus}>
-                <StatusPill status={r.status} />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
     </main>
