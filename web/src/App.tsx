@@ -7,6 +7,7 @@ import CaseInspector from "./pages/CaseInspector";
 import Compare from "./pages/Compare";
 import Datasets from "./pages/Datasets";
 import RetrievalDiagnostics from "./pages/RetrievalDiagnostics";
+import ReconcileMapKit from "./pages/ReconcileMapKit";
 import Onboarding from "./pages/Onboarding";
 import Placeholder from "./pages/Placeholder";
 import { api, isEmpty } from "./lib/api";
@@ -32,6 +33,7 @@ function AppRoutes() {
         <Route path="case" element={<CaseInspector />} />
         <Route path="compare" element={<Compare />} />
         <Route path="datasets" element={<Datasets />} />
+        <Route path="reconcile" element={<ReconcileMapKit />} />
         <Route path="retrieval" element={<RetrievalDiagnostics />} />
         <Route path="jobs" element={<Placeholder title="Jobs" />} />
       </Route>

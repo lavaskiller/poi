@@ -10,6 +10,7 @@ const WORKFLOW = [
 
 const DATA = [
   { to: "/datasets", label: "Datasets" },
+  { to: "/reconcile", label: "Reconcile GT" },
   { to: "/jobs", label: "Jobs" },
 ];
 

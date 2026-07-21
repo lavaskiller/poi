@@ -113,6 +113,60 @@ def _load_result_evidence():
     return result
 
 
+def _gt_overrides_path():
+    return os.path.join(DIRECTORY, "gt_mapkit_overrides.tsv")
+
+
+def _load_gt_overrides():
+    """Manual GT↔MapKit matches saved by the reconciliation UI, keyed by (dataset, photo)."""
+    path = _gt_overrides_path()
+    done = {}
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            for row in csv.DictReader(f, delimiter="\t"):
+                done[(row.get("dataset", ""), row.get("photo", ""))] = row
+    return done
+
+
+def gt_reconcile_queue(limit=300):
+    """Cases whose GT could not be matched to any MapKit name (gt_mapkit == NON_MAPKIT)
+    and are not yet manually reconciled — with their MapKit candidate list to pick from.
+
+    Candidates are keyed by photo basename (cohort-independent), so the whole
+    NON_MAPKIT backlog is reachable, not just a frozen run cohort.
+    """
+    if not os.path.isfile(CSV_PATH):
+        return {"total_non_mapkit": 0, "done": 0, "remaining": 0, "cases": []}
+    done = _load_gt_overrides()
+    cand_map = _load_original_mapkit_outputs()
+    out, total_non = [], 0
+    with open(CSV_PATH, encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            if (r.get("gt_mapkit") or "").strip() != "NON_MAPKIT":
+                continue
+            total_non += 1
+            dataset = (r.get("dataset") or "").strip()
+            photo = (r.get("photo") or "").strip()
+            if (dataset, photo) in done:
+                continue
+            if limit and len(out) >= limit:
+                continue
+            rec = cand_map.get(os.path.basename(photo)) or {}
+            cands = rec.get("candidates", [])
+            out.append({
+                "dataset": dataset, "photo": photo,
+                "image": f"/api/poi-case-photo?dataset={urllib.parse.quote(dataset)}&photo={urllib.parse.quote(photo)}",
+                "gt": (r.get("input_place_name") or "").strip(),
+                "ocr": (r.get("ocr_text") or r.get("caption_ondevice") or "").strip(),
+                "candidates": [{"rank": c.get("rank") or i + 1, "name": c.get("name", ""),
+                                "distance": c.get("distance") or c.get("distance_m"),
+                                "category": c.get("category", "")}
+                               for i, c in enumerate(cands)],
+            })
+    return {"total_non_mapkit": total_non, "done": len(done),
+            "remaining": total_non - len(done), "cases": out}
+
+
 def poi_case_explorer_data():
     """Compose cards from canonical run artifacts; write no report JSON.
 
@@ -1449,6 +1503,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                              "steps": {s: (v.get("disabled") or "ok") for s, v in STEP_REGISTRY.items()},
                              "jobs": [_job_public(j) for j in _jobs.values()]})
             return
+        if route == "/api/gt/reconcile":
+            try:
+                self._send_json(gt_reconcile_queue())
+            except Exception as e:
+                self._send_json({"total_non_mapkit": 0, "done": 0, "remaining": 0,
+                                 "cases": [], "error": str(e)}, code=200)
+            return
         super().do_GET()
 
     def _read_body(self, max_bytes):
@@ -1523,8 +1584,44 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self._send_json({"ok": False, "message": str(e)}, code=500)
 
+    def _handle_gt_reconcile_save(self):
+        """Persist a manual GT↔MapKit match chosen in the reconciliation UI."""
+        raw = self._read_body(1024 * 1024)
+        if raw is None:
+            raw = b"{}"
+        try:
+            payload = json.loads(raw or b"{}")
+        except Exception:
+            payload = {}
+        dataset = str((payload or {}).get("dataset", ""))
+        photo = str((payload or {}).get("photo", ""))
+        gt = str((payload or {}).get("gt", ""))
+        chosen = str((payload or {}).get("chosen", "") or "")
+        if not photo:
+            self._send_json({"ok": False, "message": "photo required"}, code=400)
+            return
+        path = _gt_overrides_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            new_file = not os.path.isfile(path)
+            fields = ["dataset", "photo", "gt", "chosen", "chosen_none", "ts"]
+            with open(path, "a", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
+                if new_file:
+                    w.writeheader()
+                w.writerow({"dataset": dataset, "photo": photo, "gt": gt, "chosen": chosen,
+                            "chosen_none": "" if chosen else "1",
+                            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+            q = gt_reconcile_queue(limit=1)
+            self._send_json({"ok": True, "done": q["done"], "remaining": q["remaining"]}, code=200)
+        except Exception as e:
+            self._send_json({"ok": False, "message": str(e)}, code=500)
+
     def do_POST(self):
         route = self.path.split("?")[0]
+        if route == "/api/gt/reconcile":
+            self._handle_gt_reconcile_save()
+            return
         if route == "/api/run":
             self._handle_run()
             return
