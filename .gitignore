@@ -18,8 +18,9 @@ npm-debug.log*
 *_key
 *_key.pub
 
-# local backend data carried over (not part of the frontend repo)
+# datasets / run snapshots — real user data, shared privately (GDrive), never online
 poi-data
+poi-data-seed
 .grok
 .worktrees
 linkedspaces_visual_solvability_audit.md

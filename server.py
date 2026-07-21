@@ -1488,6 +1488,41 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.log_error("API request failed: %s", e)
             self._send_api_error("internal_error", 500)
 
+    def _handle_seed(self):
+        """Onboarding: materialize the bundled seed (initial dataset + baseline
+        runs) into the data dir when the install is empty. Idempotent."""
+        import shutil
+        raw = self._read_body(1024 * 1024)
+        if raw is None:
+            raw = b"{}"
+        try:
+            payload = json.loads(raw or b"{}")
+        except Exception:
+            payload = {}
+        preset = (payload or {}).get("preset", "default")
+        seed_dir = os.path.join(REPO_DIR, "poi-data-seed")
+        if not os.path.isdir(seed_dir):
+            self._send_json({"ok": False, "message": "seed bundle not found"}, code=500)
+            return
+        if os.path.isfile(CSV_PATH):
+            self._send_json({"ok": True, "message": "already seeded"}, code=200)
+            return
+        try:
+            os.makedirs(DIRECTORY, exist_ok=True)
+            for name in ("eval_set_reconciled.csv", "dashboard_config.json"):
+                src = os.path.join(seed_dir, name)
+                if os.path.isfile(src):
+                    shutil.copy2(src, os.path.join(DIRECTORY, name))
+            seed_runs = os.path.join(seed_dir, "generated", "runs")
+            if os.path.isdir(seed_runs):
+                os.makedirs(RUNS_DIR, exist_ok=True)
+                for fn in os.listdir(seed_runs):
+                    if fn.endswith(".json"):
+                        shutil.copy2(os.path.join(seed_runs, fn), os.path.join(RUNS_DIR, fn))
+            self._send_json({"ok": True, "message": f"seeded from {preset}"}, code=200)
+        except Exception as e:
+            self._send_json({"ok": False, "message": str(e)}, code=500)
+
     def do_POST(self):
         route = self.path.split("?")[0]
         if route == "/api/run":
@@ -1501,6 +1536,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if route == "/api/gt/classify":
             self._handle_gt_classify_shim()
+            return
+        if route == "/api/seed":
+            self._handle_seed()
             return
         if route != "/api/validate-upload-package":
             self.send_error(404)
