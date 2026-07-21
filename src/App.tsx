@@ -1,0 +1,28 @@
+import { Routes, Route, Outlet } from "react-router-dom";
+import Sidebar from "./components/Sidebar";
+import Home from "./pages/Home";
+import Placeholder from "./pages/Placeholder";
+
+function Layout() {
+  return (
+    <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
+      <Sidebar />
+      <Outlet />
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route element={<Layout />}>
+        <Route index element={<Home />} />
+        <Route path="new-run" element={<Placeholder title="New run" />} />
+        <Route path="results" element={<Placeholder title="Run results" />} />
+        <Route path="compare" element={<Placeholder title="Compare" />} />
+        <Route path="datasets" element={<Placeholder title="Datasets" />} />
+        <Route path="jobs" element={<Placeholder title="Jobs" />} />
+      </Route>
+    </Routes>
+  );
+}

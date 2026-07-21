@@ -1,0 +1,32 @@
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.success {
+  background: var(--success-bg);
+  color: var(--success-fg);
+}
+.warning {
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+.nonpoi {
+  background: var(--policy-bg);
+  color: var(--policy-fg);
+}
+.danger {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+.neutral {
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+}

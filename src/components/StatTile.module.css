@@ -1,0 +1,40 @@
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 0 0;
+  min-width: 0;
+  padding: 15px 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.label {
+  color: var(--text-secondary);
+}
+
+.value {
+  font-weight: 700;
+  font-size: 30px;
+  line-height: 1.12;
+  letter-spacing: -0.6px;
+  color: var(--text-primary);
+}
+
+.note {
+  font-size: 12px;
+  line-height: 1.4;
+}
+.tertiary {
+  color: var(--text-tertiary);
+}
+.warning {
+  color: var(--warning-fg);
+}
+.success {
+  color: var(--success-fg);
+}
+.danger {
+  color: var(--danger-fg);
+}
