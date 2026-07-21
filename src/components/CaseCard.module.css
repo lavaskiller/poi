@@ -1,0 +1,76 @@
+.card {
+  display: flex;
+  align-items: stretch;
+  flex: 1 0 0;
+  min-width: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+.band {
+  width: 4px;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+.inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 0;
+  min-width: 0;
+}
+.photo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 132px;
+  width: 100%;
+  background: var(--bg-subtle);
+}
+.filename {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+}
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 14px;
+  width: 100%;
+}
+.title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.kv {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+}
+.kvLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  width: 76px;
+  flex-shrink: 0;
+}
+.kvValue {
+  font-size: 13px;
+}
+.gtSrc {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}

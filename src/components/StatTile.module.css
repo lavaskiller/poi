@@ -21,6 +21,21 @@
   letter-spacing: -0.6px;
   color: var(--text-primary);
 }
+.v_primary {
+  color: var(--text-primary);
+}
+.v_success {
+  color: var(--success-fg);
+}
+.v_warning {
+  color: var(--warning-fg);
+}
+.v_danger {
+  color: var(--danger-fg);
+}
+.v_tertiary {
+  color: var(--text-tertiary);
+}
 
 .note {
   font-size: 12px;

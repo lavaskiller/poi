@@ -2,6 +2,7 @@ import { Routes, Route, Outlet } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
 import Home from "./pages/Home";
 import NewRun from "./pages/NewRun";
+import Results from "./pages/Results";
 import Placeholder from "./pages/Placeholder";
 
 function Layout() {
@@ -19,7 +20,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={<Home />} />
         <Route path="new-run" element={<NewRun />} />
-        <Route path="results" element={<Placeholder title="Run results" />} />
+        <Route path="results" element={<Results />} />
         <Route path="compare" element={<Placeholder title="Compare" />} />
         <Route path="datasets" element={<Placeholder title="Datasets" />} />
         <Route path="jobs" element={<Placeholder title="Jobs" />} />
