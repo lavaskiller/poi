@@ -113,3 +113,16 @@
   gap: 14px;
   width: 100%;
 }
+.cardLink {
+  display: flex;
+  text-decoration: none;
+  border-radius: var(--radius-lg);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+.cardLink:hover {
+  transform: translateY(-1px);
+}
+.cardLink:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}

@@ -1,128 +1,159 @@
+import { Link, useSearchParams } from "react-router-dom";
 import CandidateRow, { type CandidateRowData } from "../components/CandidateRow";
+import { api, type CaseDetail } from "../lib/api";
+import { useAsync } from "../lib/useAsync";
 import styles from "./CaseInspector.module.css";
 
-const SIGNALS = [
-  { name: "exif.gps", value: "37.5446, 127.0559", present: true },
-  { name: "ocr.text", value: "“cafe onion · est 2016”", present: true },
-  { name: "mapkit.nearby", value: "12 candidates · 150m radius", present: true },
-  { name: "heading", value: "—  not captured", present: false },
-];
-
-const CANDIDATES: CandidateRowData[] = [
-  { rank: 1, name: "Onion Bakery Seongsu", score: "0.74", scoreValue: 0.74, distance: "24m", state: "miss", tag: "✗ PICK ≠ GT" },
-  { rank: 2, name: "Seongsu Baking Studio", score: "0.71", scoreValue: 0.71, distance: "31m" },
-  { rank: 3, name: "Café Onion — Seongsu 2F", score: "0.70", scoreValue: 0.70, distance: "38m", state: "gt", tag: "GT" },
-  { rank: 4, name: "Daelim Changgo Gallery", score: "0.55", scoreValue: 0.55, distance: "55m" },
-  { rank: 5, name: "Zagmachi Coffee", score: "0.41", scoreValue: 0.41, distance: "78m" },
-];
-
 export default function CaseInspector() {
+  const [params] = useSearchParams();
+  const dataset = params.get("dataset") || "";
+  const photo = params.get("photo") || "";
+
+  const state = useAsync<CaseDetail | null>(
+    () => (dataset && photo ? api.case(dataset, photo) : Promise.resolve(null)),
+    [dataset, photo],
+  );
+
+  if (!dataset || !photo) {
+    return (
+      <main className={styles.main}>
+        <p className={styles.sub}>Open a case from the Run results gallery to inspect it.</p>
+        <Link className={styles.navBtn} to="/results">
+          ← Back to results
+        </Link>
+      </main>
+    );
+  }
+  if (state.status === "loading") return <main className={styles.main}>Loading case…</main>;
+  if (state.status === "error" || !state.data)
+    return <main className={styles.main}>Couldn’t load case — {state.status === "error" ? state.error.message : "not found"}</main>;
+
+  const c = state.data;
+  const signals = [
+    { name: "exif.gps", value: c.signals.gps, present: !!c.signals.gps },
+    { name: "ocr.text", value: c.signals.ocr ? `“${c.signals.ocr}”` : "— none", present: !!c.signals.ocr },
+    { name: "mapkit.nearby", value: c.signals.nearby ? `${c.signals.nearby} candidates` : "— none", present: !!c.signals.nearby },
+    { name: "category", value: c.signals.category || "— none", present: !!c.signals.category },
+  ];
+
+  const norm = (s: string) => (s || "").trim().toLowerCase();
+  const total = c.candidates.length;
+  const rows: CandidateRowData[] = c.candidates.map((cand, i) => {
+    const isGt = norm(cand.name) === norm(c.gt);
+    const isPick = norm(cand.name) === norm(c.prediction);
+    const stateKey = isPick ? (c.correct ? "hit" : "miss") : isGt ? "gt" : "default";
+    const tag = isPick ? (c.correct ? "✓ PICK = GT" : "✗ PICK ≠ GT") : isGt ? "GT" : undefined;
+    return {
+      rank: cand.rank,
+      name: cand.name || "—",
+      score: cand.distance != null ? `${Math.round(cand.distance)}m` : "·",
+      scoreValue: total > 0 ? (total - i) / total : 0,
+      distance: "",
+      state: stateKey,
+      tag,
+    };
+  });
+
   return (
     <main className={styles.main}>
-      {/* header */}
       <header className={styles.header}>
         <div className={styles.titles}>
-          <p className={`sectionLabel ${styles.kicker}`}>Case inspector · run heuristic-v2 v7</p>
+          <p className={`sectionLabel ${styles.kicker}`}>
+            Case inspector{c.run ? ` · ${c.run.name} v${c.run.version}` : ""}
+          </p>
           <div className={styles.titleRow}>
-            <h1 className={styles.h1}>Case #0412 — Café, Seongsu</h1>
-            <span className={styles.missPill}>SELECTION MISS</span>
+            <h1 className={styles.h1}>
+              {c.dataset} — {c.gt || c.photo}
+            </h1>
+            {!c.correct ? (
+              <span className={styles.missPill}>{c.match_kind || "MISS"}</span>
+            ) : (
+              <span className={styles.missPill} style={{ background: "var(--success-bg)", color: "var(--success-fg)" }}>
+                CORRECT
+              </span>
+            )}
           </div>
           <p className={styles.sub}>
-            dataset linkedspaces · GT tier: canonical · photo IMG_2841.HEIC
+            dataset {c.dataset} · gt_mapkit {c.gt_mapkit || "—"} · photo {c.photo}
           </p>
         </div>
-        <div className={styles.nav}>
-          <button type="button" className={styles.navBtn}>
-            ← Prev
-          </button>
-          <span className={styles.navCount}>12 / 161</span>
-          <button type="button" className={styles.navBtn}>
-            Next →
-          </button>
-        </div>
+        <Link className={styles.navBtn} to="/results">
+          ← Results
+        </Link>
       </header>
 
       <div className={styles.split}>
         {/* photo column */}
         <div className={styles.photoCol}>
           <div className={styles.photo}>
-            <span className={styles.photoName}>IMG_2841.HEIC</span>
+            <span className={styles.photoName}>{c.photo}</span>
           </div>
           <div className={styles.signals}>
             <p className={styles.miniLabel}>Signals on this case</p>
-            {SIGNALS.map((s) => (
+            {signals.map((s) => (
               <div key={s.name} className={styles.signalRow}>
                 <span
                   className={styles.signalDot}
                   style={{ background: s.present ? "var(--success-fg)" : "var(--text-tertiary)" }}
                 />
                 <span className={styles.signalName}>{s.name}</span>
-                <span className={s.present ? styles.signalValue : styles.signalMuted}>
-                  {s.value}
-                </span>
+                <span className={s.present ? styles.signalValue : styles.signalMuted}>{s.value}</span>
               </div>
             ))}
-          </div>
-          <div className={styles.map}>
-            <span className={styles.mapLabel}>MAP</span>
-            <div className={styles.mapLegend}>
-              <span className={styles.legendItem}>
-                <span className={styles.legendDot} style={{ background: "var(--danger-fg)" }} />
-                picked
-              </span>
-              <span className={styles.legendItem}>
-                <span className={styles.legendDot} style={{ background: "var(--success-fg)" }} />
-                ground truth
-              </span>
-              <span className={styles.legendItem}>
-                <span className={styles.legendDot} style={{ background: "var(--accent-default)" }} />
-                photo location
-              </span>
-            </div>
           </div>
         </div>
 
         {/* detail column */}
         <div className={styles.detailCol}>
-          <div className={styles.verdict}>
-            <p className={styles.verdictTitle}>Wrong pick — ground truth was rank 3 of 12</p>
+          <div
+            className={styles.verdict}
+            style={c.correct ? { background: "var(--success-bg)" } : undefined}
+          >
+            <p
+              className={styles.verdictTitle}
+              style={c.correct ? { color: "var(--success-fg)" } : undefined}
+            >
+              {c.correct ? "Correct — prediction matched ground truth" : "Wrong pick"}
+            </p>
             <p className={styles.verdictBody}>
-              The picked candidate scored 0.74 vs 0.70 for GT. Distance weighting favored the bakery
-              next door.
+              {c.correct
+                ? `Matched as ${c.match_kind || "exact"}.`
+                : `Predicted “${c.prediction || "— nothing"}” · match kind ${c.match_kind || "—"}.`}
             </p>
           </div>
 
           <div className={styles.card}>
             <div className={styles.pvgRow}>
               <span className={styles.pvgLabel}>PREDICTED</span>
-              <span className={`${styles.pvgName} ${styles.danger}`}>Onion Bakery Seongsu</span>
-              <span className={`${styles.pvgPill} ${styles.pillDanger}`}>rank 1 · score 0.74</span>
+              <span
+                className={`${styles.pvgName} ${c.correct ? styles.success : styles.danger}`}
+              >
+                {c.prediction || "— no candidate"}
+              </span>
             </div>
             <div className={styles.pvgRow}>
               <span className={styles.pvgLabel}>GROUND TRUTH</span>
-              <span className={`${styles.pvgName} ${styles.success}`}>Café Onion — Seongsu 2F</span>
-              <span className={`${styles.pvgPill} ${styles.pillSuccess}`}>rank 3 · score 0.70</span>
-              <span className={styles.gtSrc}>src · kakao (name-classified, not resolved)</span>
+              <span className={`${styles.pvgName} ${styles.success}`}>{c.gt || "—"}</span>
+              <span className={styles.gtSrc}>src · mapkit ({c.gt_mapkit || "—"})</span>
             </div>
           </div>
 
           <div className={styles.card}>
-            <p className={styles.miniLabel}>Candidates — mapkit.nearby · 12</p>
-            {CANDIDATES.map((c) => (
-              <CandidateRow key={c.rank} {...c} />
+            <p className={styles.miniLabel}>Candidates — mapkit.nearby · {total}</p>
+            {rows.length === 0 && (
+              <p className={styles.verdictBody}>No MapKit candidates recorded for this photo.</p>
+            )}
+            {rows.map((r) => (
+              <CandidateRow key={`${r.name}-${r.rank}`} {...r} />
             ))}
-            <a href="#" className={styles.moreLink}>
-              + 7 more candidates
-            </a>
           </div>
 
-          <div className={styles.why}>
-            <p className={styles.miniLabel}>Why — predict() reason</p>
-            <p className={styles.whyText}>matched ocr token “onion” → name-similarity 0.91;</p>
-            <p className={styles.whyText}>
-              distance weight 0.7 preferred 24m bakery over 38m café
-            </p>
-          </div>
+          {c.reason && (
+            <div className={styles.why}>
+              <p className={styles.miniLabel}>Why — predict() reason</p>
+              <p className={styles.whyText}>{c.reason}</p>
+            </div>
+          )}
         </div>
       </div>
     </main>

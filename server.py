@@ -167,6 +167,58 @@ def gt_reconcile_queue(limit=300):
             "remaining": total_non - len(done), "cases": out}
 
 
+def case_detail(dataset, photo):
+    """Single-case detail for the Case inspector — composed from stable sources
+    (eval CSV row + MapKit candidate list + the best run's prediction), so it
+    doesn't depend on the frozen 166-cohort explorer artifacts."""
+    if not os.path.isfile(CSV_PATH):
+        return None
+    row = None
+    with open(CSV_PATH, encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            if (r.get("dataset") or "").strip() == dataset and (r.get("photo") or "").strip() == photo:
+                row = r
+                break
+    if row is None:
+        return None
+    cand = (_load_original_mapkit_outputs().get(os.path.basename(photo)) or {}).get("candidates", [])
+    best, pred = None, {}
+    try:
+        scored = [r for r in list_runs(RUNS_DIR) if isinstance(r.get("accuracy_pct"), (int, float))]
+        best = max(scored, key=lambda r: r.get("accuracy_pct") or 0) if scored else None
+        if best:
+            full = get_run(RUNS_DIR, best["name"], best["version"])
+            for c in full.get("cases", []):
+                if c.get("dataset") == dataset and c.get("photo") == photo:
+                    pred = c
+                    break
+    except Exception:
+        best, pred = None, {}
+    lat = (row.get("capture_lat") or "").strip()[:9]
+    lon = (row.get("capture_lon") or "").strip()[:9]
+    return {
+        "dataset": dataset, "photo": photo,
+        "image": f"/api/poi-case-photo?dataset={urllib.parse.quote(dataset)}&photo={urllib.parse.quote(photo)}",
+        "gt": (row.get("input_place_name") or "").strip(),
+        "gt_mapkit": (row.get("gt_mapkit") or "").strip(),
+        "prediction": pred.get("prediction", ""),
+        "reason": pred.get("reason", ""),
+        "match_kind": pred.get("match_kind", ""),
+        "correct": bool(pred.get("correct")),
+        "run": {"name": best["name"], "version": best["version"]} if best else None,
+        "signals": {
+            "gps": (", ".join(x for x in (lat, lon) if x)),
+            "ocr": (row.get("caption_ondevice") or "").strip()[:240],
+            "nearby": (row.get("app_nearby_n_wide") or "").strip(),
+            "category": (row.get("category") or "").strip(),
+        },
+        "candidates": [{"rank": c.get("rank") or i + 1, "name": c.get("name", ""),
+                        "distance": c.get("distance") or c.get("distance_m"),
+                        "category": c.get("category", "")}
+                       for i, c in enumerate(cand)],
+    }
+
+
 def poi_case_explorer_data():
     """Compose cards from canonical run artifacts; write no report JSON.
 
@@ -1502,6 +1554,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._send_json({"ok": True, "active": _active["id"],
                              "steps": {s: (v.get("disabled") or "ok") for s, v in STEP_REGISTRY.items()},
                              "jobs": [_job_public(j) for j in _jobs.values()]})
+            return
+        if route == "/api/case":
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            ds = (q.get("dataset", [""])[0]).strip()
+            ph = (q.get("photo", [""])[0]).strip()
+            d = case_detail(ds, ph)
+            if d is None:
+                self._send_json({"error": "case not found"}, code=404)
+            else:
+                self._send_json(d)
             return
         if route == "/api/gt/reconcile":
             try:

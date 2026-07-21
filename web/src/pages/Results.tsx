@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import Button from "../components/Button";
 import StatTile from "../components/StatTile";
 import CaseCard, { type CaseCardData } from "../components/CaseCard";
@@ -38,15 +39,19 @@ export default function Results() {
   const failures = cases.filter((c) => !c.correct);
   const canonical = best.accuracy_canonical_pct;
 
-  const gallery: CaseCardData[] = failures.slice(0, 9).map((c) => ({
-    band: c.prediction ? "warning" : "danger",
-    filename: c.photo,
-    title: `${c.dataset}${c.context?.category ? " · " + c.context.category : ""}`,
-    predicted: `✗ ${c.prediction || "— no candidate matched"}`,
-    predictedTone: "danger",
-    groundTruth: `✓ ${c.gt}`,
-    groundTruthTone: "success",
-    gtSrc: "src · mapkit",
+  const gallery = failures.slice(0, 9).map((c) => ({
+    dataset: c.dataset,
+    photo: c.photo,
+    card: {
+      band: c.prediction ? "warning" : "danger",
+      filename: c.photo,
+      title: `${c.dataset}${c.context?.category ? " · " + c.context.category : ""}`,
+      predicted: `✗ ${c.prediction || "— no candidate matched"}`,
+      predictedTone: "danger",
+      groundTruth: `✓ ${c.gt}`,
+      groundTruthTone: "success",
+      gtSrc: "src · mapkit",
+    } as CaseCardData,
   }));
 
   const FILTERS = [
@@ -126,8 +131,14 @@ export default function Results() {
 
       {/* gallery */}
       <div className={styles.gallery}>
-        {gallery.map((c, i) => (
-          <CaseCard key={`${c.filename}-${i}`} {...c} />
+        {gallery.map((g, i) => (
+          <Link
+            key={`${g.photo}-${i}`}
+            to={`/case?dataset=${encodeURIComponent(g.dataset)}&photo=${encodeURIComponent(g.photo)}`}
+            className={styles.cardLink}
+          >
+            <CaseCard {...g.card} />
+          </Link>
         ))}
       </div>
     </main>

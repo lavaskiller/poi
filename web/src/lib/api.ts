@@ -71,6 +71,27 @@ export interface MatchRate {
   counts: Record<string, number>;
 }
 
+export interface CaseCandidate {
+  rank: number;
+  name: string;
+  distance?: number | null;
+  category?: string;
+}
+export interface CaseDetail {
+  dataset: string;
+  photo: string;
+  image: string;
+  gt: string;
+  gt_mapkit: string;
+  prediction: string;
+  reason: string;
+  match_kind: string;
+  correct: boolean;
+  run: { name: string; version: number } | null;
+  signals: { gps: string; ocr: string; nearby: string; category: string };
+  candidates: CaseCandidate[];
+}
+
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { Accept: "application/json" } });
   if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
@@ -109,6 +130,11 @@ export const api = {
     ),
 
   matchrate: () => getJSON<MatchRate>("/api/matchrate"),
+
+  case: (dataset: string, photo: string) =>
+    getJSON<CaseDetail>(
+      `/api/case?dataset=${encodeURIComponent(dataset)}&photo=${encodeURIComponent(photo)}`,
+    ),
 
   /** GT↔MapKit reconciliation queue — NON_MAPKIT cases with candidate lists. */
   reconcileQueue: () => getJSON<ReconcileQueue>("/api/gt/reconcile"),
