@@ -1,6 +1,6 @@
 import styles from "./CaseCard.module.css";
 
-export type CaseBand = "warning" | "danger" | "policy";
+export type CaseBand = "warning" | "danger" | "policy" | "success";
 type ValueTone = "danger" | "policy" | "success" | "secondary";
 
 export interface CaseCardData {
@@ -11,13 +11,16 @@ export interface CaseCardData {
   predictedTone?: ValueTone;
   groundTruth: string;
   groundTruthTone?: ValueTone;
-  gtSrc: string;
+  gtSrc?: string;
+  predictedLabel?: string;
+  groundTruthLabel?: string;
 }
 
 const BAND_COLOR: Record<CaseBand, string> = {
   warning: "var(--warning-fg)",
   danger: "var(--danger-fg)",
   policy: "var(--policy-fg)",
+  success: "var(--success-fg)",
 };
 
 const TONE_COLOR: Record<ValueTone, string> = {
@@ -36,6 +39,8 @@ export default function CaseCard({
   groundTruth,
   groundTruthTone = "success",
   gtSrc,
+  predictedLabel = "PREDICTED",
+  groundTruthLabel = "GROUND TRUTH",
 }: CaseCardData) {
   return (
     <div className={styles.card}>
@@ -47,17 +52,17 @@ export default function CaseCard({
         <div className={styles.body}>
           <p className={styles.title}>{title}</p>
           <div className={styles.kv}>
-            <span className={styles.kvLabel}>PREDICTED</span>
+            <span className={styles.kvLabel}>{predictedLabel}</span>
             <span className={styles.kvValue} style={{ color: TONE_COLOR[predictedTone] }}>
               {predicted}
             </span>
           </div>
           <div className={styles.kv}>
-            <span className={styles.kvLabel}>GROUND TRUTH</span>
+            <span className={styles.kvLabel}>{groundTruthLabel}</span>
             <span className={styles.kvValue} style={{ color: TONE_COLOR[groundTruthTone] }}>
               {groundTruth}
             </span>
-            <span className={styles.gtSrc}>{gtSrc}</span>
+            {gtSrc && <span className={styles.gtSrc}>{gtSrc}</span>}
           </div>
         </div>
       </div>
