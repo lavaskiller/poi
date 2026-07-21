@@ -4,8 +4,14 @@
     {
       "name": "web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": ["--prefix", "web", "run", "dev"],
       "port": 5173
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "/usr/bin/python3",
+      "runtimeArgs": ["/Users/massis/Desktop/poi/server.py"],
+      "port": 8420
     }
   ]
 }

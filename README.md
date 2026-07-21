@@ -1,43 +1,57 @@
-# POI Eval — UI
+# POI Eval
 
-React + Vite frontend for the POI evaluation tool, built from the Figma
-"POI Eval — Redesign". This branch (`main`) is **frontend-only**.
+Internal tool for evaluating POI (point-of-interest) prediction algorithms.
+Monorepo: a React frontend (`web/`) talking to the Python evaluation backend
+(`server.py` + `tools/`).
 
-> The previous vanilla-JS UI and the full Python backend (`server.py`, `tools/`,
-> `tests/`, `poi-data/`) live on the **`legacy-mvp`** branch, preserved as-is.
+> The previous vanilla-JS UI and full history are preserved on the
+> **`legacy-mvp`** branch.
 
-## Stack
+## Layout
 
-- React 18 + TypeScript
-- Vite 5
-- React Router
-- Plain CSS Modules + design tokens (CSS variables mirrored from Figma Foundations)
+```
+web/          React 18 + Vite + TypeScript frontend (design-system UI)
+server.py     Python HTTP backend — serves /api/* (runs, matchrate, datasets, jobs, …)
+tools/        evaluation + enrichment tools (algorithms, OCR/EXIF/MapKit jobs, scoring)
+poi-data/     local datasets + run snapshots (gitignored — shared privately, not online)
+```
 
 ## Develop
 
+Run the backend and the frontend together:
+
 ```bash
-npm install
-npm run dev      # http://localhost:5173
-npm run build    # type-check + production build
+# backend — serves /api on :8420
+python3 server.py
+
+# frontend — Vite dev on :5173, proxies /api → :8420
+npm --prefix web install   # first time
+npm --prefix web run dev
 ```
 
-## Structure
+The frontend calls `/api/*` on its own origin; Vite proxies those to the
+Python backend (see `web/vite.config.ts`).
+
+## Backend API (server.py)
+
+`/api/overview` · `/api/datasets` · `/api/runs` · `/api/run` (POST) ·
+`/api/matchrate` · `/api/records` · `/api/poi-case-explorer` ·
+`/api/poi-case-photo` · `/api/field-profile` · `/api/jobs` ·
+`/api/jobs/status` · `/api/gt/classify` · `/api/ingest` (POST) ·
+`/api/validate-upload-package` (POST)
+
+## Frontend structure (`web/src`)
 
 ```
-src/
-  styles/tokens.css     # Figma Foundations → CSS variables (colors, radius, type)
-  styles/global.css     # reset + base type
-  components/           # Button, Tag, StatTile, ProgressBar, Sidebar (+ NavItem)
-  pages/                # Home (built), Placeholder (stub for the rest)
-  App.tsx               # router + sidebar layout shell
+styles/tokens.css     Figma Foundations → CSS variables
+components/            Button, Tag, StatTile, ProgressBar, Sidebar, CaseCard, CandidateRow
+pages/                Home, NewRun, Results, CaseInspector, Compare, Datasets, RetrievalDiagnostics
+App.tsx               router + sidebar layout shell
 ```
 
-## Redesign build-out status
+## Status
 
-- [x] Foundations tokens + core components
-- [x] 01 · Home
-- [ ] 02 · New run · 03 · Run results · 04 · Case inspector
-- [ ] 05 · Compare · 06 · Datasets · 07 · Retrieval diagnostics
-- [ ] 08 · States & appendix · dark mode
-
-See `docs/redesign-brief.md` for the design brief.
+Pages are built to the Figma redesign. Current work: wiring the UI to the real
+backend and implementing onboarding (seed dataset + two baseline runs available
+from a first-run dropdown). Empty / loading / error / destructive-confirm states
+from the design appendix are applied in-place per page.

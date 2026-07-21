@@ -1,0 +1,97 @@
+{
+  "_comment": "Editable dashboard description layer. The server reloads this on each request. Labels, colors, and descriptions apply without code changes. Datasets/columns/tiers missing from config surface as config_warnings and '⚠ missing config' in the UI.",
+
+  "palette": ["blue", "cyan", "violet", "gold", "green", "pink", "orange", "red"],
+
+  "_sources_note": "A dataset is a first-class concept. Register a source here, provide photos + GT, and ingest fills remaining columns. owner/source_type set provenance and the default confidence tier.",
+  "sources": {
+    "linkedspaces": { "label": "Real-user visits", "color": "blue", "owner": "real users", "source_type": "real-user-export", "default_confidence": "user_selected", "photo_dir": "linkedspaces-photos", "desc": "Real place visits from users (In Seo export, KS2-10)." },
+    "union-city":   { "label": "Woohyuk personal blog", "color": "cyan", "owner": "Woohyuk", "source_type": "personal-blog", "default_confidence": "confirmed_user", "photo_dir": "union-city-trip", "desc": "Union City travel blog." },
+    "vancouver":    { "label": "In Seo personal blog", "color": "violet", "owner": "In Seo", "source_type": "personal-blog", "default_confidence": "confirmed_user", "photo_dir": "photos", "desc": "Vancouver travel blog." }
+  },
+
+  "_signals_note": "Auto-fill signal registry. Drives the rerun step dropdown on tab ④ and /api/datasets signal coverage. step maps to STEP_REGISTRY in server.py. status 'not_implemented' greys out the UI and returns 501.",
+  "signals": {
+    "exif":          { "label": "EXIF coordinates / time", "cols": ["capture_lat", "capture_lon", "timestamp"], "step": "exif", "coverage_metrics": [{ "key": "coordinates", "label": "Has coordinates", "cols": ["capture_lat", "capture_lon"], "require": "all" }, { "key": "timestamp", "label": "Has capture time", "cols": ["timestamp"], "require": "all" }] },
+    "ocr":           { "label": "OCR text", "cols": ["caption_ondevice"], "step": "ocr", "processed_col": "ocr_processed", "result_label": "Text detected" },
+    "geocode":       { "label": "Reverse geocoding", "cols": ["city", "country", "address"], "step": "geocode", "status": "not_implemented" },
+    "mapkit_nearby": { "label": "MapKit nearby candidates", "cols": ["app_poi_rank", "app_nearby_top1", "app_nearby_n_wide", "app_poi_dist_m"], "step": "mapkit_nearby", "processed_col": "mapkit_nearby_processed", "result_label": "Candidates found", "result_rule": "mapkit_candidates" },
+    "gt_mapkit":     { "label": "MapKit canonical name (GT)", "cols": ["gt_mapkit"], "step": "gt_mapkit", "result_rule": "mapkit_gt_labels" },
+    "gt_kakao":      { "label": "Kakao canonical name (GT)", "cols": ["gt_kakao"], "step": "gt_kakao" },
+    "vlm_caption":   { "label": "VLM caption", "cols": ["vlm_caption"], "step": "vlm_caption", "status": "not_implemented" }
+  },
+
+  "_confidence_note": "Confidence tiers change how a row is used in scoring. Raw gt_confidence stays in the CSV; confidence_rollup maps it to four canonical tiers. Label provenance is metadata, not a tier.",
+  "confidence_tiers": {
+    "user_selected": { "color": "gold",  "order": 1, "desc": "User-confirmed ground truth (in-app selection or verbal confirm). Headline match rate uses this tier only." },
+    "confident":     { "color": "green", "order": 2, "desc": "Trusted labels we hold (strong content evidence, synthetic naming, context). Not user-confirmed; regression anchors only, not headline metrics." },
+    "non_poi":       { "color": "ink3",  "order": 3, "desc": "Not a POI (in-flight, transit, etc.). Correct action is reject. Used to measure model hallucination." },
+    "unresolved":    { "color": "red",   "order": 4, "desc": "Cannot pin a single GT (unconfirmed or conflicting candidates). Hard cases no one can fully resolve." }
+  },
+  "confidence_rollup": {
+    "user_selected": "user_selected",
+    "strong_content": "confident",
+    "confirmed_user": "user_selected",
+    "synthetic_named": "confident",
+    "inferred": "confident",
+    "non_poi": "non_poi",
+    "synthetic_unconfirmed": "unresolved",
+    "ambiguous": "unresolved"
+  },
+
+  "country_normalize": {
+    "United States of America": "United States",
+    "United States": "United States",
+    "대한민국": "South Korea",
+    "South Korea": "South Korea",
+    "México": "Mexico",
+    "España": "Spain",
+    "Nederland": "Netherlands"
+  },
+  "country_by_dataset": { "union-city": "United States", "vancouver": "Canada" },
+  "country_flags": {
+    "United States": "🇺🇸", "South Korea": "🇰🇷", "Canada": "🇨🇦", "Mexico": "🇲🇽",
+    "Spain": "🇪🇸", "France": "🇫🇷", "Netherlands": "🇳🇱", "Unknown": "·"
+  },
+
+  "roles": {
+    "in": { "label": "Input signal", "tag": "t-in" },
+    "gt": { "label": "Ground truth", "tag": "t-gt" },
+    "bl": { "label": "Baseline", "tag": "t-bl" },
+    "mt": { "label": "Metadata", "tag": "t-mt" }
+  },
+
+  "schema_groups": [
+    { "group": "capture_lat/lon", "role": "in", "cols": ["capture_lat", "capture_lon"], "desc": "EXIF GPS coordinates. Present on every row." },
+    { "group": "caption_ondevice", "role": "in", "cols": ["caption_ondevice"], "desc": "On-device Vision OCR text from the photo." },
+    { "group": "photo_url / photo", "role": "in", "cols": ["photo", "photo_url"], "desc": "S3 URL + local filename. Inputs for FastVLM and OCR." },
+    { "group": "timestamp", "role": "in", "cols": ["timestamp"], "desc": "Capture time. Kept in our set; may be missing in some exports." },
+    { "group": "input_place_name", "role": "in", "cols": ["input_place_name"], "desc": "User raw input (pre-provider normalization)." },
+    { "group": "gt_mapkit", "role": "gt", "cols": ["gt_mapkit"], "desc": "MapKit canonical GT for non-Korea rows = <b>scoring reference</b>." },
+    { "group": "gt_kakao", "role": "gt", "cols": ["gt_kakao"], "desc": "Kakao canonical GT for Korea rows = <b>scoring reference</b> (holdout until Kakao data is available)." },
+    { "group": "gt_confidence", "role": "gt", "cols": ["gt_confidence"], "desc": "Label confidence tier (see confidence_tiers)." },
+    { "group": "category", "role": "gt", "cols": ["category"], "desc": "POI type. Used for failure taxonomy." },
+    { "group": "city / country / address", "role": "gt", "cols": ["city", "country", "address"], "desc": "Reverse-geocode strings from the export." },
+    { "group": "app_poi_rank", "role": "bl", "cols": ["app_poi_rank"], "desc": "Rank of the GT in the current MapKit search results." },
+    { "group": "app_nearby_top1", "role": "bl", "cols": ["app_nearby_top1"], "desc": "Nearest MapKit result within ~250 m." },
+    { "group": "app_nearby_n_wide", "role": "bl", "cols": ["app_nearby_n_wide"], "desc": "Candidate count in the wide MapKit radius." },
+    { "group": "app_poi_dist_m", "role": "bl", "cols": ["app_poi_dist_m"], "desc": "Distance (m) to the matched POI." },
+    { "group": "baseline_place_title", "role": "bl", "cols": ["baseline_place_title"], "desc": "Title the app would have shown (e.g. \"Near Downtown\")." },
+    { "group": "poi_match_keyword", "role": "bl", "cols": ["poi_match_keyword"], "desc": "Keyword used to find the GT in MapKit results (e.g. Safeway)." },
+    { "group": "poi_list_match", "role": "bl", "cols": ["poi_list_match"], "desc": "Match detail / notes (sparse)." },
+    { "group": "dataset / notes / username", "role": "mt", "cols": ["dataset", "notes", "username"], "desc": "Source, author, free-form notes." },
+    { "group": "ocr_processed / mapkit_nearby_processed", "role": "mt", "cols": ["ocr_processed", "mapkit_nearby_processed"], "desc": "Processing completion flags (separate from detection)." },
+    { "group": "caption_oracle", "role": "mt", "cols": ["caption_oracle"], "desc": "<s>Strong vision captions</s> — removed (circular; intentional 0%)." }
+  ],
+
+  "pipeline": [
+    { "label": "GPS coordinates", "kind": "column", "column": "capture_lat" },
+    { "label": "Photo download + convert", "kind": "column", "column": "photo" },
+    { "label": "Input place name", "kind": "column", "column": "input_place_name" },
+    { "label": "Vision OCR", "kind": "ocr" },
+    { "label": "MapKit baseline", "kind": "baseline" },
+    { "label": "MapKit canonical name (GT)", "kind": "column", "column": "gt_mapkit" },
+    { "label": "On-device LLM (v2)", "kind": "tsv", "file": "ai_ocr_v2.tsv" },
+    { "label": "FastVLM (image)", "kind": "file_exists", "file": "fastvlm_results.tsv", "detail_wait": "setup / smoke" }
+  ]
+}
