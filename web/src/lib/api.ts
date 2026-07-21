@@ -39,6 +39,38 @@ export interface Run {
   runtime?: string;
 }
 
+export interface RunCase {
+  dataset: string;
+  photo: string;
+  gt: string;
+  prediction: string;
+  correct: boolean;
+  correct_canonical: boolean;
+  match_kind: string;
+  photo_url?: string;
+  context?: {
+    input_place_name?: string;
+    category?: string;
+    city?: string;
+    country?: string;
+    ocr_text?: string;
+  };
+}
+
+export interface RunDetail extends Run {
+  mode?: string;
+  cases: RunCase[];
+}
+
+export interface MatchRate {
+  eligible: number;
+  evaluated: number;
+  selection_failure: number;
+  search_failure: number;
+  miss: number;
+  counts: Record<string, number>;
+}
+
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { Accept: "application/json" } });
   if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
@@ -70,6 +102,13 @@ export const api = {
   overview: () => getJSON<Overview>("/api/overview"),
 
   runs: () => getJSON<{ runs: Run[] }>("/api/runs"),
+
+  run: (name: string, version: number) =>
+    getJSON<{ run: RunDetail }>(
+      `/api/runs?name=${encodeURIComponent(name)}&version=${encodeURIComponent(version)}`,
+    ),
+
+  matchrate: () => getJSON<MatchRate>("/api/matchrate"),
 
   /** GT↔MapKit reconciliation queue — NON_MAPKIT cases with candidate lists. */
   reconcileQueue: () => getJSON<ReconcileQueue>("/api/gt/reconcile"),
