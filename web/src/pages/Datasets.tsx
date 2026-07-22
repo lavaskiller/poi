@@ -472,6 +472,13 @@ export default function Datasets() {
   const [ingestMsg, setIngestMsg] = useState<string | null>(null);
   const [templateBusy, setTemplateBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  /** Row overflow menu (⋯) — which dataset key is open */
+  const [menuKey, setMenuKey] = useState<string | null>(null);
+  /** Type-to-confirm remove modal target */
+  const [removeTarget, setRemoveTarget] = useState<DatasetInfo | null>(null);
+  const [removeConfirm, setRemoveConfirm] = useState("");
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const matchrate = useAsync(
     () => (openKey ? api.matchrate(openKey) : Promise.resolve(null)),
@@ -500,6 +507,38 @@ export default function Datasets() {
     }, 2000);
     return () => window.clearInterval(t);
   }, [activeJobId, refreshJobs]);
+
+  // After any job finishes (incl. delete_dataset), refresh the dataset list.
+  const prevActiveJob = useRef<string | null>(null);
+  const reloadDatasets = data.reload;
+  useEffect(() => {
+    if (prevActiveJob.current && !activeJobId) {
+      reloadDatasets();
+    }
+    prevActiveJob.current = activeJobId;
+  }, [activeJobId, reloadDatasets]);
+
+  // Close ⋯ menu on outside click / Escape.
+  useEffect(() => {
+    if (!menuKey) return;
+    const onDoc = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuKey(null);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMenuKey(null);
+        if (!removeBusy) setRemoveTarget(null);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuKey, removeBusy]);
 
   const datasets = data.status === "ready" ? data.data.datasets : [];
   // Jobs target: first dataset if none chosen — does not open coverage
@@ -581,6 +620,50 @@ export default function Datasets() {
   const toggleCoverage = (key: string) => {
     setSelected(key);
     setOpenKey((prev) => (prev === key ? null : key));
+  };
+
+  const openRemoveModal = (ds: DatasetInfo) => {
+    setMenuKey(null);
+    setRemoveTarget(ds);
+    setRemoveConfirm("");
+    setJobErr(null);
+  };
+
+  const confirmRemoveDataset = async () => {
+    if (!removeTarget) return;
+    if (removeConfirm.trim() !== removeTarget.key) return;
+    if (activeJobId) {
+      setJobErr("A job is already running — wait for it to finish before removing a dataset.");
+      return;
+    }
+    setRemoveBusy(true);
+    setJobErr(null);
+    setJobMsg(null);
+    try {
+      const isUpload = removeTarget.source_type === "upload";
+      // Uploads: full cleanup (rows + dedicated photo dir + config entry).
+      // Curated/seed sources: drop CSV rows only (shared photo trees stay).
+      const res = await api.startJob("delete_dataset", {
+        dataset: removeTarget.key,
+        delete_photos: isUpload,
+        remove_config_source: isUpload || removeTarget.config_source,
+      });
+      setJobMsg(
+        `Removing “${removeTarget.key}” (job ${res.job_id.slice(0, 8)}…) — ` +
+          (isUpload ? "rows, photos, and config source." : "CSV rows (photos kept for curated sources)."),
+      );
+      setRemoveTarget(null);
+      setRemoveConfirm("");
+      if (selected === removeTarget.key) setSelected("");
+      if (openKey === removeTarget.key) setOpenKey(null);
+      await refreshJobs();
+      // Poll once jobs finish; also reload list shortly.
+      window.setTimeout(() => data.reload(), 1500);
+    } catch (e) {
+      setJobErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRemoveBusy(false);
+    }
   };
 
   if (data.status === "loading") {
@@ -730,6 +813,43 @@ export default function Datasets() {
                 >
                   {isOpen ? "Hide coverage ↑" : "Show coverage ↓"}
                 </button>
+                <div
+                  className={styles.moreWrap}
+                  ref={menuKey === ds.key ? menuRef : undefined}
+                >
+                  <button
+                    type="button"
+                    className={styles.moreBtn}
+                    aria-haspopup="menu"
+                    aria-expanded={menuKey === ds.key}
+                    aria-label={`More actions for ${ds.key}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelected(ds.key);
+                      setMenuKey((k) => (k === ds.key ? null : ds.key));
+                    }}
+                  >
+                    ⋯
+                  </button>
+                  {menuKey === ds.key && (
+                    <div className={styles.moreMenu} role="menu">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={styles.moreItemDanger}
+                        disabled={!!activeJobId}
+                        title={
+                          activeJobId
+                            ? "Wait for the running job to finish"
+                            : `Remove dataset ${ds.key}`
+                        }
+                        onClick={() => openRemoveModal(ds)}
+                      >
+                        Remove dataset…
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
               {isOpen && openDs && openDs.key === ds.key && (
                 <CoveragePanel
@@ -896,6 +1016,72 @@ export default function Datasets() {
           </div>
         </div>
       </div>
+
+      {removeTarget && (
+        <div
+          className={styles.modalOverlay}
+          role="presentation"
+          onClick={() => {
+            if (!removeBusy) setRemoveTarget(null);
+          }}
+        >
+          <div
+            className={styles.modal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="remove-ds-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className={`sectionLabel ${styles.kicker}`}>Destructive</p>
+            <h2 id="remove-ds-title" className={styles.modalTitle}>
+              Remove dataset “{removeTarget.key}”?
+            </h2>
+            <p className={styles.modalBody}>
+              This deletes <strong>{removeTarget.count.toLocaleString()} rows</strong> for{" "}
+              <code className={styles.modalCode}>{removeTarget.key}</code> from the eval CSV
+              (CSV is backed up first).
+              {removeTarget.source_type === "upload"
+                ? " Upload photo directory and config source entry are also removed."
+                : " Curated photo files are kept on disk; only the eval rows are dropped."}
+            </p>
+            <label className={styles.modalLabel} htmlFor="remove-ds-confirm">
+              Type <code className={styles.modalCode}>{removeTarget.key}</code> to confirm
+            </label>
+            <input
+              id="remove-ds-confirm"
+              className={styles.modalInput}
+              value={removeConfirm}
+              autoFocus
+              autoComplete="off"
+              spellCheck={false}
+              disabled={removeBusy}
+              placeholder={removeTarget.key}
+              onChange={(e) => setRemoveConfirm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void confirmRemoveDataset();
+              }}
+            />
+            <div className={styles.modalActions}>
+              <button
+                type="button"
+                className={styles.modalCancel}
+                disabled={removeBusy}
+                onClick={() => setRemoveTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={styles.modalDanger}
+                disabled={removeBusy || removeConfirm.trim() !== removeTarget.key}
+                onClick={() => void confirmRemoveDataset()}
+              >
+                {removeBusy ? "Removing…" : "Remove dataset"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
