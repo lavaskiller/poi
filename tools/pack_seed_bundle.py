@@ -250,6 +250,13 @@ def pack(
     if cfg_src.is_file():
         shutil.copy2(cfg_src, out_dir / "dashboard_config.json")
 
+    # Reviewed GT aliases / related-credit relations (scoring + match_kind).
+    relations_src = data_root / "eval_label_relations.v1.jsonl"
+    relations_copied = False
+    if relations_src.is_file():
+        shutil.copy2(relations_src, out_dir / relations_src.name)
+        relations_copied = True
+
     runs_src = data_root / "generated" / "runs"
     runs_dst = out_dir / "generated" / "runs"
     runs_dst.mkdir(parents=True, exist_ok=True)
@@ -289,6 +296,8 @@ def pack(
         "photo_dirs": sorted({rel.split("/")[0] for _, rel in photo_jobs}),
         "mapkit_candidate_files": cand_files,
         "mapkit_candidate_bytes": cand_bytes,
+        "label_relations": relations_copied,
+        "label_relations_path": "eval_label_relations.v1.jsonl" if relations_copied else None,
     }
     with open(out_dir / "MANIFEST.json", "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
@@ -340,7 +349,8 @@ def main() -> int:
         f"({manifest['photos_bytes'] / (1024 * 1024):.1f} MiB) "
         f"missing={len(manifest['photos_missing'])} "
         f"mapkit_artifacts={len(manifest.get('mapkit_candidate_files') or [])} "
-        f"({(manifest.get('mapkit_candidate_bytes') or 0) / (1024 * 1024):.1f} MiB)"
+        f"({(manifest.get('mapkit_candidate_bytes') or 0) / (1024 * 1024):.1f} MiB) "
+        f"label_relations={'yes' if manifest.get('label_relations') else 'no'}"
     )
     if manifest["photos_missing"]:
         for m in manifest["photos_missing"][:10]:

@@ -241,6 +241,19 @@ def _copy_seed_photos(seed_dir, dest_root):
     return n, nbytes
 
 
+def _seed_is_root_data_member(rel_path):
+    """Allow small root-level eval sidecars (not photos) from a seed ZIP."""
+    rel = (rel_path or "").replace("\\", "/").lstrip("/")
+    if not rel or _is_unsafe_path(rel) or "/" in rel:
+        return False
+    return rel in (
+        "eval_set_reconciled.csv",
+        "dashboard_config.json",
+        "eval_label_relations.v1.jsonl",
+        "MANIFEST.json",
+    )
+
+
 def _seed_is_generated_member(rel_path):
     """Allow generated/runs + MapKit candidate artifacts from a seed ZIP."""
     rel = (rel_path or "").replace("\\", "/").lstrip("/")
@@ -329,7 +342,11 @@ def _apply_seed_bundle(zip_bytes):
         base = "" if base_dir == "." else base_dir + "/"
 
         os.makedirs(DIRECTORY, exist_ok=True)
-        for rel in ("eval_set_reconciled.csv", "dashboard_config.json"):
+        for rel in (
+            "eval_set_reconciled.csv",
+            "dashboard_config.json",
+            "eval_label_relations.v1.jsonl",
+        ):
             zi = by_name.get(base + rel)
             if zi is None:
                 continue
@@ -344,6 +361,9 @@ def _apply_seed_bundle(zip_bytes):
             if not n.startswith(base):
                 continue
             rel = n[len(base):]
+            # Already handled root CSV/config/relations above.
+            if _seed_is_root_data_member(rel):
+                continue
             # Runs + MapKit candidate artifacts under generated/ (and probe TSVs).
             if _seed_is_generated_member(rel):
                 dst = os.path.join(DIRECTORY, rel)
@@ -2767,7 +2787,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         try:
             os.makedirs(DIRECTORY, exist_ok=True)
-            for name in ("eval_set_reconciled.csv", "dashboard_config.json"):
+            for name in (
+                "eval_set_reconciled.csv",
+                "dashboard_config.json",
+                "eval_label_relations.v1.jsonl",
+            ):
                 src = os.path.join(seed_dir, name)
                 dst = os.path.join(DIRECTORY, name)
                 # Never clobber the tracked repo-root config template (legacy

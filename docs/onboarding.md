@@ -104,6 +104,7 @@ Expected contents:
 poi-data-seed/
   eval_set_reconciled.csv      initial evaluation set
   dashboard_config.json        matching config
+  eval_label_relations.v1.jsonl  reviewed GT aliases / related credit (scoring)
   generated/runs/*.json        pre-scored baseline runs
   generated/active-mapkit-candidate-snapshot.json
   generated/candidate-snapshots/<id>/mapkit_candidates.jsonl
