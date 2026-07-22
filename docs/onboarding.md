@@ -87,17 +87,39 @@ export POI_DATA_DIR=/path/to/poi-data     # optional; repo-local poi-data/ is au
 
 ### Option B — bootstrap from the seed bundle (minimal, for a first look)
 
-If you have the `poi-data-seed/` bundle (also shared privately) at the repo
-root, the app can self-seed: the onboarding dropdown in the UI (or
-`POST /api/seed`) copies the seed's `eval_set_reconciled.csv`,
-`dashboard_config.json`, and two baseline runs
-(`baseline-nearest`, `selector-loop70-i1`) into the live data root. Seeding is a
-no-op once `eval_set_reconciled.csv` already exists.
+**Seed bundle location — `poi-data-seed/` at the repo root** (sibling of
+`server.py`; hardcoded as `SEED_DIR` in `server.py`). It is gitignored, so a
+fresh clone does **not** have it — obtain it from Google Drive and drop it there.
+Expected contents:
 
-> `dashboard_config.json` also exists as a **tracked** copy at the repo root so
-> the server can boot and render config-driven views *before* any dataset is
-> dropped in. Config **reads** fall back to this template; config **writes**
-> always target the data-root copy (repo config stays read-only).
+```
+poi-data-seed/
+  eval_set_reconciled.csv      initial evaluation set
+  dashboard_config.json        matching config
+  generated/runs/*.json        pre-scored baseline runs
+  presets.json                 (optional) manifest for multiple named bundles
+```
+
+With the bundle in place, the app self-seeds on first run:
+
+1. Open the UI with an empty data root → the **"No dataset yet"** onboarding
+   screen appears.
+2. The dropdown is populated from `GET /api/seed/presets`, which **discovers
+   what is actually on disk** (each preset shows its row / baseline counts, and
+   is greyed out if unavailable). Without a `presets.json` manifest the bundle
+   is offered as a single `default` preset.
+3. "Load default setup" → `POST /api/seed` copies the selected preset into the
+   live data root. Idempotent: a no-op once `eval_set_reconciled.csv` exists.
+
+If the bundle is missing, the onboarding screen says so and tells you the path
+(`poi-data-seed/`) to drop it at — it is not a hard error.
+
+> **Where the seed lands:** on a fresh install the data root defaults to the
+> gitignored `poi-data/`, so seeding never writes real user data to the tracked
+> repo root. `dashboard_config.json` also exists as a **tracked** template at
+> the repo root so the server can boot before any dataset is present; config
+> **reads** fall back to it, config **writes** target the data-root copy, and the
+> seed never overwrites the tracked template.
 
 ---
 
