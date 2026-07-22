@@ -100,6 +100,13 @@
   background: var(--bg-subtle);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.photoImg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 .photoName {
   font-family: var(--font-mono);

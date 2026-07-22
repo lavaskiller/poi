@@ -86,7 +86,7 @@ export default function CaseInspector() {
         {/* photo column */}
         <div className={styles.photoCol}>
           <div className={styles.photo}>
-            <span className={styles.photoName}>{c.photo}</span>
+            <img className={styles.photoImg} src={c.image} alt={c.photo} loading="lazy" />
           </div>
           <div className={styles.signals}>
             <p className={styles.miniLabel}>Signals on this case</p>

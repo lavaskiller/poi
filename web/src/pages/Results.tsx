@@ -45,6 +45,7 @@ export default function Results() {
     card: {
       band: c.prediction ? "warning" : "danger",
       filename: c.photo,
+      image: `/api/poi-case-photo?dataset=${encodeURIComponent(c.dataset)}&photo=${encodeURIComponent(c.photo)}`,
       title: `${c.dataset}${c.context?.category ? " · " + c.context.category : ""}`,
       predicted: `✗ ${c.prediction || "— no candidate matched"}`,
       predictedTone: "danger",
