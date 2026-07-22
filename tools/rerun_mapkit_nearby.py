@@ -2,7 +2,8 @@
 """Re-run the MapKit nearby probe for a dataset via ls_mapkit_probe.swift.
 
 Fills app_poi_rank / app_nearby_top1 / app_nearby_n_wide / app_poi_dist_m from
-the wide (250m) search, matching merge_signals.py's column mapping.
+the wide (250m) search, and persists the *full* wide candidate list (names +
+distances) so GT MapKit can label against the same nearby set.
 
 Usage:
   POI_DATA_DIR=/path python3 tools/rerun_mapkit_nearby.py --dataset vancouver [--only-empty] [--dry-run]
@@ -10,8 +11,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
+import json
 import os
 import sys
+from typing import Any, Dict, List
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
@@ -19,6 +23,98 @@ import rerun_common as rc  # noqa: E402
 
 RANK, NWIDE, DIST, TOP1 = "app_poi_rank", "app_nearby_n_wide", "app_poi_dist_m", "app_nearby_top1"
 PROCESSED_COL = "mapkit_nearby_processed"
+# Merged full-candidate cache consumed by gt_classify_mapkit (distance-cut GT).
+NEARBY_CANDIDATES_JSONL = "mapkit_nearby_candidates.jsonl"
+
+
+def _candidates_path() -> str:
+    return os.path.join(rc.data_dir(), "generated", NEARBY_CANDIDATES_JSONL)
+
+
+def _parse_probe_output(out_tsv: str) -> Dict[str, Dict[str, Any]]:
+    """photo key → {app_* fields, candidates: [dicts]}."""
+    res: Dict[str, Dict[str, Any]] = {}
+    with open(out_tsv, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        for row in reader:
+            photo = (row.get("photo") or "").strip()
+            if not photo:
+                continue
+            top3 = (row.get("top3_wide") or "").strip()
+            top1 = ""
+            if top3:
+                part = top3.split(" | ")[0].strip()
+                top1 = part.rsplit("@", 1)[0].strip() if "@" in part else part
+            rich: List[dict] = []
+            raw = (row.get("wide_candidates_json") or "").strip()
+            if raw:
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        rich = [c for c in parsed if isinstance(c, dict)]
+                except json.JSONDecodeError:
+                    rich = []
+            res[photo] = {
+                RANK: (row.get("wide_rank") or "").strip(),
+                NWIDE: (row.get("wide_n") or "").strip(),
+                DIST: (row.get("wide_dist") or "").strip(),
+                TOP1: top1,
+                "candidates": rich,
+            }
+    return res
+
+
+def _merge_nearby_jsonl(path: str, updates: Dict[str, List[dict]], source: str) -> int:
+    """Replace candidate lines for updated photo keys; keep others. Returns lines written."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    keep: List[str] = []
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                photo = (rec.get("photo") or "").strip()
+                if photo in updates:
+                    continue
+                keep.append(json.dumps(rec, ensure_ascii=False))
+    n_new = 0
+    with open(path, "w", encoding="utf-8") as out:
+        for line in keep:
+            out.write(line + "\n")
+        for photo, cands in updates.items():
+            if not cands:
+                # Explicit empty nearby response so GT can distinguish "probed, none"
+                # from "never probed".
+                out.write(json.dumps({
+                    "photo": photo,
+                    "provider": "mapkit",
+                    "candidate_artifact_status": "empty",
+                    "source": source,
+                }, ensure_ascii=False) + "\n")
+                n_new += 1
+                continue
+            for fallback_rank, cand in enumerate(cands, start=1):
+                rec = {
+                    "photo": photo,
+                    "provider": "mapkit",
+                    "provider_place_id": cand.get("provider_place_id"),
+                    "name": cand.get("name") or "",
+                    "lat": cand.get("lat"),
+                    "lon": cand.get("lon"),
+                    "address": cand.get("address") or "",
+                    "category": cand.get("category") or "",
+                    "rank": cand.get("rank") or fallback_rank,
+                    "distance_m": cand.get("distance_m"),
+                    "source": source,
+                }
+                out.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                n_new += 1
+    return n_new
 
 
 def main() -> int:
@@ -41,9 +137,24 @@ def main() -> int:
             row[PROCESSED_COL] = "1"
     targets = rc.select_rows(rows, args.dataset, rep_col=RANK,
                              only_empty=args.only_empty, processed_col=PROCESSED_COL)
-    targets = [(i, r) for (i, r) in targets
-               if (r.get("capture_lat") or "").strip() and (r.get("capture_lon") or "").strip()]
-    print(f"[mapkit_nearby] dataset={args.dataset} targets={len(targets)}")
+    cfg = rc.ms.load_config()
+    # MapKit nearby is MapKit-provider only. Kakao / unresolved rows must not
+    # be probed (and must not get false app_* ranks that look like MapKit GT).
+    filtered = []
+    skipped_other_provider = 0
+    for i, r in targets:
+        if not ((r.get("capture_lat") or "").strip() and (r.get("capture_lon") or "").strip()):
+            continue
+        if rc.ms.provider_for_row(r, cfg) != rc.ms.PROVIDER_MAPKIT:
+            skipped_other_provider += 1
+            continue
+        filtered.append((i, r))
+    targets = filtered
+    print(
+        f"[mapkit_nearby] dataset={args.dataset} targets={len(targets)} "
+        f"skipped_other_provider={skipped_other_provider} "
+        f"gt_radius_m={rc.ms.MAPKIT_GT_RADIUS_M}",
+    )
     rc.progress(0, len(targets))
 
     if args.dry_run:
@@ -72,19 +183,12 @@ def main() -> int:
     print(f"[mapkit_nearby] running ls_mapkit_probe.swift over {len(targets)} rows ...")
     rc.run_swift("ls_mapkit_probe.swift", in_tsv, out_tsv)
 
-    # 9-col output: photo strict_n strict_rank strict_dist wide_n wide_rank wide_dist retries top3_wide
-    res = {}
-    with open(out_tsv, encoding="utf-8") as f:
-        for i, line in enumerate(f):
-            c = line.rstrip("\n").split("\t")
-            if i == 0:
-                continue  # header
-            if len(c) >= 9 and c[0]:
-                top1 = ""
-                if c[8].strip():
-                    part = c[8].split(" | ")[0].strip()
-                    top1 = part.rsplit("@", 1)[0].strip() if "@" in part else part
-                res[c[0]] = {RANK: c[5], NWIDE: c[4], DIST: c[6], TOP1: top1}
+    res = _parse_probe_output(out_tsv)
+    # Persist full wide candidates for GT (same set, distance-cut later).
+    cand_updates = {k: (v.get("candidates") or []) for k, v in res.items()}
+    n_cand_lines = _merge_nearby_jsonl(
+        _candidates_path(), cand_updates, source=os.path.basename(out_tsv))
+    print(f"[mapkit_nearby] wrote candidate cache {_candidates_path()} (+{n_cand_lines} lines)")
 
     n = len(targets)
     # Commit only our app_* cells onto the newest CSV under the shared lock.
@@ -102,8 +206,8 @@ def main() -> int:
             if vals:
                 # Persist completion independently of candidate detection, and
                 # accept empty cells as the authoritative latest probe result.
-                for col, value in vals.items():
-                    row[col] = (value or "").strip()
+                for col in (RANK, NWIDE, DIST, TOP1):
+                    row[col] = (vals.get(col) or "").strip()
                 row[PROCESSED_COL] = "1"
                 processed += 1
                 try:
@@ -113,10 +217,19 @@ def main() -> int:
                 filled += int(candidate_count > 0 or bool((vals.get(TOP1) or "").strip()))
         rc.write_csv(rc.ms.CSV_PATH, fieldnames, rows)
     rc.progress(n, n)
-    rc.emit_result({"ok": True, "step": "mapkit_nearby", "dataset": args.dataset,
-                    "only_empty": args.only_empty, "targets": n,
-                    "processed": processed, "detected": filled, "filled": filled,
-                    "backup": backup})
+    rc.emit_result({
+        "ok": True,
+        "step": "mapkit_nearby",
+        "dataset": args.dataset,
+        "only_empty": args.only_empty,
+        "targets": n,
+        "processed": processed,
+        "detected": filled,
+        "filled": filled,
+        "candidates_path": _candidates_path(),
+        "candidate_lines_written": n_cand_lines,
+        "backup": backup,
+    })
     return 0
 
 

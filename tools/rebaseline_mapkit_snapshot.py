@@ -40,7 +40,8 @@ def eligible(rows, cfg):
         ds = (row.get("dataset") or "").strip()
         provider = ms.provider_for_row(row, cfg)
         gt, status = ms.gt_resolution(row, provider)
-        if provider != "mapkit" or ms.confidence_tier(row, cfg) == "non_poi" or status != "canonical":
+        if (provider != ms.PROVIDER_MAPKIT or ms.confidence_tier(row, cfg) == "non_poi"
+                or status != "canonical"):
             continue
         photo = (row.get("photo") or "").strip()
         lat, lon = (row.get("capture_lat") or "").strip(), (row.get("capture_lon") or "").strip()

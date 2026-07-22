@@ -85,11 +85,19 @@ point `POI_DATA_DIR` at it):
 export POI_DATA_DIR=/path/to/poi-data     # optional; repo-local poi-data/ is auto-detected
 ```
 
-### Option B — bootstrap from the seed bundle (minimal, for a first look)
+### Option B — bootstrap from the seed bundle (first look **with photos**)
 
 **Seed bundle location — `poi-data-seed/` at the repo root** (sibling of
 `server.py`; hardcoded as `SEED_DIR` in `server.py`). It is gitignored, so a
-fresh clone does **not** have it — obtain it from Google Drive and drop it there.
+fresh clone does **not** have it — obtain it from Google Drive and drop it there,
+or rebuild it from a full `poi-data/` with:
+
+```bash
+python3 tools/pack_seed_bundle.py --clean
+# shareable ZIP for Drive / onboarding upload:
+python3 tools/pack_seed_bundle.py --clean --zip /tmp/poi-seed-with-photos.zip
+```
+
 Expected contents:
 
 ```
@@ -97,8 +105,16 @@ poi-data-seed/
   eval_set_reconciled.csv      initial evaluation set
   dashboard_config.json        matching config
   generated/runs/*.json        pre-scored baseline runs
+  photos/ …                    CSV-referenced images (vancouver, …)
+  linkedspaces-photos/ …
+  union-city-trip/ …
+  poi-dataset-20260708-photos/ …
+  MANIFEST.json                pack metadata (counts / missing)
   presets.json                 (optional) manifest for multiple named bundles
 ```
+
+A seed **without** photo dirs still loads CSV + runs, but case images 404 until
+photos are present. Prefer the photo-inclusive pack for new machines.
 
 With the bundle in place, the app self-seeds on first run:
 

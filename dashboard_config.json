@@ -6,7 +6,7 @@
   "_sources_note": "A dataset is a first-class concept. Register a source here, provide photos + GT, and ingest fills remaining columns. owner/source_type set provenance and the default confidence tier.",
   "sources": {
     "linkedspaces": { "label": "Real-user visits", "color": "blue", "owner": "real users", "source_type": "real-user-export", "default_confidence": "user_selected", "photo_dir": "linkedspaces-photos", "desc": "Real place visits from users (In Seo export, KS2-10)." },
-    "union-city":   { "label": "Woohyuk personal blog", "color": "cyan", "owner": "Woohyuk", "source_type": "personal-blog", "default_confidence": "confirmed_user", "photo_dir": "union-city-trip", "desc": "Union City travel blog." },
+    "union-city":   { "label": "Woohyuk personal blog", "color": "cyan", "owner": "Woohyuk", "source_type": "personal-blog", "default_confidence": "confirmed_user", "photo_dir": "union-city-trip", "desc": "Union City travel blog. Photos live under union-city-trip/ (often nested photos/)." },
     "vancouver":    { "label": "In Seo personal blog", "color": "violet", "owner": "In Seo", "source_type": "personal-blog", "default_confidence": "confirmed_user", "photo_dir": "photos", "desc": "Vancouver travel blog." },
     "poi-dataset-20260708": {
       "label": "POI dataset 2026-07-08",
@@ -23,9 +23,9 @@
   "signals": {
     "exif":          { "label": "EXIF coordinates / time", "cols": ["capture_lat", "capture_lon", "timestamp"], "step": "exif", "coverage_metrics": [{ "key": "coordinates", "label": "Has coordinates", "cols": ["capture_lat", "capture_lon"], "require": "all" }, { "key": "timestamp", "label": "Has capture time", "cols": ["timestamp"], "require": "all" }] },
     "ocr":           { "label": "OCR text", "cols": ["caption_ondevice"], "step": "ocr", "processed_col": "ocr_processed", "result_label": "Text detected" },
-    "geocode":       { "label": "Reverse geocoding", "cols": ["city", "country", "address"], "step": "geocode", "status": "not_implemented" },
+    "geocode":       { "label": "Reverse geocoding", "cols": ["city", "country", "address"], "step": "geocode", "processed_col": "geocode_processed", "result_label": "Country resolved" },
     "mapkit_nearby": { "label": "MapKit nearby candidates", "cols": ["app_poi_rank", "app_nearby_top1", "app_nearby_n_wide", "app_poi_dist_m"], "step": "mapkit_nearby", "processed_col": "mapkit_nearby_processed", "result_label": "Candidates found", "result_rule": "mapkit_candidates" },
-    "gt_mapkit":     { "label": "MapKit canonical name (GT)", "cols": ["gt_mapkit"], "step": "gt_mapkit", "result_rule": "mapkit_gt_labels" },
+    "gt_mapkit":     { "label": "MapKit canonical name (GT)", "cols": ["gt_mapkit"], "step": "gt_mapkit", "result_rule": "mapkit_gt_labels", "desc": "Label form vs MapKit nearby names within 250m (same wide probe set)." },
     "gt_kakao":      { "label": "Kakao canonical name (GT)", "cols": ["gt_kakao"], "step": "gt_kakao" },
     "vlm_caption":   { "label": "VLM caption", "cols": ["vlm_caption"], "step": "vlm_caption", "status": "not_implemented" }
   },

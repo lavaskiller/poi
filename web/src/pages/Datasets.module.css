@@ -388,6 +388,42 @@
   padding: 10px 12px;
   background: var(--warning-bg);
   border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ceilingTitle {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+.issueList {
+  margin: 0;
+  padding: 0 0 0 1.1em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  max-height: 220px;
+  overflow-y: auto;
+}
+.issueList li {
+  word-break: break-word;
+}
+.issueMore {
+  color: var(--text-secondary);
+  list-style: none;
+  margin-left: -1.1em;
+}
+.warningLabel {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 .rsGroups {
   display: grid;
@@ -630,6 +666,12 @@
   font-size: 11.5px;
   color: var(--text-secondary);
 }
+.doneBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
 .doneRow {
   display: flex;
   align-items: center;
@@ -645,6 +687,14 @@
   font-size: 10.5px;
   color: var(--text-tertiary);
   white-space: nowrap;
+}
+.jobFailReason {
+  margin: 0 0 0 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--danger-fg);
+  word-break: break-word;
 }
 .logLink {
   font-family: var(--font-mono);

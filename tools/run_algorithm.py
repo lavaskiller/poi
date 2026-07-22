@@ -155,7 +155,9 @@ def build_cases(rows, cfg, candidates, dataset: str, params: Optional[List[str]]
         tier = ms.confidence_tier(row, cfg)
         # Eligibility exactly mirrors match_score.evaluate: provider sentinels
         # and missing provider-canonical GT are holdouts, never answer labels.
-        if (provider == "kakao_local" or tier == "non_poi"
+        # unresolved country must never enter the MapKit scoring cohort.
+        if (provider in (ms.PROVIDER_KAKAO, ms.PROVIDER_UNRESOLVED)
+                or tier == "non_poi"
                 or gt_status != "canonical"):
             continue
         photo = (row.get("photo") or "").strip()

@@ -7,6 +7,7 @@ import {
   type Job,
   type MatchRate,
   type SignalInfo,
+  type ValidationIssue,
 } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
 import styles from "./Datasets.module.css";
@@ -33,6 +34,7 @@ const SIGNAL_ORDER = [
 
 const RERUN_STEPS = [
   { id: "exif", label: "EXIF" },
+  { id: "geocode", label: "Geocode" },
   { id: "ocr", label: "OCR" },
   { id: "mapkit_nearby", label: "MapKit nearby" },
   { id: "gt_mapkit", label: "GT MapKit" },
@@ -138,6 +140,10 @@ function orderedSignals(signals: Record<string, SignalInfo>): [string, SignalInf
   return [...ordered, ...rest].map((k) => [k, signals[k]]);
 }
 
+function jobKey(j: Job): string {
+  return j.job_id || j.id || `${j.step}-${j.started ?? "?"}`;
+}
+
 function jobTitle(j: Job): string {
   const ds = (j.params?.dataset as string | undefined) || "";
   return ds ? `${j.step} — ${ds}` : j.step;
@@ -162,6 +168,60 @@ function jobWhen(j: Job): string {
     return `${j.status} · started ${relTime(new Date(j.started * 1000).toISOString())}`;
   }
   return j.status;
+}
+
+/** Human-readable line for one validator issue (code + message + where). */
+function formatValidationIssue(issue: ValidationIssue): string {
+  const bits: string[] = [];
+  if (issue.code) bits.push(`[${issue.code}]`);
+  bits.push(issue.message || "validation error");
+  if (issue.row != null) bits.push(`row ${issue.row}`);
+  if (issue.photo) bits.push(String(issue.photo));
+  if (issue.columns?.length) bits.push(`columns: ${issue.columns.join(", ")}`);
+  if (issue.photos?.length) {
+    bits.push(
+      issue.photos.length <= 3
+        ? issue.photos.join(", ")
+        : `${issue.photos.slice(0, 3).join(", ")} (+${issue.photos.length - 3} more)`,
+    );
+  }
+  if (issue.paths?.length) {
+    bits.push(
+      issue.paths.length <= 2
+        ? issue.paths.join(", ")
+        : `${issue.paths.slice(0, 2).join(", ")} (+${issue.paths.length - 2} more)`,
+    );
+  }
+  if (issue.roots?.length) bits.push(`roots: ${issue.roots.join(", ")}`);
+  if (issue.allowed?.length) bits.push(`allowed: ${issue.allowed.join(", ")}`);
+  return bits.join(" · ");
+}
+
+/** Pull a short failure reason from a finished job (ingest RESULT or top-level error). */
+function jobFailureReason(j: Job): string | null {
+  if (j.status === "running" || j.status === "done" || j.status === "ok") return null;
+  if (j.error) return j.error;
+  const result = j.result;
+  if (!result || typeof result !== "object") return null;
+
+  // ingest RESULT: { ok:false, error, errors?: [...] }
+  // wrapped success shape after pipeline: { ingest, pipeline } — not a failure
+  const nested =
+    result.ingest && typeof result.ingest === "object"
+      ? (result.ingest as Record<string, unknown>)
+      : result;
+
+  if (typeof nested.error === "string" && nested.error) {
+    const detailErrors = nested.errors;
+    if (Array.isArray(detailErrors) && detailErrors.length > 0) {
+      const first = detailErrors[0] as ValidationIssue;
+      const more = detailErrors.length > 1 ? ` (+${detailErrors.length - 1} more)` : "";
+      return `${nested.error}: ${formatValidationIssue(first)}${more}`;
+    }
+    return nested.error;
+  }
+  if (typeof nested.message === "string" && nested.message) return nested.message;
+  return null;
 }
 
 function signalDetailLines(sig: SignalInfo, total: number): string[] {
@@ -405,6 +465,9 @@ export default function Datasets() {
   const [onlyEmpty, setOnlyEmpty] = useState(true);
   const [jobMsg, setJobMsg] = useState<string | null>(null);
   const [jobErr, setJobErr] = useState<string | null>(null);
+  /** Structured validation issues shown under the banner when upload is rejected. */
+  const [validationIssues, setValidationIssues] = useState<ValidationIssue[]>([]);
+  const [validationWarnings, setValidationWarnings] = useState<ValidationIssue[]>([]);
   const [ingestBusy, setIngestBusy] = useState(false);
   const [ingestMsg, setIngestMsg] = useState<string | null>(null);
   const [templateBusy, setTemplateBusy] = useState(false);
@@ -455,6 +518,8 @@ export default function Datasets() {
     if (!active) return;
     setJobErr(null);
     setJobMsg(null);
+    setValidationIssues([]);
+    setValidationWarnings([]);
     const stepStatus = steps[rerunStep];
     if (stepStatus && stepStatus !== "ok") {
       setJobErr(`${rerunStep} is unavailable: ${stepStatus}`);
@@ -479,16 +544,31 @@ export default function Datasets() {
     setIngestBusy(true);
     setIngestMsg(null);
     setJobErr(null);
+    setValidationIssues([]);
+    setValidationWarnings([]);
     try {
       const validation = await api.validateUpload(file);
       if (!validation.ok) {
-        const n = validation.errors?.length ?? 0;
-        setJobErr(`Validation failed (${n} error${n === 1 ? "" : "s"}). Fix the ZIP and retry.`);
+        const errs = validation.errors ?? [];
+        const warns = validation.warnings ?? [];
+        const n = errs.length;
+        setJobErr(
+          `Validation failed (${n} error${n === 1 ? "" : "s"}). Fix the ZIP and retry.`,
+        );
+        setValidationIssues(errs);
+        setValidationWarnings(warns);
         return;
+      }
+      // Soft signals: show warnings even when package is accepted.
+      if (validation.warnings?.length) {
+        setValidationWarnings(validation.warnings);
       }
       const nameGuess = file.name.replace(/\.zip$/i, "") || undefined;
       const res = await api.ingest(file, nameGuess);
-      setIngestMsg(`Ingest started (job ${res.job_id.slice(0, 8)}…). Rows appear as the job finishes.`);
+      setIngestMsg(
+        `Ingest started (job ${res.job_id.slice(0, 8)}…). ` +
+          `On success, EXIF → geocode → OCR ∥ nearby → GT MapKit automatically.`,
+      );
       await refreshJobs();
     } catch (e) {
       setJobErr(e instanceof Error ? e.message : String(e));
@@ -571,10 +651,50 @@ export default function Datasets() {
         />
       </header>
 
-      {(jobErr || jobMsg || ingestMsg) && (
-        <p className={styles.ceiling} style={jobErr ? undefined : { borderColor: "var(--success-fg)" }}>
-          {jobErr ? `⚠ ${jobErr}` : `✓ ${jobMsg || ingestMsg}`}
-        </p>
+      {(jobErr || jobMsg || ingestMsg || validationIssues.length > 0 || validationWarnings.length > 0) && (
+        <div
+          className={styles.ceiling}
+          style={jobErr || validationIssues.length ? undefined : { borderColor: "var(--success-fg)" }}
+        >
+          {(jobErr || jobMsg || ingestMsg) && (
+            <p className={styles.ceilingTitle}>
+              {jobErr ? `⚠ ${jobErr}` : `✓ ${jobMsg || ingestMsg}`}
+            </p>
+          )}
+          {validationIssues.length > 0 && (
+            <ul className={styles.issueList}>
+              {validationIssues.slice(0, 12).map((issue, i) => (
+                <li key={`err-${i}-${issue.code ?? ""}-${issue.row ?? ""}`}>
+                  {formatValidationIssue(issue)}
+                </li>
+              ))}
+              {validationIssues.length > 12 && (
+                <li className={styles.issueMore}>
+                  …and {validationIssues.length - 12} more error
+                  {validationIssues.length - 12 === 1 ? "" : "s"}
+                </li>
+              )}
+            </ul>
+          )}
+          {validationWarnings.length > 0 && (
+            <>
+              <p className={styles.warningLabel}>
+                {validationIssues.length ? "Also warnings" : "Warnings"} ({validationWarnings.length})
+              </p>
+              <ul className={styles.issueList}>
+                {validationWarnings.slice(0, 6).map((issue, i) => (
+                  <li key={`warn-${i}-${issue.code ?? ""}`}>{formatValidationIssue(issue)}</li>
+                ))}
+                {validationWarnings.length > 6 && (
+                  <li className={styles.issueMore}>
+                    …and {validationWarnings.length - 6} more warning
+                    {validationWarnings.length - 6 === 1 ? "" : "s"}
+                  </li>
+                )}
+              </ul>
+            </>
+          )}
+        </div>
       )}
 
       <div className={styles.list}>
@@ -687,8 +807,9 @@ export default function Datasets() {
             const pct = Math.min(100, Math.max(0, j.progress?.pct ?? 0));
             const done = j.progress?.done;
             const total = j.progress?.total;
+            const isIngest = j.step === "ingest";
             return (
-              <div key={j.id} className={styles.activeJob}>
+              <div key={jobKey(j)} className={styles.activeJob}>
                 <div className={styles.activeHead}>
                   <span className={styles.jobDot} style={{ background: "var(--warning-fg)" }} />
                   <span className={styles.activeName}>{jobTitle(j)}</span>
@@ -703,28 +824,34 @@ export default function Datasets() {
                   <div className={styles.jobFill} style={{ width: `${pct || 8}%` }} />
                 </div>
                 <p className={styles.activeNote}>
-                  Keep working — coverage updates when the job finishes. One job runs at a time.
+                  {isIngest
+                    ? "Ingest then EXIF → geocode → OCR ∥ nearby → GT. One job at a time."
+                    : "Keep working — coverage updates when the job finishes. One job runs at a time."}
                 </p>
               </div>
             );
           })}
 
-          {doneJobs.map((j) => (
-            <div key={j.id} className={styles.doneRow}>
-              <span
-                className={styles.jobDot}
-                style={{
-                  background:
-                    j.status === "done" || j.status === "ok"
-                      ? "var(--success-fg)"
-                      : "var(--danger-fg)",
-                }}
-              />
-              <span className={styles.doneName}>{jobTitle(j)}</span>
-              <span className={styles.activeSpacer} />
-              <span className={styles.doneWhen}>{jobWhen(j)}</span>
-            </div>
-          ))}
+          {doneJobs.map((j) => {
+            const failed = !(j.status === "done" || j.status === "ok");
+            const reason = jobFailureReason(j);
+            return (
+              <div key={jobKey(j)} className={styles.doneBlock}>
+                <div className={styles.doneRow}>
+                  <span
+                    className={styles.jobDot}
+                    style={{
+                      background: failed ? "var(--danger-fg)" : "var(--success-fg)",
+                    }}
+                  />
+                  <span className={styles.doneName}>{jobTitle(j)}</span>
+                  <span className={styles.activeSpacer} />
+                  <span className={styles.doneWhen}>{jobWhen(j)}</span>
+                </div>
+                {reason && <p className={styles.jobFailReason}>{reason}</p>}
+              </div>
+            );
+          })}
         </div>
 
         <div className={styles.ingest}>
@@ -752,14 +879,14 @@ export default function Datasets() {
               {ingestBusy ? "Uploading…" : "Drop a dataset ZIP"}
             </span>
             <span className={styles.dropSub}>
-              capture time required (manifest or EXIF) · validated before write
+              capture time + GPS required · validated before write · auto geocode after ingest
             </span>
           </div>
           <div className={styles.steps}>
             {[
-              "Validate structure, photos, and capture time",
+              "Validate structure, photos, capture time & GPS",
               "Ingest rows + photos (local content ids)",
-              "Enrichment fills EXIF · OCR · nearby · GT",
+              "Auto: EXIF → geocode → OCR ∥ MapKit nearby → GT MapKit (≤250m names)",
             ].map((s, i) => (
               <div key={s} className={styles.stepRow}>
                 <span className={styles.stepNum}>{i + 1}.</span>

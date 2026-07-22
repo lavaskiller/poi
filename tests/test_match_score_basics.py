@@ -30,6 +30,82 @@ class NormalizedEqualTests(unittest.TestCase):
         self.assertIsInstance(ms.normalized_equal(a, b), bool)
 
 
+class ProviderRoutingTests(unittest.TestCase):
+    """Country/provider must never default Unknown → MapKit."""
+
+    def test_geocoded_korea_is_kakao(self):
+        row = {"country": "South Korea", "capture_lat": "37.5", "capture_lon": "127.0"}
+        self.assertEqual(ms.provider_for_row(row, {}), ms.PROVIDER_KAKAO)
+
+    def test_geocoded_korea_hangul_is_kakao(self):
+        row = {"country": "대한민국"}
+        self.assertEqual(ms.provider_for_row(row, {}), ms.PROVIDER_KAKAO)
+
+    def test_geocoded_canada_is_mapkit(self):
+        row = {"country": "Canada", "capture_lat": "49.2", "capture_lon": "-123.1"}
+        self.assertEqual(ms.provider_for_row(row, {}), ms.PROVIDER_MAPKIT)
+
+    def test_empty_country_gps_korea_is_kakao(self):
+        # Seoul — GPS fallback when geocode has not filled country yet.
+        row = {"country": "", "capture_lat": "37.5665", "capture_lon": "126.9780"}
+        self.assertEqual(ms.provider_for_row(row, {}), ms.PROVIDER_KAKAO)
+        self.assertEqual(ms.canonical_country(row, {}), "South Korea")
+
+    def test_empty_country_gps_vancouver_is_mapkit(self):
+        row = {"country": "", "capture_lat": "49.2827", "capture_lon": "-123.1207"}
+        self.assertEqual(ms.provider_for_row(row, {}), ms.PROVIDER_MAPKIT)
+
+    def test_no_country_no_gps_is_unresolved_not_mapkit(self):
+        row = {"country": "", "dataset": "mystery-upload"}
+        self.assertEqual(ms.provider_for_row(row, {}), ms.PROVIDER_UNRESOLVED)
+
+    def test_country_by_dataset_does_not_drive_provider(self):
+        # Untrusted dataset map must not force MapKit when GPS says Korea.
+        cfg = {"country_by_dataset": {"mixed": "Canada"}}
+        row = {
+            "dataset": "mixed",
+            "country": "",
+            "capture_lat": "37.5",
+            "capture_lon": "127.0",
+        }
+        self.assertEqual(ms.provider_for_row(row, cfg), ms.PROVIDER_KAKAO)
+
+    def test_row_country_beats_gps(self):
+        # Explicit reverse-geocode / export country wins over coord bbox.
+        row = {
+            "country": "United States",
+            "capture_lat": "37.5",  # inside KR bbox numerically, but country says US
+            "capture_lon": "127.0",
+        }
+        self.assertEqual(ms.provider_for_row(row, {}), ms.PROVIDER_MAPKIT)
+
+    def test_region_from_coords(self):
+        self.assertEqual(ms.region_from_coords(37.5, 127.0), "kr")
+        self.assertEqual(ms.region_from_coords(49.2, -123.1), "non_kr")
+
+
+class NearbyGtRadiusTests(unittest.TestCase):
+    def test_keeps_in_radius_drops_far(self):
+        cands = [
+            {"name": "Near Cafe", "rank": 1, "distance_m": 40},
+            {"name": "Far Starbucks", "rank": 2, "distance_m": 900},
+            {"name": "Edge Shop", "rank": 3, "distance_m": 250},
+        ]
+        names = ms.names_within_gt_radius(cands, radius_m=250)
+        self.assertEqual(names, ["Near Cafe", "Edge Shop"])
+
+    def test_missing_distance_kept(self):
+        cands = [{"name": "Legacy Top3", "rank": 1}]
+        self.assertEqual(ms.names_within_gt_radius(cands, radius_m=250), ["Legacy Top3"])
+
+    def test_dedup_preserves_first_rank(self):
+        cands = [
+            {"name": "Dup", "rank": 1, "distance_m": 10},
+            {"name": "Dup", "rank": 5, "distance_m": 20},
+        ]
+        self.assertEqual(ms.names_within_gt_radius(cands), ["Dup"])
+
+
 class EvaluationSetHashTests(unittest.TestCase):
     def test_stable_for_same_ordered_cases(self):
         # evaluation_set_sha256 is order-sensitive (cohort identity = ordered list).

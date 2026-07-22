@@ -2,10 +2,10 @@
 """Provider-agnostic core for the GT name-classification jobs.
 
 Both the MapKit and Kakao jobs answer the same question per row: *is
-``input_place_name`` written the way this provider names the place?* The only
-per-provider differences are (a) which column is written, (b) how candidate
-place names are fetched, and (c) the sentinel tokens. This module holds
-everything else so the two jobs stay identical in policy.
+``input_place_name`` written the way this provider names the place?*
+MapKit candidates come from the **nearby** list (distance-cut); Kakao still
+fetches via keyword search. Per-provider differences are (a) which column is
+written, (b) how candidate names are fetched, and (c) the sentinel tokens.
 
 Classification, for a row this provider OWNS (country-based ``provider_for_row``)
 and that is a POI with an input name:
@@ -91,7 +91,16 @@ def classify_rows(rows: List[Dict[str, str]], cfg: dict, pcfg: ProviderCfg,
     for idx, row in enumerate(rows):
         if in_scope is not None and not in_scope(idx, row):
             continue  # leave out-of-scope cells untouched (dataset/only_empty scoping)
-        if ms.provider_for_row(row, cfg) != pcfg.owns:
+        provider = ms.provider_for_row(row, cfg)
+        # Unresolved country/region: do not stamp KOR / NON_KR (those imply a
+        # known other-provider ownership). Leave the cell empty until geocode
+        # or GPS can decide MapKit vs Kakao.
+        if provider == ms.PROVIDER_UNRESOLVED:
+            if (row.get(pcfg.column) or "").strip() in ("", pcfg.other_marker):
+                row[pcfg.column] = ""
+            stats["unresolved_country"] += 1
+            continue
+        if provider != pcfg.owns:
             row[pcfg.column] = pcfg.other_marker
             stats["other_marker"] += 1
             continue

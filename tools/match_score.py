@@ -101,6 +101,23 @@ DEFAULT_CANDIDATE_FILES = [
 
 KR_NAMES = {"South Korea", "Korea", "Republic of Korea", "대한민국", "한국", "KR", "KOR"}
 
+# Provider tokens. ``unresolved`` means country/region cannot be determined —
+# never silently treat that as MapKit (that mis-routes Korean rows to MapKit GT).
+PROVIDER_MAPKIT = "mapkit"
+PROVIDER_KAKAO = "kakao_local"
+PROVIDER_UNRESOLVED = "unresolved"
+
+# GT MapKit labels against the *nearby* candidate set, not a separate name search.
+# Radius matches the wide MapKit nearby probe (ls_mapkit_probe DEFAULT_WIDE_RADIUS).
+MAPKIT_NEARBY_WIDE_RADIUS_M = 250.0
+MAPKIT_GT_RADIUS_M = MAPKIT_NEARBY_WIDE_RADIUS_M
+
+# Approximate South Korea service area for GPS fallback when reverse-geocode
+# has not filled ``country`` yet (or returned empty). Includes Jeju; deliberately
+# conservative. This is a region gate for Kakao vs MapKit, not a full geocoder.
+_KR_LAT_MIN, _KR_LAT_MAX = 33.0, 38.72
+_KR_LON_MIN, _KR_LON_MAX = 124.5, 132.0
+
 
 def load_config(path: str = CONFIG_PATH) -> Dict[str, Any]:
     if not os.path.exists(path):
@@ -119,17 +136,91 @@ def read_rows(path: str = CSV_PATH) -> List[Dict[str, str]]:
         return list(csv.DictReader(f))
 
 
+def _parse_lat_lon(row: Dict[str, str]) -> Optional[Tuple[float, float]]:
+    lat_s = (row.get("capture_lat") or "").strip()
+    lon_s = (row.get("capture_lon") or "").strip()
+    if not lat_s or not lon_s:
+        return None
+    try:
+        lat, lon = float(lat_s), float(lon_s)
+    except ValueError:
+        return None
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return None
+    if lat != lat or lon != lon:  # NaN
+        return None
+    return lat, lon
+
+
+def region_from_coords(lat: float, lon: float) -> str:
+    """Return ``kr`` or ``non_kr`` for a valid coordinate pair."""
+    if _KR_LAT_MIN <= lat <= _KR_LAT_MAX and _KR_LON_MIN <= lon <= _KR_LON_MAX:
+        return "kr"
+    return "non_kr"
+
+
+def region_hint_for_row(row: Dict[str, str]) -> Optional[str]:
+    """``kr`` / ``non_kr`` from capture GPS, or None when coordinates are missing."""
+    pair = _parse_lat_lon(row)
+    if pair is None:
+        return None
+    return region_from_coords(pair[0], pair[1])
+
+
+def normalize_country_name(raw: str, cfg: Optional[Dict[str, Any]] = None) -> str:
+    """Normalize a country string; empty input stays empty (not ``Unknown``)."""
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    cfg = cfg or {}
+    return (cfg.get("country_normalize") or {}).get(s, s)
+
+
 def canonical_country(row: Dict[str, str], cfg: Dict[str, Any]) -> str:
+    """Best-effort display country for a row.
+
+    Authority order (provider routing uses :func:`provider_for_row`, not this alone):
+    1. Per-row ``country`` (reverse-geocode / export) — primary trusted signal
+    2. GPS KR bbox → ``South Korea`` when country cell is empty
+    3. Optional ``country_by_dataset`` config — **display-only fallback**, untrusted
+       for mixed or new datasets; never used as the sole MapKit default
+    4. ``Unknown``
+    """
+    raw = (row.get("country") or "").strip()
+    if raw:
+        return normalize_country_name(raw, cfg) or "Unknown"
+    # GPS can assert Korea without reverse geocode.
+    if region_hint_for_row(row) == "kr":
+        return "South Korea"
+    # Legacy optional map — last resort for dashboards only.
     ds = (row.get("dataset") or "").strip()
     by_ds = cfg.get("country_by_dataset") or {}
     if ds in by_ds:
-        return by_ds[ds]
-    raw = (row.get("country") or "").strip()
-    return (cfg.get("country_normalize") or {}).get(raw, raw or "Unknown")
+        return normalize_country_name(str(by_ds[ds]), cfg) or "Unknown"
+    return "Unknown"
 
 
 def provider_for_row(row: Dict[str, str], cfg: Dict[str, Any]) -> str:
-    return "kakao_local" if canonical_country(row, cfg) in KR_NAMES else "mapkit"
+    """MapKit vs Kakao ownership for a row.
+
+    Never maps ``Unknown`` country to MapKit. Order:
+    1. Per-row geocoded/export ``country`` (KR names → Kakao, other non-empty → MapKit)
+    2. Capture GPS region (KR bbox → Kakao, outside → MapKit)
+    3. ``unresolved`` when neither country nor GPS can decide
+    """
+    raw = (row.get("country") or "").strip()
+    if raw:
+        country = normalize_country_name(raw, cfg)
+        if country in KR_NAMES:
+            return PROVIDER_KAKAO
+        if country:
+            return PROVIDER_MAPKIT
+    hint = region_hint_for_row(row)
+    if hint == "kr":
+        return PROVIDER_KAKAO
+    if hint == "non_kr":
+        return PROVIDER_MAPKIT
+    return PROVIDER_UNRESOLVED
 
 
 def input_place_name(row: Dict[str, str]) -> str:
@@ -423,6 +514,49 @@ def _num_or_none(v: str) -> Optional[float]:
         return None
 
 
+def names_within_gt_radius(
+    candidates: List[Dict[str, Any]],
+    radius_m: float = MAPKIT_GT_RADIUS_M,
+) -> List[str]:
+    """MapKit place names kept for GT labeling after a distance cut.
+
+    Nearby probes are already radius-scoped (wide = 250 m). When ``distance_m``
+    is present we still enforce the cut so a wider investigate probe cannot
+    leak far-away chain-store names into GT. Missing distance keeps the name
+    (legacy top3 rows, or probes that only guarantee in-radius membership).
+    """
+    names: List[str] = []
+    seen: set = set()
+
+    def _rank_key(c: Dict[str, Any]) -> int:
+        try:
+            return int(c.get("rank") or 999999)
+        except (TypeError, ValueError):
+            return 999999
+
+    def _dist_key(c: Dict[str, Any]) -> float:
+        try:
+            return float(c.get("distance_m"))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 1e18
+
+    ordered = sorted(candidates or [], key=lambda c: (_rank_key(c), _dist_key(c)))
+    for c in ordered:
+        name = (c.get("name") or "").strip()
+        if not name or name in seen:
+            continue
+        dist = c.get("distance_m")
+        if dist is not None and dist != "":
+            try:
+                if float(dist) > float(radius_m) + 1e-6:
+                    continue
+            except (TypeError, ValueError):
+                continue
+        seen.add(name)
+        names.append(name)
+    return names
+
+
 def convert_mapkit_tsv(tsv_path: str, out_path: str, allow_lossy_top3: bool = False) -> int:
     """Convert the current MapKit TSV probe output to candidate JSONL.
 
@@ -586,7 +720,11 @@ def evaluate(dataset: str = "all", mode: str = "exact", rows: Optional[List[Dict
         country = canonical_country(row, cfg)
         photo = (row.get("photo") or "").strip()
 
-        if provider == "kakao_local":
+        if provider == PROVIDER_UNRESOLVED:
+            # No country and no usable GPS — must not pretend this is MapKit.
+            status = "excluded_unresolved_country"
+            counts[status] += 1
+        elif provider == PROVIDER_KAKAO:
             status = "excluded_korea_pending_kakao"
             counts[status] += 1
         elif tier == "non_poi":

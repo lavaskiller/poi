@@ -15,6 +15,7 @@ from match_score import (
     read_rows as read_match_rows,
     provider_for_row,
     gt_resolution,
+    canonical_country,
     load_gt_mapkit_overrides,
     overlay_gt_mapkit_overrides,
 )
@@ -145,7 +146,7 @@ def discover_seed_presets():
         raw_presets = [{
             "id": "default",
             "label": "Bundled default setup",
-            "desc": "Initial evaluation set + baseline runs.",
+            "desc": "Evaluation set + baseline runs + case photos.",
             "path": ".",
         }]
 
@@ -169,9 +170,75 @@ def discover_seed_presets():
     return {"bundle_present": True, "seed_path": seed_rel, "presets": presets}
 
 
-# Uploaded seed bundle limits (zip-bomb guard).
-_SEED_MAX_TOTAL_BYTES = 200 * 1024 * 1024
-_SEED_MAX_FILES = 2000
+# Uploaded seed bundle limits (zip-bomb guard). Photo-inclusive seeds are ~0.4–1 GiB.
+_SEED_MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
+_SEED_MAX_FILES = 20000
+_SEED_PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".heic", ".webp", ".gif"}
+# Known / allowed photo-dir roots that may be extracted from a seed bundle.
+_SEED_PHOTO_DIR_PREFIXES = (
+    "photos/",
+    "linkedspaces-photos/",
+    "poi-dataset-20260708-photos/",
+    "union-city-trip/",
+)
+
+
+def _seed_allowed_photo_prefixes(cfg=None):
+    """Return path prefixes under the data root that may hold seed photos."""
+    prefixes = set(_SEED_PHOTO_DIR_PREFIXES)
+    try:
+        cfg = cfg or load_config()
+        for src in (cfg.get("sources") or {}).values():
+            pdir = (src or {}).get("photo_dir") or ""
+            pdir = str(pdir).strip().strip("/\\").replace("\\", "/")
+            if pdir and ".." not in pdir.split("/"):
+                prefixes.add(pdir.rstrip("/") + "/")
+    except Exception:
+        pass
+    return prefixes
+
+
+def _seed_is_photo_member(rel_path):
+    """True if rel_path is an image under an allowed photo_dir prefix."""
+    rel = (rel_path or "").replace("\\", "/").lstrip("/")
+    if not rel or _is_unsafe_path(rel):
+        return False
+    ext = PurePosixPath(rel).suffix.lower()
+    if ext not in _SEED_PHOTO_EXTS:
+        return False
+    for prefix in _seed_allowed_photo_prefixes():
+        if rel.startswith(prefix):
+            return True
+    return False
+
+
+def _copy_seed_photos(seed_dir, dest_root):
+    """Copy photo trees from a filesystem seed bundle into the live data root.
+
+    Returns (files_copied, bytes_copied).
+    """
+    import shutil as _shutil
+    n, nbytes = 0, 0
+    seed_dir = os.path.abspath(seed_dir)
+    dest_root = os.path.abspath(dest_root)
+    for dirpath, _dirnames, filenames in os.walk(seed_dir):
+        for fn in filenames:
+            src = os.path.join(dirpath, fn)
+            rel = os.path.relpath(src, seed_dir).replace("\\", "/")
+            if not _seed_is_photo_member(rel):
+                continue
+            dst = os.path.join(dest_root, rel)
+            # zip-slip / escape guard
+            if not os.path.abspath(dst).startswith(dest_root + os.sep):
+                continue
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            _shutil.copy2(src, dst)
+            n += 1
+            try:
+                nbytes += os.path.getsize(src)
+            except OSError:
+                pass
+    return n, nbytes
 
 
 def _apply_seed_bundle(zip_bytes):
@@ -179,9 +246,10 @@ def _apply_seed_bundle(zip_bytes):
 
     Accepts the same shape as poi-data-seed/ (files at the ZIP root or nested
     under a single top folder): eval_set_reconciled.csv (required),
-    dashboard_config.json (optional), generated/runs/*.json (optional).
-    Everything else in the archive is ignored. Safe against zip-slip and
-    zip-bombs; idempotent; never overwrites the tracked repo config template.
+    dashboard_config.json (optional), generated/runs/*.json (optional),
+    and photo trees under known photo_dir prefixes (optional, for image
+    display). Safe against zip-slip and zip-bombs; idempotent; never overwrites
+    the tracked repo config template.
     Returns a JSON-ready dict with a ``code`` for the HTTP status.
     """
     if os.path.isfile(CSV_PATH):
@@ -239,9 +307,29 @@ def _apply_seed_bundle(zip_bytes):
                     shutil.copyfileobj(src, out)
                 runs += 1
 
+        # Photos: any image under allowed photo_dir prefixes (relative to base).
+        photos = 0
+        for n, zi in by_name.items():
+            if not n.startswith(base):
+                continue
+            rel = n[len(base):]
+            if not _seed_is_photo_member(rel):
+                continue
+            dst = os.path.join(DIRECTORY, rel)
+            if not os.path.abspath(dst).startswith(os.path.abspath(DIRECTORY) + os.sep):
+                continue
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            with zf.open(zi) as src, open(dst, "wb") as out:
+                shutil.copyfileobj(src, out)
+            photos += 1
+
     rows, _ = _seed_preset_summary(DIRECTORY)
-    return {"ok": True, "rows": rows, "runs": runs,
-            "message": f"seeded from upload ({rows} rows · {runs} baselines)", "code": 200}
+    msg = f"seeded from upload ({rows} rows · {runs} baselines"
+    if photos:
+        msg += f" · {photos} photos"
+    msg += ")"
+    return {"ok": True, "rows": rows, "runs": runs, "photos": photos,
+            "message": msg, "code": 200}
 
 
 def _parse_source_candidate_text(value):
@@ -488,7 +576,10 @@ def _case_mapkit_candidates(dataset, photo, row=None):
     provider = "mapkit"
     if row is not None:
         try:
-            provider = provider_for_row(row, cfg) or "mapkit"
+            p = provider_for_row(row, cfg)
+            # unresolved must not fall back to mapkit candidate lookup
+            if p and p != "unresolved":
+                provider = p
         except Exception:
             provider = "mapkit"
 
@@ -839,8 +930,8 @@ STEP_REGISTRY = {
     "delete_dataset": {"builtin": "delete_dataset"},
     "pipeline":       {"builtin": "post_ingest_pipeline"},
     "exif":           {"script": os.path.join(REPO_DIR, "tools", "rerun_exif.py")},
-    # These are intentionally unavailable rather than pretending enrichment ran.
-    "geocode":        {"disabled": "Not implemented (no CLGeocoder worker)"},
+    "geocode":        {"script": os.path.join(REPO_DIR, "tools", "rerun_geocode.py")},
+    # Intentionally unavailable rather than pretending enrichment ran.
     "vlm_caption":    {"disabled": "Not implemented"},
 }
 
@@ -1027,65 +1118,157 @@ def _run_builtin(name, params, log):
 
 
 def _post_ingest_pipeline(params, log):
-    """Run EXIF first, then independent enrichments in parallel with live logs."""
+    """EXIF → geocode (country for provider routing), then parallel enrichments."""
     dataset = (params.get("dataset") or "").strip()
     if not dataset:
         return {"ok": False, "error": "pipeline requires dataset"}
-    stages = [{"step": "geocode", "status": "skipped", "reason": "no CLGeocoder worker is implemented"}]
-    warnings, sequence = [], ["exif", "ocr", "mapkit_nearby", "gt_mapkit"]
-    if os.environ.get("KAKAO_REST_API_KEY", "").strip(): sequence.append("gt_kakao")
-    else: stages.append({"step": "gt_kakao", "status": "skipped", "reason": "KAKAO_REST_API_KEY is not set"})
-    env = dict(os.environ); env["POI_DATA_DIR"] = DIRECTORY
+    # Geocode before provider-sensitive steps. MapKit GT labels against the
+    # nearby list (≤250 m), so mapkit_nearby must finish before gt_mapkit.
+    stages = []
+    warnings = []
+    sequence = ["exif", "geocode", "ocr", "mapkit_nearby", "gt_mapkit"]
+    if os.environ.get("KAKAO_REST_API_KEY", "").strip():
+        sequence.append("gt_kakao")
+    else:
+        stages.append({"step": "gt_kakao", "status": "skipped", "reason": "KAKAO_REST_API_KEY is not set"})
+    env = dict(os.environ)
+    env["POI_DATA_DIR"] = DIRECTORY
 
     def run_batch(steps, completed):
         procs, lines, events = {}, {x: [] for x in steps}, queue.Queue()
         def relay(name, stream):
-            for raw in iter(stream.readline, ""): events.put((name, raw.rstrip("\n")))
+            for raw in iter(stream.readline, ""):
+                events.put((name, raw.rstrip("\n")))
             stream.close()
         for name in steps:
             print(f"[pipeline] starting {name}", file=log, flush=True)
-            p = subprocess.Popen(_job_argv(name, {"dataset": dataset, "only_empty": True}), cwd=REPO_DIR, env=env,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, stdin=subprocess.DEVNULL,
-                close_fds=True, start_new_session=True)
-            procs[name] = p; threading.Thread(target=relay, args=(name,p.stdout), daemon=True).start()
-        live = {x: {"status":"running", "done":0, "total":0, "step":"starting", "retries":0} for x in steps}
+            p = subprocess.Popen(
+                _job_argv(name, {"dataset": dataset, "only_empty": True}),
+                cwd=REPO_DIR, env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+                stdin=subprocess.DEVNULL, close_fds=True, start_new_session=True,
+            )
+            procs[name] = p
+            threading.Thread(target=relay, args=(name, p.stdout), daemon=True).start()
+        live = {x: {"status": "running", "done": 0, "total": 0, "step": "starting", "retries": 0} for x in steps}
         while any(p.poll() is None for p in procs.values()) or not events.empty():
-            try: name, line = events.get(timeout=.15)
-            except queue.Empty: continue
-            lines[name].append(line); print(f"[{name}] {line}", file=log, flush=True)
+            try:
+                name, line = events.get(timeout=.15)
+            except queue.Empty:
+                continue
+            lines[name].append(line)
+            print(f"[{name}] {line}", file=log, flush=True)
             if line.startswith("PROGRESS "):
                 try:
-                    ev=json.loads(line[9:]); live[name].update({k:ev[k] for k in ("done","total","step","retries","retry_reason") if k in ev})
-                except (json.JSONDecodeError, TypeError): pass
-                print("PROGRESS "+json.dumps({"done":completed,"total":len(sequence),"step":"parallel","substeps":live}),file=log,flush=True)
-        for p in procs.values(): p.wait()
-        results={}
-        for name,p in procs.items():
-            result=None
+                    ev = json.loads(line[9:])
+                    live[name].update({k: ev[k] for k in ("done", "total", "step", "retries", "retry_reason") if k in ev})
+                except (json.JSONDecodeError, TypeError):
+                    pass
+                print(
+                    "PROGRESS " + json.dumps({
+                        "done": completed, "total": len(sequence),
+                        "step": "parallel", "substeps": live,
+                    }),
+                    file=log, flush=True,
+                )
+        for p in procs.values():
+            p.wait()
+        results = {}
+        for name, p in procs.items():
+            result = None
             for line in reversed(lines[name]):
                 if line.startswith("RESULT "):
-                    try: result=json.loads(line[7:])
-                    except json.JSONDecodeError: pass
+                    try:
+                        result = json.loads(line[7:])
+                    except json.JSONDecodeError:
+                        pass
                     break
-            status="done" if p.returncode==0 else "error"; reason=None
-            if status=="done" and result and not result.get("targets",1): status,reason="skipped",result.get("skip_reason") or "no eligible rows"
-            live[name]["status"]=status; stages.append({"step":name,"status":status,"reason":reason,"returncode":p.returncode,"result":result}); results[name]=result
-        return results,live
+            status = "done" if p.returncode == 0 else "error"
+            reason = None
+            if status == "done" and result and not result.get("targets", 1):
+                status, reason = "skipped", result.get("skip_reason") or "no eligible rows"
+            live[name]["status"] = status
+            stages.append({
+                "step": name, "status": status, "reason": reason,
+                "returncode": p.returncode, "result": result,
+            })
+            results[name] = result
+        return results, live
 
-    first,_=run_batch(["exif"],0); exif=first.get("exif") or {}
-    targets,no_gps=exif.get("targets",0),exif.get("no_gps",0)
+    # 1) EXIF — fill coords/time when still empty
+    first, _ = run_batch(["exif"], 0)
+    exif = first.get("exif") or {}
+    targets, no_gps = exif.get("targets", 0), exif.get("no_gps", 0)
     if targets and no_gps:
-        w={"code":"exif_gps_missing","dataset":dataset,"count":no_gps,"targets":targets,"message":f"{no_gps}/{targets} source photos are missing EXIF GPS coordinates. Coordinate-based steps have no targets."}; warnings.append(w); print("WARNING "+json.dumps(w,ensure_ascii=False),file=log,flush=True)
-    no_timestamp=exif.get("no_timestamp",0)
+        w = {
+            "code": "exif_gps_missing", "dataset": dataset, "count": no_gps,
+            "targets": targets,
+            "message": (
+                f"{no_gps}/{targets} source photos are missing EXIF GPS coordinates. "
+                "Coordinate-based steps have no targets."
+            ),
+        }
+        warnings.append(w)
+        print("WARNING " + json.dumps(w, ensure_ascii=False), file=log, flush=True)
+    no_timestamp = exif.get("no_timestamp", 0)
     if targets and no_timestamp:
-        w={"code":"exif_timestamp_missing","dataset":dataset,"count":no_timestamp,"targets":targets,"message":f"{no_timestamp}/{targets} source photos are missing EXIF capture timestamps."}; warnings.append(w); print("WARNING "+json.dumps(w,ensure_ascii=False),file=log,flush=True)
-    print("PROGRESS "+json.dumps({"done":1,"total":len(sequence),"step":"exif"}),file=log,flush=True)
-    parallel=["ocr","mapkit_nearby","gt_mapkit"] + (["gt_kakao"] if "gt_kakao" in sequence else [])
-    _,live=run_batch(parallel,1)
-    print("PROGRESS "+json.dumps({"done":len(sequence),"total":len(sequence),"step":"pipeline","substeps":live}),file=log,flush=True)
-    errors=[x["step"] for x in stages if x["status"]=="error"]
-    outcome={"ok":True,"step":"pipeline","dataset":dataset,"stages":stages,"warnings":warnings,"partial":bool(errors),"errors":errors}
-    print("RESULT "+json.dumps(outcome,ensure_ascii=False),file=log,flush=True); return outcome
+        w = {
+            "code": "exif_timestamp_missing", "dataset": dataset, "count": no_timestamp,
+            "targets": targets,
+            "message": f"{no_timestamp}/{targets} source photos are missing EXIF capture timestamps.",
+        }
+        warnings.append(w)
+        print("WARNING " + json.dumps(w, ensure_ascii=False), file=log, flush=True)
+    print("PROGRESS " + json.dumps({"done": 1, "total": len(sequence), "step": "exif"}), file=log, flush=True)
+
+    # 2) Geocode — country/city/address before provider-sensitive steps
+    geo_results, _ = run_batch(["geocode"], 1)
+    geo = geo_results.get("geocode") or {}
+    empty_geo = geo.get("empty_result", 0) or 0
+    geo_targets = geo.get("targets", 0) or 0
+    if geo_targets and empty_geo:
+        w = {
+            "code": "geocode_empty", "dataset": dataset, "count": empty_geo,
+            "targets": geo_targets,
+            "message": (
+                f"{empty_geo}/{geo_targets} reverse-geocode lookups returned empty. "
+                "Provider routing falls back to GPS region (KR bbox vs non-KR)."
+            ),
+        }
+        warnings.append(w)
+        print("WARNING " + json.dumps(w, ensure_ascii=False), file=log, flush=True)
+    print("PROGRESS " + json.dumps({"done": 2, "total": len(sequence), "step": "geocode"}), file=log, flush=True)
+
+    # 3) OCR ∥ MapKit nearby ∥ GT Kakao (independent of MapKit nearby list)
+    parallel = ["ocr", "mapkit_nearby"]
+    if "gt_kakao" in sequence:
+        parallel.append("gt_kakao")
+    _, live = run_batch(parallel, 2)
+    print(
+        "PROGRESS " + json.dumps({
+            "done": 3, "total": len(sequence),
+            "step": "ocr_nearby", "substeps": live,
+        }),
+        file=log, flush=True,
+    )
+
+    # 4) GT MapKit — same nearby set, distance-cut name match (needs step 3)
+    _, live_gt = run_batch(["gt_mapkit"], 3)
+    print(
+        "PROGRESS " + json.dumps({
+            "done": len(sequence), "total": len(sequence),
+            "step": "pipeline", "substeps": {**live, **live_gt},
+        }),
+        file=log, flush=True,
+    )
+    errors = [x["step"] for x in stages if x["status"] == "error"]
+    outcome = {
+        "ok": True, "step": "pipeline", "dataset": dataset,
+        "stages": stages, "warnings": warnings,
+        "partial": bool(errors), "errors": errors,
+    }
+    print("RESULT " + json.dumps(outcome, ensure_ascii=False), file=log, flush=True)
+    return outcome
 
 
 def _delete_dataset(params, log):
@@ -1230,11 +1413,13 @@ def build_overview():
 
     # ---- helpers driven by config ----
     def norm_country(r):
-        ds = r.get("dataset")
-        if ds in cfg["country_by_dataset"]:
-            return cfg["country_by_dataset"][ds]
-        c = (r.get("country") or "").strip()
-        return cfg["country_normalize"].get(c, c or "Unknown")
+        # Same authority order as match_score.canonical_country (row country /
+        # GPS KR, not dataset map first). Dataset map is display fallback only.
+        try:
+            return canonical_country(r, cfg)
+        except Exception:
+            c = (r.get("country") or "").strip()
+            return (cfg.get("country_normalize") or {}).get(c, c or "Unknown")
 
     # ---- sources (structure from data, labels from config; unknown -> flagged) ----
     src_counts = Counter((r.get("dataset") or "").strip() for r in rows)
@@ -1802,6 +1987,8 @@ def build_records(dataset_filter):
         provider, gt, gt_status = gt_info(r)
         conf = roll.get((r.get("gt_confidence") or "").strip(), "")
         rk = (r.get("app_poi_rank") or "").strip()
+        if provider == "unresolved":
+            return ("unresolved_country", "Country/region unresolved (geocode or GPS needed)")
         if provider == "kakao_local":
             return ("korea_pending_kakao", "Awaiting Kakao candidates")
         if conf == "non_poi":
@@ -2339,7 +2526,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 for fn in os.listdir(seed_runs):
                     if fn.endswith(".json"):
                         shutil.copy2(os.path.join(seed_runs, fn), os.path.join(RUNS_DIR, fn))
-            self._send_json({"ok": True, "message": f"seeded from {preset}"}, code=200)
+            # Photos (optional in older seeds; required for case images).
+            n_photos, photo_bytes = _copy_seed_photos(seed_dir, DIRECTORY)
+            msg = f"seeded from {preset}"
+            if n_photos:
+                msg += f" ({n_photos} photos · {photo_bytes / (1024 * 1024):.1f} MiB)"
+            else:
+                msg += " (no photos in seed bundle — case images will be missing)"
+            self._send_json({
+                "ok": True, "message": msg,
+                "photos": n_photos, "photos_bytes": photo_bytes,
+            }, code=200)
         except Exception as e:
             self._send_json({"ok": False, "message": str(e)}, code=500)
 
