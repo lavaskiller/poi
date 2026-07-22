@@ -25,6 +25,24 @@ export interface SchemaField {
   desc?: string;
 }
 
+/** One selectable onboarding seed bundle discovered on disk. */
+export interface SeedPreset {
+  id: string;
+  label: string;
+  desc: string;
+  /** false when the bundle exists but this preset's files are missing */
+  available: boolean;
+  rows: number;
+  runs: number;
+}
+export interface SeedPresets {
+  /** false when poi-data-seed/ is absent entirely (fresh clone) */
+  bundle_present: boolean;
+  /** repo-relative path where the bundle is expected (UI guidance) */
+  seed_path: string;
+  presets: SeedPreset[];
+}
+
 export interface Overview {
   data_state: string; // "ready" | "empty" | ...
   csv_present: boolean;
@@ -420,6 +438,11 @@ export const api = {
     if (!res.ok || data.ok === false)
       throw new Error(data.message || `/api/gt/reconcile → HTTP ${res.status}`);
     return { ok: true, done: data.done ?? 0, remaining: data.remaining ?? 0 };
+  },
+
+  /** Onboarding seed presets discovered on disk (drives the first-run dropdown). */
+  async seedPresets(): Promise<SeedPresets> {
+    return getJSON<SeedPresets>("/api/seed/presets");
   },
 
   /** Inject the bundled onboarding seed (initial dataset + baseline runs). */

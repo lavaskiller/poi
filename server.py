@@ -20,13 +20,27 @@ from gt_classify_common import read_csv as gc_read_csv, write_csv as gc_write_cs
 import run_algorithm as algorithm
 import match_score as match_score
 
-# Data root. POI_DATA_DIR is the explicit override. For an ordinary checkout,
-# prefer a repository-local poi-data bundle when it contains the reconciled CSV;
-# otherwise retain the legacy repository-root layout.
+# Data root. Resolution order:
+#   1. POI_DATA_DIR — explicit override.
+#   2. repo-local poi-data/ — the modern bundle, when it holds the reconciled CSV.
+#   3. repo root — legacy layout, only when a dataset actually sits there.
+#   4. otherwise (fresh / empty install) default to poi-data/ so the onboarding
+#      seed materializes into the gitignored bundle — never the tracked repo root.
 _repo_data_dir = os.path.join(REPO_DIR, "poi-data")
-DIRECTORY = os.environ.get("POI_DATA_DIR") or (
-    _repo_data_dir if os.path.isfile(os.path.join(_repo_data_dir, "eval_set_reconciled.csv")) else REPO_DIR
-)
+
+
+def _resolve_data_dir():
+    env = os.environ.get("POI_DATA_DIR")
+    if env:
+        return env
+    if os.path.isfile(os.path.join(_repo_data_dir, "eval_set_reconciled.csv")):
+        return _repo_data_dir
+    if os.path.isfile(os.path.join(REPO_DIR, "eval_set_reconciled.csv")):
+        return REPO_DIR  # legacy repository-root layout
+    return _repo_data_dir  # fresh install: seed target is poi-data/, not REPO_DIR
+
+
+DIRECTORY = _resolve_data_dir()
 PORT = int(os.environ.get("POI_PORT", "8420"))
 CSV_PATH = os.path.join(DIRECTORY, "eval_set_reconciled.csv")
 # Config is part of the tool: prefer a copy shipped alongside the data, else the
@@ -45,6 +59,92 @@ MATCH_CANDIDATE_PATHS = [
     os.path.join(DIRECTORY, "generated", "kakao_local_candidates.jsonl"),
 ]
 RUNS_DIR = os.path.join(DIRECTORY, "generated", "runs")
+
+# Onboarding seed bundle. Lives at the repo root and is gitignored (real user
+# data, shared privately). Onboarding discovers what is on disk here and offers
+# it as a dropdown; an absent bundle is surfaced to the UI, not a hard error.
+SEED_DIR = os.path.join(REPO_DIR, "poi-data-seed")
+
+
+def _seed_preset_summary(src_dir):
+    """Cheap on-disk summary for a seed source dir: (rows, runs)."""
+    rows = 0
+    csv_path = os.path.join(src_dir, "eval_set_reconciled.csv")
+    try:
+        with open(csv_path, encoding="utf-8", errors="replace") as f:
+            rows = max(0, sum(1 for _ in f) - 1)  # minus header
+    except OSError:
+        rows = 0
+    runs = 0
+    runs_dir = os.path.join(src_dir, "generated", "runs")
+    try:
+        runs = sum(1 for fn in os.listdir(runs_dir) if fn.endswith(".json"))
+    except OSError:
+        runs = 0
+    return rows, runs
+
+
+def _seed_source_dir(preset_id):
+    """Resolve a preset id to its seed source dir, or None if unavailable.
+
+    A preset maps to a subdirectory of SEED_DIR via the optional presets.json
+    manifest (``path``); the flat/default bundle is SEED_DIR itself. A source is
+    valid only when it actually holds eval_set_reconciled.csv.
+    """
+    for p in discover_seed_presets()["presets"]:
+        if p["id"] == preset_id and p["available"]:
+            return os.path.join(SEED_DIR, p.get("_path") or ".")
+    return None
+
+
+def discover_seed_presets():
+    """Enumerate onboarding seed presets from disk for the dropdown.
+
+    Uses SEED_DIR/presets.json when present (supports multiple named bundles);
+    otherwise synthesizes a single ``default`` preset from the flat bundle.
+    Each preset reports ``available`` + a cheap (rows, runs) summary so the UI
+    can render and gate the dropdown without guessing.
+    """
+    bundle_present = os.path.isdir(SEED_DIR)
+    seed_rel = os.path.relpath(SEED_DIR, REPO_DIR)
+    if not bundle_present:
+        return {"bundle_present": False, "seed_path": seed_rel, "presets": []}
+
+    raw_presets = []
+    manifest = os.path.join(SEED_DIR, "presets.json")
+    if os.path.isfile(manifest):
+        try:
+            with open(manifest, encoding="utf-8") as f:
+                data = json.load(f)
+            raw_presets = data.get("presets", []) if isinstance(data, dict) else []
+        except (OSError, ValueError):
+            raw_presets = []
+    if not raw_presets:
+        raw_presets = [{
+            "id": "default",
+            "label": "Bundled default setup",
+            "desc": "Initial evaluation set + baseline runs.",
+            "path": ".",
+        }]
+
+    presets = []
+    for p in raw_presets:
+        if not isinstance(p, dict) or not p.get("id"):
+            continue
+        sub = p.get("path") or "."
+        src_dir = os.path.join(SEED_DIR, sub)
+        available = os.path.isfile(os.path.join(src_dir, "eval_set_reconciled.csv"))
+        rows, runs = _seed_preset_summary(src_dir) if available else (0, 0)
+        presets.append({
+            "id": str(p["id"]),
+            "label": p.get("label") or str(p["id"]),
+            "desc": p.get("desc") or "",
+            "available": available,
+            "rows": rows,
+            "runs": runs,
+            "_path": sub,
+        })
+    return {"bundle_present": True, "seed_path": seed_rel, "presets": presets}
 
 
 def _parse_source_candidate_text(value):
@@ -1852,6 +1952,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.log_error("API request failed: %s", e)
                 self._send_api_error("internal_error", 500)
             return
+        if route == "/api/seed/presets":
+            try:
+                disc = discover_seed_presets()
+                # Strip internal path hints before returning to the browser.
+                disc = {**disc, "presets": [
+                    {k: v for k, v in p.items() if not k.startswith("_")}
+                    for p in disc["presets"]
+                ]}
+                self._send_json(disc)
+            except Exception as e:
+                self.log_error("API request failed: %s", e)
+                self._send_api_error("internal_error", 500)
+            return
         if route == "/api/overview":
             try:
                 self._send_json(build_overview())
@@ -1990,9 +2103,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception:
             payload = {}
         preset = (payload or {}).get("preset", "default")
-        seed_dir = os.path.join(REPO_DIR, "poi-data-seed")
-        if not os.path.isdir(seed_dir):
-            self._send_json({"ok": False, "message": "seed bundle not found"}, code=500)
+        if not os.path.isdir(SEED_DIR):
+            self._send_json(
+                {"ok": False, "message": f"seed bundle not found — place it at {os.path.relpath(SEED_DIR, REPO_DIR)}/"},
+                code=404)
+            return
+        seed_dir = _seed_source_dir(preset)
+        if seed_dir is None:
+            self._send_json({"ok": False, "message": f"unknown or unavailable seed preset '{preset}'"}, code=400)
             return
         if os.path.isfile(CSV_PATH):
             self._send_json({"ok": True, "message": "already seeded"}, code=200)
@@ -2001,8 +2119,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             os.makedirs(DIRECTORY, exist_ok=True)
             for name in ("eval_set_reconciled.csv", "dashboard_config.json"):
                 src = os.path.join(seed_dir, name)
+                dst = os.path.join(DIRECTORY, name)
+                # Never clobber the tracked repo-root config template (legacy
+                # root layout). Reads fall back to it, so skipping is safe.
+                if os.path.abspath(dst) == os.path.abspath(REPO_CONFIG_PATH):
+                    continue
                 if os.path.isfile(src):
-                    shutil.copy2(src, os.path.join(DIRECTORY, name))
+                    shutil.copy2(src, dst)
             seed_runs = os.path.join(seed_dir, "generated", "runs")
             if os.path.isdir(seed_runs):
                 os.makedirs(RUNS_DIR, exist_ok=True)
