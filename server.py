@@ -5,13 +5,15 @@ from pathlib import Path
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(REPO_DIR, "tools"))
-from validate_upload_package import validate_zip, ValidationError
+from validate_upload_package import validate_zip, ValidationError, build_dataset_template_zip
 from match_score import (
     evaluate as evaluate_matchrate,
     load_candidates as load_match_candidates,
     read_rows as read_match_rows,
     provider_for_row,
     gt_resolution,
+    load_gt_mapkit_overrides,
+    overlay_gt_mapkit_overrides,
 )
 from run_algorithm import run_submission, list_runs, get_run, delete_run, RunError
 from gt_classify_common import read_csv as gc_read_csv, write_csv as gc_write_csv, backup_csv as gc_backup_csv
@@ -118,14 +120,12 @@ def _gt_overrides_path():
 
 
 def _load_gt_overrides():
-    """Manual GT↔MapKit matches saved by the reconciliation UI, keyed by (dataset, photo)."""
-    path = _gt_overrides_path()
-    done = {}
-    if os.path.isfile(path):
-        with open(path, encoding="utf-8") as f:
-            for row in csv.DictReader(f, delimiter="\t"):
-                done[(row.get("dataset", ""), row.get("photo", ""))] = row
-    return done
+    """Manual GT↔MapKit matches saved by the reconciliation UI, keyed by (dataset, photo).
+
+    Shared implementation with match_score so Reconcile queue skips and
+    matchrate / algorithm scoring all see the same override set.
+    """
+    return load_gt_mapkit_overrides(_gt_overrides_path())
 
 
 def gt_reconcile_queue(limit=300):
@@ -155,7 +155,10 @@ def gt_reconcile_queue(limit=300):
             cands = rec.get("candidates", [])
             out.append({
                 "dataset": dataset, "photo": photo,
-                "image": f"/api/poi-case-photo?dataset={urllib.parse.quote(dataset)}&photo={urllib.parse.quote(photo)}",
+                "image": (
+                    f"/api/poi-case-photo?dataset={urllib.parse.quote(dataset)}"
+                    f"&photo={urllib.parse.quote(photo)}&thumb=1&w=480"
+                ),
                 "gt": (r.get("input_place_name") or "").strip(),
                 "lat": (r.get("capture_lat") or "").strip(),
                 "lon": (r.get("capture_lon") or "").strip(),
@@ -216,10 +219,13 @@ def mapkit_probe(lat, lon):
                     pass
 
 
-def case_detail(dataset, photo):
+def case_detail(dataset, photo, run_name=None, version=None):
     """Single-case detail for the Case inspector — composed from stable sources
-    (eval CSV row + MapKit candidate list + the best run's prediction), so it
-    doesn't depend on the frozen 166-cohort explorer artifacts."""
+    (eval CSV row + MapKit candidate list + a specific or best run's prediction).
+
+    When run_name + version are provided, predictions come from that run so deep
+    links stay reproducible even after a newer best run appears.
+    """
     if not os.path.isfile(CSV_PATH):
         return None
     row = None
@@ -230,19 +236,32 @@ def case_detail(dataset, photo):
                 break
     if row is None:
         return None
+    # Read-time reconcile overlay (same as matchrate) so the inspector shows the
+    # effective MapKit GT after a manual match, not the stale NON_MAPKIT cell.
+    overlaid_rows, _ = overlay_gt_mapkit_overrides([row], path=_gt_overrides_path())
+    row = overlaid_rows[0] if overlaid_rows else row
     cand = (_load_original_mapkit_outputs().get(os.path.basename(photo)) or {}).get("candidates", [])
-    best, pred = None, {}
+    chosen, pred = None, {}
     try:
-        scored = [r for r in list_runs(RUNS_DIR) if isinstance(r.get("accuracy_pct"), (int, float))]
-        best = max(scored, key=lambda r: r.get("accuracy_pct") or 0) if scored else None
-        if best:
-            full = get_run(RUNS_DIR, best["name"], best["version"])
+        if run_name and version is not None:
+            full = get_run(RUNS_DIR, run_name, int(version))
+            chosen = {"name": full.get("name") or run_name, "version": full.get("version") or int(version)}
             for c in full.get("cases", []):
                 if c.get("dataset") == dataset and c.get("photo") == photo:
                     pred = c
                     break
+        else:
+            scored = [r for r in list_runs(RUNS_DIR) if isinstance(r.get("accuracy_pct"), (int, float))]
+            best = max(scored, key=lambda r: r.get("accuracy_pct") or 0) if scored else None
+            if best:
+                chosen = {"name": best["name"], "version": best["version"]}
+                full = get_run(RUNS_DIR, best["name"], best["version"])
+                for c in full.get("cases", []):
+                    if c.get("dataset") == dataset and c.get("photo") == photo:
+                        pred = c
+                        break
     except Exception:
-        best, pred = None, {}
+        chosen, pred = None, {}
     lat = (row.get("capture_lat") or "").strip()[:9]
     lon = (row.get("capture_lon") or "").strip()[:9]
     return {
@@ -254,7 +273,7 @@ def case_detail(dataset, photo):
         "reason": pred.get("reason", ""),
         "match_kind": pred.get("match_kind", ""),
         "correct": bool(pred.get("correct")),
-        "run": {"name": best["name"], "version": best["version"]} if best else None,
+        "run": chosen,
         "lat": lat, "lon": lon,
         "signals": {
             "gps": (", ".join(x for x in (lat, lon) if x)),
@@ -349,21 +368,117 @@ def poi_case_explorer_data():
     return {"algorithms": algorithms, "cases": result}
 
 
-def poi_case_photo(photo):
-    """Locate an original image without a copied report-asset directory."""
-    if os.path.basename(photo) != photo:
+def poi_case_photo(photo, dataset=None):
+    """Locate an original image without a copied report-asset directory.
+
+    When ``dataset`` is known, prefer that source's ``photo_dir`` so same-basename
+    collisions across datasets resolve to the right file.
+
+    Name resolution is unified via ``tools/photo_names.photo_name_aliases``:
+    historical LinkedSpaces long names, preferred short names, and extension
+    variants (.JPEG/.jpg) all resolve to the same file when present.
+    """
+    if not photo or os.path.basename(photo) != photo:
         return None
-    roots = [os.path.join(DIRECTORY, name) for name in
-             ("linkedspaces-photos", "photos", "poi-dataset-20260708-photos", "union-city-trip/photos")]
+    try:
+        from photo_names import photo_name_aliases, provenance_basename
+    except ImportError:
+        sys.path.insert(0, os.path.join(REPO_DIR, "tools"))
+        from photo_names import photo_name_aliases, provenance_basename
+
+    aliases = photo_name_aliases(photo)
+    roots = []
+    if dataset:
+        pdir = _photo_dir_for(dataset)
+        if pdir:
+            roots.append(os.path.join(DIRECTORY, pdir))
+    roots.extend(
+        os.path.join(DIRECTORY, name)
+        for name in (
+            "linkedspaces-photos",
+            "photos",
+            "poi-dataset-20260708-photos",
+            "union-city-trip/photos",
+        )
+    )
+    # Config-registered upload dirs (may not be in the hardcoded list).
+    try:
+        for pdir in sorted(_config_photo_dirs() or []):
+            if pdir:
+                roots.append(os.path.join(DIRECTORY, pdir))
+    except Exception:
+        pass
+    # Legacy: long export names on disk vs short provenance form in some tools.
+    preferred = provenance_basename(photo)
+    seen = set()
     for root in roots:
-        direct = os.path.join(root, photo)
-        if os.path.isfile(direct):
-            return direct
-        if os.path.isdir(root):
-            found = next((path for path in Path(root).rglob(photo) if path.is_file()), None)
+        root = os.path.realpath(root)
+        if root in seen or not os.path.isdir(root):
+            continue
+        seen.add(root)
+        # 1) direct path hits for every alias (includes local 0001.jpg keys)
+        for name in aliases:
+            direct = os.path.join(root, name)
+            if os.path.isfile(direct):
+                return direct
+        # 2) recursive exact basename hits (nested photo dirs)
+        for name in aliases:
+            found = next((p for p in Path(root).rglob(name) if p.is_file()), None)
             if found:
                 return str(found)
+        # 3) long-on-disk ↔ stripped provenance (pre-local-id history)
+        for path in Path(root).rglob("*"):
+            if path.is_file() and provenance_basename(path.name) == preferred:
+                return str(path)
     return None
+
+
+def _thumb_cache_path(src_path, max_px):
+    """Deterministic cache path under generated/thumbs for a source image."""
+    import hashlib
+    try:
+        st = os.stat(src_path)
+        key = f"{os.path.realpath(src_path)}|{st.st_mtime_ns}|{st.st_size}|{max_px}"
+    except OSError:
+        key = f"{src_path}|{max_px}"
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:20]
+    cache_dir = os.path.join(DIRECTORY, "generated", "thumbs")
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, f"{digest}_w{int(max_px)}.jpg")
+
+
+def poi_case_photo_thumb(src_path, max_px=360, quality=82):
+    """Return a JPEG thumbnail path (cached), or None if generation fails.
+
+    Mirrors tools/render_case_types.thumb_data_uri geometry: long edge ≤ max_px,
+    EXIF-aware, LANCZOS. Falls back to None so the caller can serve the original.
+    """
+    if not src_path or not os.path.isfile(src_path):
+        return None
+    max_px = max(64, min(int(max_px or 360), 1280))
+    cache = _thumb_cache_path(src_path, max_px)
+    if os.path.isfile(cache) and os.path.getmtime(cache) >= os.path.getmtime(src_path):
+        return cache
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:
+        return None
+    try:
+        with Image.open(src_path) as im:
+            im = ImageOps.exif_transpose(im).convert("RGB")
+            resample = getattr(Image, "Resampling", Image).LANCZOS
+            im.thumbnail((max_px, max_px), resample)
+            tmp = cache + ".tmp"
+            im.save(tmp, format="JPEG", quality=quality, optimize=True)
+            os.replace(tmp, cache)
+        return cache
+    except Exception:
+        try:
+            if os.path.isfile(cache + ".tmp"):
+                os.unlink(cache + ".tmp")
+        except OSError:
+            pass
+        return None
 
 # ---------------------------------------------------------------------------
 # Background job registry. Every CSV-mutating operation (GT classify, signal
@@ -1195,11 +1310,15 @@ def build_datasets():
     The set of signals reported is driven by config `signals` so it stays in
     sync with the re-run step dropdown; a signal maps to one or more CSV columns
     and is measured on its representative (first) column.
+
+    Rows are overlaid with Reconcile overrides at read time so gt_mapkit fill /
+    label breakdown reflects manual matches (same as matchrate).
     """
     cfg = load_config()
     signals = cfg.get("signals") or {}
     sources = cfg.get("sources") or {}
     _, rows = read_eval_csv()
+    rows, _ = overlay_gt_mapkit_overrides(rows, path=_gt_overrides_path())
     by = {}
     for r in rows:
         ds = (r.get("dataset") or "").strip()
@@ -1412,6 +1531,14 @@ def enrich_run_cases(run):
             "lat": (row.get("capture_lat") or "").strip()[:9],
             "lon": (row.get("capture_lon") or "").strip()[:9],
         }
+    # Flatten metrics to top-level so a single-run detail matches the runs-list
+    # shape (accuracy_pct, n_eligible, correct, …) — Compare/consumers read these
+    # at the top level.
+    m = run.get("metrics") or {}
+    for k in ("n_eligible", "correct", "correct_canonical", "abstained", "errored",
+              "accuracy_pct", "accuracy_canonical_pct", "match_kind_counts", "duration_ms"):
+        if run.get(k) is None:
+            run[k] = m.get(k)
     return run
 
 
@@ -1429,6 +1556,7 @@ def build_matchrate(dataset_filter="all", mode="exact"):
         mode=mode or "exact",
         rows=read_match_rows(CSV_PATH),
         candidates=load_match_candidates(MATCH_CANDIDATE_PATHS),
+        overrides_path=_gt_overrides_path(),
     )
 
 
@@ -1529,16 +1657,35 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if route == "/api/poi-case-photo":
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             photo = (q.get("photo", [""])[0]).strip()
-            path = poi_case_photo(photo)
+            dataset = (q.get("dataset", [""])[0]).strip() or None
+            # thumb=1 | thumb=true → long-edge JPEG (default 360px). w= sets px.
+            thumb_raw = (q.get("thumb", [""])[0]).strip().lower()
+            want_thumb = thumb_raw in ("1", "true", "yes", "y")
+            try:
+                max_px = int((q.get("w", ["360"])[0]).strip() or "360")
+            except ValueError:
+                max_px = 360
+            path = poi_case_photo(photo, dataset=dataset)
             if not path:
                 self._send_api_error("not_found", 404, detail="photo not found")
                 return
+            serve = path
+            content_type = self.guess_type(path)
+            if want_thumb:
+                thumb = poi_case_photo_thumb(path, max_px=max_px)
+                if thumb:
+                    serve = thumb
+                    content_type = "image/jpeg"
             try:
                 self.send_response(200)
-                self.send_header("Content-Type", self.guess_type(path))
-                self.send_header("Content-Length", str(os.path.getsize(path)))
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(os.path.getsize(serve)))
+                # Thumbnails are content-addressed by mtime in the cache key;
+                # short client cache is fine. Full-res stays no-store via end_headers.
+                if want_thumb and serve != path:
+                    self.send_header("Cache-Control", "private, max-age=86400")
                 self.end_headers()
-                with open(path, "rb") as image:
+                with open(serve, "rb") as image:
                     shutil.copyfileobj(image, self.wfile)
             except (BrokenPipeError, ConnectionResetError):
                 pass
@@ -1590,6 +1737,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.log_error("API request failed: %s", e)
                 self._send_api_error("internal_error", 500)
             return
+        if route == "/api/dataset-template":
+            try:
+                payload = build_dataset_template_zip()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header(
+                    "Content-Disposition",
+                    'attachment; filename="poi-dataset-template.zip"',
+                )
+                self.send_header("Content-Length", str(len(payload)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(payload)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except Exception as e:
+                self.log_error("dataset template request failed: %s", e)
+                self._send_api_error("internal_error", 500)
+            return
         if route in ("/api/jobs/status", "/api/gt/classify/status"):
             from urllib.parse import urlparse, parse_qs
             q = parse_qs(urlparse(self.path).query)
@@ -1610,7 +1776,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             q = parse_qs(urlparse(self.path).query)
             ds = (q.get("dataset", [""])[0]).strip()
             ph = (q.get("photo", [""])[0]).strip()
-            d = case_detail(ds, ph)
+            run_name = (q.get("run_name", q.get("name", [""]))[0]).strip() or None
+            version_raw = (q.get("version", [""])[0]).strip()
+            version = None
+            if version_raw:
+                try:
+                    version = int(version_raw)
+                except ValueError:
+                    self._send_api_error("invalid_request", 400, detail="version must be an integer")
+                    return
+            d = case_detail(ds, ph, run_name=run_name, version=version)
             if d is None:
                 self._send_json({"error": "case not found"}, code=404)
             else:
