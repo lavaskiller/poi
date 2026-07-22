@@ -1,0 +1,27 @@
+.map {
+  width: 100%;
+  height: 100%;
+  min-height: 200px;
+  border-radius: var(--radius-md);
+  z-index: 0;
+}
+
+/* draggable query point */
+.pin {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent-default);
+  border: 3px solid #fff;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
+  cursor: grab;
+}
+/* fixed photo-capture location */
+.photoPin {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--warning-fg);
+  border: 3px solid #fff;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
+}

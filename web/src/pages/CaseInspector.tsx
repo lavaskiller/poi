@@ -1,4 +1,5 @@
 import { Link, useSearchParams } from "react-router-dom";
+import MapPicker from "../components/MapPicker";
 import CandidateRow, { type CandidateRowData } from "../components/CandidateRow";
 import { api, type CaseDetail } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
@@ -101,6 +102,14 @@ export default function CaseInspector() {
               </div>
             ))}
           </div>
+          {Number.isFinite(parseFloat(c.lat)) && Number.isFinite(parseFloat(c.lon)) && (
+            <div className={styles.mapBox}>
+              <MapPicker
+                photo={{ lat: parseFloat(c.lat), lon: parseFloat(c.lon) }}
+                point={{ lat: parseFloat(c.lat), lon: parseFloat(c.lon) }}
+              />
+            </div>
+          )}
         </div>
 
         {/* detail column */}

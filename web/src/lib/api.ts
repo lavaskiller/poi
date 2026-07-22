@@ -98,6 +98,8 @@ export interface CaseDetail {
   match_kind: string;
   correct: boolean;
   run: { name: string; version: number } | null;
+  lat: string;
+  lon: string;
   signals: { gps: string; ocr: string; nearby: string; category: string };
   candidates: CaseCandidate[];
 }
@@ -119,8 +121,18 @@ export interface ReconcileCase {
   photo: string;
   image: string;
   gt: string;
+  lat: string;
+  lon: string;
   ocr: string;
   candidates: ReconcileCandidate[];
+}
+
+export interface ProbeResult {
+  ok: boolean;
+  lat?: number;
+  lon?: number;
+  candidates: ReconcileCandidate[];
+  message?: string;
 }
 export interface ReconcileQueue {
   total_non_mapkit: number;
@@ -146,6 +158,16 @@ export const api = {
     getJSON<CaseDetail>(
       `/api/case?dataset=${encodeURIComponent(dataset)}&photo=${encodeURIComponent(photo)}`,
     ),
+
+  /** Live MapKit nearby query for a coordinate (Investigate). Slow (~20–30s). */
+  async mapkitProbe(lat: number, lon: number): Promise<ProbeResult> {
+    const res = await fetch("/api/mapkit/probe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat, lon }),
+    });
+    return (await res.json()) as ProbeResult;
+  },
 
   /** GT↔MapKit reconciliation queue — NON_MAPKIT cases with candidate lists. */
   reconcileQueue: () => getJSON<ReconcileQueue>("/api/gt/reconcile"),

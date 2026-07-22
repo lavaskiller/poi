@@ -122,6 +122,13 @@
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
 }
+.mapBox {
+  width: 100%;
+  height: 200px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
 .signalRow {
   display: flex;
   align-items: center;

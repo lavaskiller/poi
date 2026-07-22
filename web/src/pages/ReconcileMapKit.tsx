@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { api, type ReconcileCase } from "../lib/api";
+import MapPicker from "../components/MapPicker";
+import { api, type ReconcileCandidate, type ReconcileCase } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
 import styles from "./ReconcileMapKit.module.css";
 
@@ -14,12 +15,15 @@ export default function ReconcileMapKit() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (queue.status === "loading") {
-    return <main className={styles.center}>Loading reconciliation queue…</main>;
-  }
-  if (queue.status === "error") {
+  // query point (selectable) + live re-query results
+  const [coord, setCoord] = useState<{ lat: number; lon: number } | null>(null);
+  const [probeCands, setProbeCands] = useState<ReconcileCandidate[] | null>(null);
+  const [probing, setProbing] = useState(false);
+  const [probeMsg, setProbeMsg] = useState<string | null>(null);
+
+  if (queue.status === "loading") return <main className={styles.center}>Loading reconciliation queue…</main>;
+  if (queue.status === "error")
     return <main className={styles.center}>Couldn’t load queue — {queue.error.message}</main>;
-  }
 
   const data = queue.data;
   const cases = data.cases;
@@ -28,17 +32,12 @@ export default function ReconcileMapKit() {
   if (cases.length === 0 || idx >= cases.length) {
     return (
       <main className={styles.main}>
-        <Header
-          total={data.total_non_mapkit}
-          done={doneBase + savedCount}
-          remaining={Math.max(0, data.remaining - savedCount)}
-        />
+        <Header total={data.total_non_mapkit} done={doneBase + savedCount} remaining={Math.max(0, data.remaining - savedCount)} />
         <div className={styles.empty}>
           <span className={styles.emptyIcon}>✓</span>
           <p className={styles.emptyTitle}>Nothing left in this batch</p>
           <p className={styles.emptyDesc}>
-            {savedCount > 0 ? `${savedCount} matches saved. ` : ""}Reload to pull the next batch of
-            unmatched cases.
+            {savedCount > 0 ? `${savedCount} matches saved. ` : ""}Reload to pull the next batch.
           </p>
           <button type="button" className={styles.reloadBtn} onClick={queue.reload}>
             Reload queue
@@ -49,9 +48,18 @@ export default function ReconcileMapKit() {
   }
 
   const current: ReconcileCase = cases[idx];
+  const caseLat = parseFloat(current.lat);
+  const caseLon = parseFloat(current.lon);
+  const hasCoord = Number.isFinite(caseLat) && Number.isFinite(caseLon);
+  const point = coord ?? (hasCoord ? { lat: caseLat, lon: caseLon } : null);
+  const moved = hasCoord && point != null && (point.lat !== caseLat || point.lon !== caseLon);
+
   const advance = () => {
     setChoice(null);
     setShowAll(false);
+    setCoord(null);
+    setProbeCands(null);
+    setProbeMsg(null);
     setIdx((i) => i + 1);
   };
 
@@ -69,24 +77,42 @@ export default function ReconcileMapKit() {
     }
   }
 
-  const noCandidates = current.candidates.length === 0;
-  const visible = showAll ? current.candidates : current.candidates.slice(0, TOP_N);
-  const hiddenCount = current.candidates.length - visible.length;
+  async function reprobe() {
+    if (!point) return;
+    setProbing(true);
+    setProbeMsg(null);
+    setChoice(null);
+    try {
+      const res = await api.mapkitProbe(point.lat, point.lon);
+      if (res.ok) {
+        setProbeCands(res.candidates);
+        if (res.candidates.length === 0) setProbeMsg("Still nothing here — move the point and try again.");
+      } else {
+        setProbeMsg(res.message || "Probe failed.");
+      }
+    } catch (e) {
+      setProbeMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProbing(false);
+    }
+  }
+
+  const activeCands = probeCands ?? current.candidates;
+  const visible = showAll ? activeCands : activeCands.slice(0, TOP_N);
+  const hiddenCount = activeCands.length - visible.length;
+  const listLabel = probeCands
+    ? `${probeCands.length} candidates at this point`
+    : activeCands.length > 0
+      ? `Pick the matching MapKit place · ${activeCands.length} candidates`
+      : "No MapKit candidates at the photo location";
 
   return (
     <main className={styles.main}>
-      <Header
-        total={data.total_non_mapkit}
-        done={doneBase + savedCount}
-        remaining={Math.max(0, data.remaining - savedCount)}
-      />
+      <Header total={data.total_non_mapkit} done={doneBase + savedCount} remaining={Math.max(0, data.remaining - savedCount)} />
 
       <div className={styles.progressRow}>
         <div className={styles.progressTrack}>
-          <div
-            className={styles.progressFill}
-            style={{ width: `${((doneBase + savedCount) / Math.max(1, data.total_non_mapkit)) * 100}%` }}
-          />
+          <div className={styles.progressFill} style={{ width: `${((doneBase + savedCount) / Math.max(1, data.total_non_mapkit)) * 100}%` }} />
         </div>
         <span className={styles.progressText}>
           {idx + 1} of {cases.length} in this batch
@@ -107,20 +133,46 @@ export default function ReconcileMapKit() {
           </div>
         </div>
 
-        {/* right: candidate picker */}
+        {/* right: map + candidates */}
         <div className={styles.pickCol}>
-          <p className={styles.pickLabel}>
-            {noCandidates
-              ? "No MapKit candidates — investigate to re-query"
-              : `Pick the matching MapKit place · ${current.candidates.length} candidates`}
-          </p>
-
-          {noCandidates ? (
-            <p className={styles.noCand}>
-              MapKit returned nothing near this photo’s coordinate. Use “Investigate on map” to move
-              the point and re-query, or mark it not in MapKit.
-            </p>
+          {hasCoord && point ? (
+            <>
+              <div className={styles.mapWrap}>
+                <MapPicker
+                  key={current.photo}
+                  photo={{ lat: caseLat, lon: caseLon }}
+                  point={point}
+                  onChange={(lat, lon) => {
+                    setCoord({ lat, lon });
+                    setProbeCands(null);
+                  }}
+                />
+              </div>
+              <div className={styles.investRow}>
+                <span className={styles.legendDot} style={{ background: "var(--warning-fg)" }} />
+                <span className={styles.coordText}>photo</span>
+                <span className={styles.legendDot} style={{ background: "var(--accent-default)" }} />
+                <span className={styles.coordText}>
+                  query {point.lat.toFixed(5)}, {point.lon.toFixed(5)}
+                </span>
+                <span style={{ flex: 1 }} />
+                {moved && (
+                  <button type="button" className={styles.seeMore} onClick={() => { setCoord(null); setProbeCands(null); }}>
+                    reset
+                  </button>
+                )}
+                <button type="button" className={styles.secondary} disabled={probing} onClick={reprobe}>
+                  {probing ? "Querying… (~20–30s)" : "Re-query MapKit here"}
+                </button>
+              </div>
+            </>
           ) : (
+            <p className={styles.noCand}>No coordinate for this case — can’t map or re-query.</p>
+          )}
+
+          <p className={styles.pickLabel}>{listLabel}</p>
+          {probeMsg && <p className={styles.error}>{probeMsg}</p>}
+          {activeCands.length > 0 && (
             <div className={styles.candList}>
               {visible.map((c, i) => {
                 const on = choice === c.name;
@@ -140,7 +192,7 @@ export default function ReconcileMapKit() {
                   </button>
                 );
               })}
-              {current.candidates.length > TOP_N && (
+              {activeCands.length > TOP_N && (
                 <button type="button" className={styles.seeMore} onClick={() => setShowAll((s) => !s)}>
                   {showAll ? "See fewer" : `See more (${hiddenCount})`}
                 </button>
@@ -151,16 +203,8 @@ export default function ReconcileMapKit() {
           {error && <p className={styles.error}>{error}</p>}
 
           <div className={styles.actions}>
-            <button
-              type="button"
-              className={styles.primary}
-              disabled={busy || !choice}
-              onClick={() => choice && save(choice)}
-            >
+            <button type="button" className={styles.primary} disabled={busy || !choice} onClick={() => choice && save(choice)}>
               {busy ? "Saving…" : "Save match"}
-            </button>
-            <button type="button" className={styles.secondary} disabled title="Coming next">
-              Investigate on map
             </button>
             <button type="button" className={styles.ghost} disabled={busy} onClick={() => save("")}>
               Not in MapKit
@@ -182,7 +226,7 @@ function Header({ total, done, remaining }: { total: number; done: number; remai
       <h1 className={styles.h1}>Match unresolved ground truth to MapKit</h1>
       <p className={styles.sub}>
         {total} cases classified <code className={styles.code}>NON_MAPKIT</code> — GT couldn’t be
-        auto-matched to any MapKit name. Pick the right candidate to augment the correspondence.
+        auto-matched. Pick a candidate, or move the query point on the map and re-query MapKit.
         <span className={styles.counts}>
           {" "}
           {done} done · {remaining} remaining

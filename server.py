@@ -157,6 +157,8 @@ def gt_reconcile_queue(limit=300):
                 "dataset": dataset, "photo": photo,
                 "image": f"/api/poi-case-photo?dataset={urllib.parse.quote(dataset)}&photo={urllib.parse.quote(photo)}",
                 "gt": (r.get("input_place_name") or "").strip(),
+                "lat": (r.get("capture_lat") or "").strip(),
+                "lon": (r.get("capture_lon") or "").strip(),
                 "ocr": (r.get("ocr_text") or r.get("caption_ondevice") or "").strip(),
                 "candidates": [{"rank": c.get("rank") or i + 1, "name": c.get("name", ""),
                                 "distance": c.get("distance") or c.get("distance_m"),
@@ -166,6 +168,51 @@ def gt_reconcile_queue(limit=300):
     no_candidate = sum(1 for c in out if not c["candidates"])
     return {"total_non_mapkit": total_non, "done": len(done),
             "remaining": total_non - len(done), "no_candidate": no_candidate, "cases": out}
+
+
+def mapkit_probe(lat, lon):
+    """Live MapKit nearby query for an arbitrary coordinate (Investigate flow).
+    Runs ls_mapkit_probe.swift — slow (~20–30s: swift compile + network)."""
+    swift_file = os.path.join(REPO_DIR, "tools", "swift", "ls_mapkit_probe.swift")
+    if not os.path.isfile(swift_file):
+        return {"ok": False, "message": "probe script missing", "candidates": []}
+    in_tsv = out_tsv = None
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".tsv", delete=False, newline="") as f:
+            f.write("photo\tlat\tlon\tkw\n")
+            f.write("probe\t%s\t%s\t\n" % (lat, lon))
+            in_tsv = f.name
+        out_tsv = in_tsv + ".out"
+        with open(out_tsv, "w", encoding="utf-8") as out:
+            proc = subprocess.run(["swift", swift_file, in_tsv], stdout=out,
+                                  stderr=subprocess.PIPE, text=True, timeout=150)
+        if proc.returncode != 0:
+            return {"ok": False, "message": "probe failed: %s" % (proc.stderr or "")[:200],
+                    "candidates": []}
+        cands = []
+        with open(out_tsv, encoding="utf-8", errors="replace") as f:
+            for row in csv.DictReader(f, delimiter="\t"):
+                try:
+                    cands = json.loads(row.get("wide_candidates_json") or "[]")
+                except Exception:
+                    cands = []
+                break
+        norm = [{"rank": c.get("rank") or i + 1, "name": c.get("name", ""),
+                 "distance": c.get("distance_m"), "category": c.get("category", ""),
+                 "lat": c.get("lat"), "lon": c.get("lon")}
+                for i, c in enumerate(cands) if (c.get("name") or "").strip()]
+        return {"ok": True, "lat": lat, "lon": lon, "candidates": norm}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "message": "probe timed out", "candidates": []}
+    except Exception as e:
+        return {"ok": False, "message": str(e), "candidates": []}
+    finally:
+        for p in (in_tsv, out_tsv):
+            if p:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
 
 
 def case_detail(dataset, photo):
@@ -207,6 +254,7 @@ def case_detail(dataset, photo):
         "match_kind": pred.get("match_kind", ""),
         "correct": bool(pred.get("correct")),
         "run": {"name": best["name"], "version": best["version"]} if best else None,
+        "lat": lat, "lon": lon,
         "signals": {
             "gps": (", ".join(x for x in (lat, lon) if x)),
             "ocr": (row.get("caption_ondevice") or "").strip()[:240],
@@ -1688,6 +1736,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         route = self.path.split("?")[0]
         if route == "/api/gt/reconcile":
             self._handle_gt_reconcile_save()
+            return
+        if route == "/api/mapkit/probe":
+            raw = self._read_body(64 * 1024) or b"{}"
+            try:
+                payload = json.loads(raw or b"{}")
+                lat = float(payload["lat"])
+                lon = float(payload["lon"])
+            except Exception:
+                self._send_json({"ok": False, "message": "lat and lon (numbers) required"}, code=400)
+                return
+            self._send_json(mapkit_probe(lat, lon))
             return
         if route == "/api/run":
             self._handle_run()
