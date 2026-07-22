@@ -104,8 +104,21 @@ export default function MapPicker({
 
     overlayRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
-    setTimeout(() => map.invalidateSize(), 60);
+    // invalidateSize after layout; cancel on teardown so we never touch a
+    // removed map (StrictMode remount + headless teardown race → _leaflet_pos).
+    let cancelled = false;
+    const sizeTimer = window.setTimeout(() => {
+      if (!cancelled && mapRef.current === map) {
+        try {
+          map.invalidateSize();
+        } catch {
+          /* map already torn down */
+        }
+      }
+    }, 60);
     return () => {
+      cancelled = true;
+      window.clearTimeout(sizeTimer);
       map.remove();
       if (inner.parentNode === host) host.removeChild(inner);
       mapRef.current = null;
@@ -118,31 +131,39 @@ export default function MapPicker({
   // reactively pin the selected candidate's location
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
-    if (!selected || !Number.isFinite(selected.lat) || !Number.isFinite(selected.lon)) {
-      if (selectedRef.current) {
-        map.removeLayer(selectedRef.current);
-        selectedRef.current = null;
+    if (!map || !map.getContainer()) return;
+    try {
+      if (!selected || !Number.isFinite(selected.lat) || !Number.isFinite(selected.lon)) {
+        if (selectedRef.current) {
+          map.removeLayer(selectedRef.current);
+          selectedRef.current = null;
+        }
+        return;
       }
-      return;
+      const ll: L.LatLngExpression = [selected.lat, selected.lon];
+      if (selectedRef.current) {
+        selectedRef.current.setLatLng(ll);
+      } else {
+        const icon = L.divIcon({
+          className: styles.selectedPin,
+          iconSize: [20, 20],
+          iconAnchor: [10, 10],
+        });
+        selectedRef.current = L.marker(ll, { icon, interactive: false })
+          .addTo(map)
+          .bindTooltip("selected", { direction: "top", offset: [0, -10] });
+      }
+      map.panTo(ll);
+    } catch {
+      /* map mid-teardown */
     }
-    const ll: L.LatLngExpression = [selected.lat, selected.lon];
-    if (selectedRef.current) {
-      selectedRef.current.setLatLng(ll);
-    } else {
-      const icon = L.divIcon({ className: styles.selectedPin, iconSize: [20, 20], iconAnchor: [10, 10] });
-      selectedRef.current = L.marker(ll, { icon, interactive: false })
-        .addTo(map)
-        .bindTooltip("selected", { direction: "top", offset: [0, -10] });
-    }
-    map.panTo(ll);
   }, [selected?.lat, selected?.lon]);
 
   // candidates + search-radius circles
   useEffect(() => {
     const map = mapRef.current;
     const group = overlayRef.current;
-    if (!map || !group) return;
+    if (!map || !group || !map.getContainer()) return;
     group.clearLayers();
 
     const center = isFiniteLatLon(photo) ? photo : isFiniteLatLon(point) ? point : null;
@@ -208,13 +229,22 @@ export default function MapPicker({
 
     // Prefer the fixed outer radius so short lists don't zoom in past the
     // actual search window (few POIs ≠ smaller radius).
-    if (center && outer != null) {
-      const tmp = L.circle([center.lat, center.lon], { radius: outer });
-      map.fitBounds(tmp.getBounds().pad(0.08), { maxZoom: 18, animate: false });
-    } else if (list.length >= 1 && center) {
-      const boundsPts: L.LatLngExpression[] = [[center.lat, center.lon]];
-      for (const c of list) boundsPts.push([c.lat, c.lon]);
-      map.fitBounds(L.latLngBounds(boundsPts).pad(0.35), { maxZoom: 18, animate: false });
+    //
+    // IMPORTANT: never call getBounds() on a Circle that is not on a map —
+    // Leaflet Circle.getBounds needs map projection (layerPointToLatLng) and
+    // throws if _map is undefined, which unmounts the whole page (no boundary).
+    // LatLng.toBounds(sizeInMeters) is map-free and uses diameter = 2 * radius.
+    try {
+      if (center && outer != null) {
+        const bounds = L.latLng(center.lat, center.lon).toBounds(outer * 2);
+        map.fitBounds(bounds.pad(0.08), { maxZoom: 18, animate: false });
+      } else if (list.length >= 1 && center) {
+        const boundsPts: L.LatLngExpression[] = [[center.lat, center.lon]];
+        for (const c of list) boundsPts.push([c.lat, c.lon]);
+        map.fitBounds(L.latLngBounds(boundsPts).pad(0.35), { maxZoom: 18, animate: false });
+      }
+    } catch {
+      // Map may be mid-teardown (StrictMode remount); skip fit this pass.
     }
   }, [candidates, radiusM, radiusInnerM, photo?.lat, photo?.lon, point.lat, point.lon]);
 
