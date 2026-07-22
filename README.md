@@ -34,8 +34,8 @@ Python backend (see `web/vite.config.ts`).
 
 ## Backend API (server.py)
 
-`/api/overview` · `/api/datasets` · `/api/runs` · `/api/run` (POST) ·
-`/api/matchrate` · `/api/records` · `/api/poi-case-explorer` ·
+`/api/overview` · `/api/datasets` · `/api/dataset-template` · `/api/runs` ·
+`/api/run` (POST) · `/api/matchrate` · `/api/records` · `/api/poi-case-explorer` ·
 `/api/poi-case-photo` · `/api/field-profile` · `/api/jobs` ·
 `/api/jobs/status` · `/api/gt/classify` · `/api/ingest` (POST) ·
 `/api/validate-upload-package` (POST)

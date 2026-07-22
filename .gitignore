@@ -3,6 +3,10 @@ node_modules
 # build
 dist
 dist-ssr
+# TS/Vite build artifacts (generated)
+*.tsbuildinfo
+web/vite.config.d.ts
+web/vite.config.d.ts.map
 # logs
 *.log
 npm-debug.log*
