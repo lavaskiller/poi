@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import CaseCard, { type CaseCardData } from "../components/CaseCard";
 import { api, bestRun, formatDuration, photoUrl, relTime, type Run, type RunDetail } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
@@ -45,11 +45,13 @@ interface CompareData {
 }
 
 export default function Compare() {
+  const [searchParams] = useSearchParams();
   const list = useAsync(() => api.runs().then((r) => r.runs), []);
   const runs = list.status === "ready" ? list.data : [];
   const [pickA, setPickA] = useState<string>("");
   const [pickB, setPickB] = useState<string>("");
   const [filter, setFilter] = useState<"all" | "fixed" | "broken">("all");
+  const [urlApplied, setUrlApplied] = useState(false);
 
   const scored = useMemo(
     () =>
@@ -69,6 +71,41 @@ export default function Compare() {
     const other = scored.find((r) => runKey(r) !== runKey(best));
     return { a: other ?? best, b: best };
   }, [best, scored]);
+
+  // Results → Compare: ?b=name&bv=version (and optional a/av) preselect runs once.
+  useEffect(() => {
+    if (urlApplied || scored.length === 0) return;
+    const bName = searchParams.get("b") || searchParams.get("name") || "";
+    const bVer = searchParams.get("bv") || searchParams.get("version") || "";
+    const aName = searchParams.get("a") || "";
+    const aVer = searchParams.get("av") || "";
+
+    const find = (name: string, ver: string) => {
+      if (!name || !ver) return null;
+      const v = Number(ver);
+      if (!Number.isFinite(v)) return null;
+      return scored.find((r) => r.name === name && r.version === v) ?? null;
+    };
+
+    const fromB = find(bName, bVer);
+    const fromA = find(aName, aVer);
+
+    if (fromB) {
+      setPickB(runKey(fromB));
+      // Pair with previous version of same name when possible, else default A.
+      const prev = scored.find((r) => r.name === fromB.name && r.version === fromB.version - 1);
+      if (fromA) setPickA(runKey(fromA));
+      else if (prev) setPickA(runKey(prev));
+      else if (defaults.a && runKey(defaults.a) !== runKey(fromB)) setPickA(runKey(defaults.a));
+      else {
+        const other = scored.find((r) => runKey(r) !== runKey(fromB));
+        if (other) setPickA(runKey(other));
+      }
+    } else if (fromA) {
+      setPickA(runKey(fromA));
+    }
+    setUrlApplied(true);
+  }, [scored, searchParams, urlApplied, defaults.a]);
 
   const keyA = pickA || (defaults.a ? runKey(defaults.a) : "");
   const keyB = pickB || (defaults.b ? runKey(defaults.b) : "");

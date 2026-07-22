@@ -192,8 +192,9 @@ export default function Results() {
           </select>
         </label>
         <Link
-          to={`/compare`}
+          to={`/compare?b=${encodeURIComponent(selected.name)}&bv=${selected.version}`}
           style={{ textDecoration: "none" }}
+          title="Open Compare with this run pre-selected as B"
         >
           <Button kind="secondary">Compare with…</Button>
         </Link>

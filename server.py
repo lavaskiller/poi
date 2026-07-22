@@ -2156,12 +2156,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         path = _gt_overrides_path()
         try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            new_file = not os.path.isfile(path)
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
             fields = ["dataset", "photo", "gt", "chosen", "chosen_none", "manual", "ts"]
-            with open(path, "a", newline="", encoding="utf-8") as f:
-                w = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
-                if new_file:
+            # Recover from a corrupt/non-TSV file (e.g. header written without tabs).
+            need_header = True
+            if os.path.isfile(path) and os.path.getsize(path) > 0:
+                with open(path, encoding="utf-8") as rf:
+                    first = rf.readline()
+                need_header = "\t" not in first
+                if need_header:
+                    # Replace broken file so DictReader/writes stay tab-separated.
+                    bak = path + ".bak-corrupt"
+                    try:
+                        os.replace(path, bak)
+                    except OSError:
+                        os.remove(path)
+            mode = "w" if need_header or not os.path.isfile(path) else "a"
+            with open(path, mode, newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=fields, delimiter="\t", lineterminator="\n")
+                if mode == "w":
                     w.writeheader()
                 w.writerow({"dataset": dataset, "photo": photo, "gt": gt, "chosen": chosen,
                             "chosen_none": "" if chosen else "1",
