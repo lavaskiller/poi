@@ -225,7 +225,9 @@ export interface JobProgress {
 }
 
 export interface Job {
-  id: string;
+  /** Prefer job_id (server field); id kept for older payloads. */
+  id?: string;
+  job_id?: string;
   step: string;
   status: string; // "running" | "done" | "error" | ...
   params?: Record<string, unknown>;
@@ -235,7 +237,34 @@ export interface Job {
   progress?: JobProgress | null;
   warnings?: unknown[];
   error?: string | null;
+  result?: Record<string, unknown> | null;
   log_path?: string | null;
+  log_tail?: string[];
+}
+
+/** One structured issue from /api/validate-upload-package. */
+export interface ValidationIssue {
+  code?: string;
+  message?: string;
+  row?: number;
+  photo?: string;
+  columns?: string[];
+  photos?: string[];
+  paths?: string[];
+  roots?: string[];
+  count?: number;
+  allowed?: string[];
+  [key: string]: unknown;
+}
+
+export interface ValidateUploadResult {
+  ok: boolean;
+  errors?: ValidationIssue[];
+  warnings?: ValidationIssue[];
+  row_flags?: { row?: number; photo?: string; flags?: string[] }[];
+  dataset_root?: string;
+  row_count?: number;
+  image_count?: number;
 }
 
 export interface JobsResponse {
@@ -273,8 +302,24 @@ export interface RunSubmissionResult {
   message?: string;
 }
 
+/** Optional shared secret when the backend has POI_API_TOKEN set. */
+function apiToken(): string {
+  try {
+    return (import.meta.env.VITE_POI_API_TOKEN as string | undefined)?.trim() || "";
+  } catch {
+    return "";
+  }
+}
+
+function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const h: Record<string, string> = { ...extra };
+  const token = apiToken();
+  if (token) h["X-POI-Token"] = token;
+  return h;
+}
+
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(path, { headers: { Accept: "application/json" } });
+  const res = await fetch(path, { headers: authHeaders({ Accept: "application/json" }) });
   if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
   return (await res.json()) as T;
 }
@@ -406,7 +451,7 @@ export const api = {
     if (radiusM != null && Number.isFinite(radiusM)) body.radius_m = radiusM;
     const res = await fetch("/api/mapkit/probe", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(body),
     });
     return (await res.json()) as ProbeResult;
@@ -426,7 +471,7 @@ export const api = {
   }): Promise<{ ok: boolean; done: number; remaining: number }> {
     const res = await fetch("/api/gt/reconcile", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(c),
     });
     const data = (await res.json().catch(() => ({}))) as {
@@ -440,16 +485,32 @@ export const api = {
     return { ok: true, done: data.done ?? 0, remaining: data.remaining ?? 0 };
   },
 
-  /** Onboarding seed presets discovered on disk (drives the first-run dropdown). */
+  /** Onboarding seed presets discovered on disk (disk-bundle path; UI uses upload). */
   async seedPresets(): Promise<SeedPresets> {
     return getJSON<SeedPresets>("/api/seed/presets");
+  },
+
+  /**
+   * Onboarding: upload a seed-bundle ZIP (drag-and-drop). The ZIP mirrors
+   * poi-data-seed/ — eval_set_reconciled.csv (required), dashboard_config.json,
+   * generated/runs/*.json. Extraction is whitelisted + zip-slip safe server-side.
+   */
+  async seedUpload(file: File): Promise<{ ok: boolean; message?: string }> {
+    const res = await fetch("/api/seed/upload", {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/zip" }),
+      body: file,
+    });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+    if (!res.ok) throw new Error(data.message || `/api/seed/upload → HTTP ${res.status}`);
+    return { ok: data.ok ?? true, message: data.message };
   },
 
   /** Inject the bundled onboarding seed (initial dataset + baseline runs). */
   async seed(preset: string): Promise<{ ok: boolean; message?: string }> {
     const res = await fetch("/api/seed", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ preset }),
     });
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string };
@@ -461,7 +522,7 @@ export const api = {
   async submitRun(req: RunSubmissionRequest): Promise<RunSubmissionResult> {
     const res = await fetch("/api/run", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json", Accept: "application/json" }),
       body: JSON.stringify(req),
     });
     const data = (await res.json().catch(() => ({}))) as RunSubmissionResult & {
@@ -486,7 +547,7 @@ export const api = {
   ): Promise<{ ok: boolean; job_id: string; step: string; status: string }> {
     const res = await fetch("/api/jobs", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: authHeaders({ "Content-Type": "application/json", Accept: "application/json" }),
       body: JSON.stringify({ step, ...params }),
     });
     if (!res.ok) throw new Error(await readError(res, "/api/jobs"));
@@ -498,7 +559,7 @@ export const api = {
     const qs = dataset ? `?dataset=${encodeURIComponent(dataset)}` : "";
     const res = await fetch(`/api/ingest${qs}`, {
       method: "POST",
-      headers: { Accept: "application/json" },
+      headers: authHeaders({ Accept: "application/json" }),
       body: file,
     });
     if (!res.ok) throw new Error(await readError(res, "/api/ingest"));
@@ -506,27 +567,34 @@ export const api = {
   },
 
   /** Validate an upload package without writing. */
-  async validateUpload(file: File): Promise<{ ok: boolean; errors?: unknown[]; warnings?: unknown[] }> {
+  async validateUpload(file: File): Promise<ValidateUploadResult> {
     const res = await fetch("/api/validate-upload-package", {
       method: "POST",
-      headers: { Accept: "application/json" },
+      headers: authHeaders({ Accept: "application/json" }),
       body: file,
     });
-    const data = (await res.json().catch(() => ({}))) as {
-      ok?: boolean;
-      errors?: unknown[];
-      warnings?: unknown[];
+    const data = (await res.json().catch(() => ({}))) as ValidateUploadResult & {
       message?: string;
     };
     if (!res.ok && data.ok === undefined) {
       throw new Error(data.message || `/api/validate-upload-package → HTTP ${res.status}`);
     }
-    return { ok: !!data.ok, errors: data.errors, warnings: data.warnings };
+    return {
+      ok: !!data.ok,
+      errors: data.errors,
+      warnings: data.warnings,
+      row_flags: data.row_flags,
+      dataset_root: data.dataset_root,
+      row_count: data.row_count,
+      image_count: data.image_count,
+    };
   },
 
   /** Download the sample upload-package ZIP (manifest + placeholder photos). */
   async downloadTemplate(filename = "poi-dataset-template.zip"): Promise<void> {
-    const res = await fetch("/api/dataset-template", { headers: { Accept: "application/zip" } });
+    const res = await fetch("/api/dataset-template", {
+      headers: authHeaders({ Accept: "application/zip" }),
+    });
     if (!res.ok) throw new Error(await readError(res, "/api/dataset-template"));
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
@@ -543,6 +611,42 @@ export const api = {
     }
   },
 };
+
+/** Escape a CSV field (RFC-style quotes). */
+export function csvEscape(value: string | number | boolean | null | undefined): string {
+  const s = value == null ? "" : String(value);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+/** Build a CSV string from header + row objects. */
+export function toCsv(
+  headers: string[],
+  rows: Record<string, string | number | boolean | null | undefined>[],
+): string {
+  const lines = [headers.map(csvEscape).join(",")];
+  for (const row of rows) {
+    lines.push(headers.map((h) => csvEscape(row[h])).join(","));
+  }
+  return lines.join("\n") + "\n";
+}
+
+/** Trigger a browser download of text content. */
+export function downloadText(filename: string, text: string, mime = "text/csv;charset=utf-8"): void {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 /** True when the backend has no dataset loaded yet (first-run / onboarding). */
 export function isEmpty(o: Overview): boolean {

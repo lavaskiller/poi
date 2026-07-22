@@ -123,6 +123,16 @@
   background: var(--danger-bg);
   color: var(--danger-fg);
 }
+.deltaMuted {
+  background: var(--bg-subtle);
+  color: var(--text-tertiary);
+}
+.deltaExplain {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin: 0;
+}
 .metricMeta {
   font-family: var(--font-mono);
   font-size: 12px;

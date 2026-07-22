@@ -1,11 +1,14 @@
 import http.server, socketserver, functools, json, csv, os, sys, tempfile, urllib.parse
-import threading, subprocess, uuid, time, math, shutil, queue, statistics
+import threading, subprocess, uuid, time, math, shutil, queue, statistics, io, zipfile
 from collections import Counter, defaultdict
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(REPO_DIR, "tools"))
-from validate_upload_package import validate_zip, ValidationError, build_dataset_template_zip
+from validate_upload_package import (
+    validate_zip, ValidationError, build_dataset_template_zip,
+    _norm_zip_name, _is_unsafe_path,
+)
 from match_score import (
     evaluate as evaluate_matchrate,
     load_candidates as load_match_candidates,
@@ -42,6 +45,25 @@ def _resolve_data_dir():
 
 DIRECTORY = _resolve_data_dir()
 PORT = int(os.environ.get("POI_PORT", "8420"))
+# Optional shared secret for mutating requests. Empty = local-trust mode (default).
+# Set POI_API_TOKEN and send Authorization: Bearer <token> or X-POI-Token.
+API_TOKEN = (os.environ.get("POI_API_TOKEN") or "").strip()
+# Comma-separated Origin allowlist for browser POSTs (CSRF-ish). Defaults to
+# common local dev origins; empty string disables the check.
+_origins_raw = os.environ.get("POI_ALLOWED_ORIGINS")
+if _origins_raw is None:
+    ALLOWED_ORIGINS = {
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:8420",
+        "http://localhost:8420",
+    }
+elif not _origins_raw.strip():
+    ALLOWED_ORIGINS = None  # explicitly disabled
+else:
+    ALLOWED_ORIGINS = {o.strip() for o in _origins_raw.split(",") if o.strip()}
+# Bind address — default loopback only. Set POI_BIND=0.0.0.0 only intentionally.
+BIND_HOST = (os.environ.get("POI_BIND") or "127.0.0.1").strip() or "127.0.0.1"
 CSV_PATH = os.path.join(DIRECTORY, "eval_set_reconciled.csv")
 # Config is part of the tool: prefer a copy shipped alongside the data, else the
 # tracked repo copy, so the server still boots before any dataset is dropped in.
@@ -145,6 +167,81 @@ def discover_seed_presets():
             "_path": sub,
         })
     return {"bundle_present": True, "seed_path": seed_rel, "presets": presets}
+
+
+# Uploaded seed bundle limits (zip-bomb guard).
+_SEED_MAX_TOTAL_BYTES = 200 * 1024 * 1024
+_SEED_MAX_FILES = 2000
+
+
+def _apply_seed_bundle(zip_bytes):
+    """Materialize a drag-and-dropped seed-bundle ZIP into the live data root.
+
+    Accepts the same shape as poi-data-seed/ (files at the ZIP root or nested
+    under a single top folder): eval_set_reconciled.csv (required),
+    dashboard_config.json (optional), generated/runs/*.json (optional).
+    Everything else in the archive is ignored. Safe against zip-slip and
+    zip-bombs; idempotent; never overwrites the tracked repo config template.
+    Returns a JSON-ready dict with a ``code`` for the HTTP status.
+    """
+    if os.path.isfile(CSV_PATH):
+        return {"ok": True, "message": "already seeded", "code": 200}
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
+    except zipfile.BadZipFile:
+        return {"ok": False, "message": "not a valid ZIP archive", "code": 400}
+    with zf:
+        by_name, total = {}, 0
+        for zi in zf.infolist():
+            name = _norm_zip_name(zi.filename)
+            if not name or name.endswith("/"):
+                continue
+            if "__MACOSX" in name.split("/"):
+                continue
+            if _is_unsafe_path(name):
+                return {"ok": False, "message": f"unsafe path in ZIP: {zi.filename}", "code": 400}
+            total += zi.file_size
+            if zi.file_size > _SEED_MAX_TOTAL_BYTES or total > _SEED_MAX_TOTAL_BYTES:
+                return {"ok": False, "message": "seed bundle too large", "code": 413}
+            by_name[name] = zi
+        if len(by_name) > _SEED_MAX_FILES:
+            return {"ok": False, "message": "too many files in ZIP", "code": 413}
+
+        # Locate the bundle base by the required CSV (shallowest match wins).
+        csv_matches = sorted(
+            (n for n in by_name if PurePosixPath(n).name == "eval_set_reconciled.csv"),
+            key=lambda n: len(PurePosixPath(n).parts),
+        )
+        if not csv_matches:
+            return {"ok": False, "message": "eval_set_reconciled.csv not found in bundle", "code": 400}
+        base_dir = str(PurePosixPath(csv_matches[0]).parent)
+        base = "" if base_dir == "." else base_dir + "/"
+
+        os.makedirs(DIRECTORY, exist_ok=True)
+        for rel in ("eval_set_reconciled.csv", "dashboard_config.json"):
+            zi = by_name.get(base + rel)
+            if zi is None:
+                continue
+            dst = os.path.join(DIRECTORY, rel)
+            if os.path.abspath(dst) == os.path.abspath(REPO_CONFIG_PATH):
+                continue  # never clobber the tracked config template
+            with zf.open(zi) as src, open(dst, "wb") as out:
+                shutil.copyfileobj(src, out)
+
+        runs, runs_prefix = 0, base + "generated/runs/"
+        run_members = [(n, zi) for n, zi in by_name.items()
+                       if n.startswith(runs_prefix) and n.endswith(".json")
+                       and "/" not in n[len(runs_prefix):]]
+        if run_members:
+            os.makedirs(RUNS_DIR, exist_ok=True)
+            for n, zi in run_members:
+                with zf.open(zi) as src, open(os.path.join(RUNS_DIR, PurePosixPath(n).name), "wb") as out:
+                    shutil.copyfileobj(src, out)
+                runs += 1
+
+    rows, _ = _seed_preset_summary(DIRECTORY)
+    return {"ok": True, "rows": rows, "runs": runs,
+            "message": f"seeded from upload ({rows} rows · {runs} baselines)", "code": 200}
 
 
 def _parse_source_candidate_text(value):
@@ -1804,6 +1901,33 @@ def build_matchrate(dataset_filter="all", mode="exact"):
 # Static requests under these prefixes are dataset files served from DIRECTORY;
 # everything else (the UI, templates) is tool code served from the repo.
 DATA_PREFIXES = ("linkedspaces-photos", "photos", "union-city-trip", "generated")
+# Paths that must never be served as static files (source, secrets, VCS).
+_BLOCKED_STATIC_PREFIXES = (
+    ".git/", ".ssh/", ".grok/", ".worktrees/", "tools/", "web/node_modules/",
+    "poi-data-seed/", ".env", ".gitignore",
+)
+_BLOCKED_STATIC_NAMES = {
+    "server.py", ".env", "dashboard_config.json",
+}
+
+
+def _is_blocked_static(rel_url: str) -> bool:
+    """True when a static path would leak source, VCS, or config."""
+    rel = (rel_url or "").lstrip("/").replace("\\", "/")
+    if not rel or rel in _BLOCKED_STATIC_NAMES:
+        return True
+    if any(rel == p.rstrip("/") or rel.startswith(p) for p in _BLOCKED_STATIC_PREFIXES):
+        return True
+    # Hide Python sources and private env files anywhere in the tree.
+    base = os.path.basename(rel)
+    if base.startswith(".env") or base.endswith((".py", ".pyc", ".pyo")):
+        return True
+    if "/." in f"/{rel}" and not rel.startswith("web/dist/"):
+        # Dot-directories other than well-known public assets.
+        parts = rel.split("/")
+        if any(p.startswith(".") for p in parts[:-1]):
+            return True
+    return False
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -1830,6 +1954,53 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
+    def _client_token(self):
+        auth = (self.headers.get("Authorization") or "").strip()
+        if auth.lower().startswith("bearer "):
+            return auth[7:].strip()
+        return (self.headers.get("X-POI-Token") or "").strip()
+
+    def _origin_allowed(self) -> bool:
+        """Browser Origin check for state-changing requests.
+
+        Non-browser clients (no Origin header) are allowed; CSRF risk is
+        browser-initiated. When ALLOWED_ORIGINS is None the check is off.
+        """
+        if ALLOWED_ORIGINS is None:
+            return True
+        origin = (self.headers.get("Origin") or "").strip()
+        if not origin:
+            # curl / same-origin navigation without Origin — allow.
+            return True
+        if origin in ALLOWED_ORIGINS:
+            return True
+        # Also accept Origin matching this server's own host when page is served
+        # from the same process (legacy mvp-eval-ui.html on :8420).
+        host = (self.headers.get("Host") or "").strip()
+        if host and origin in (f"http://{host}", f"https://{host}"):
+            return True
+        return False
+
+    def _require_mutating_access(self) -> bool:
+        """Gate POST/DELETE: Origin allowlist + optional API token.
+
+        Returns True when the request may proceed. On failure an error response
+        has already been written.
+        """
+        if not self._origin_allowed():
+            self._send_api_error(
+                "forbidden", 403,
+                detail=f"Origin not allowed: {self.headers.get('Origin')!r}",
+            )
+            return False
+        if API_TOKEN and self._client_token() != API_TOKEN:
+            self._send_api_error(
+                "unauthorized", 401,
+                detail="missing or invalid API token (set POI_API_TOKEN / X-POI-Token)",
+            )
+            return False
+        return True
+
     def _send_json(self, payload_obj, code=200):
         payload = json.dumps(payload_obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -1849,6 +2020,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         "upload_save_failed": "upload could not be saved",
         "run_failed": "algorithm run failed",
         "internal_error": "server could not complete the request",
+        "unauthorized": "authentication required",
+        "forbidden": "request origin not allowed",
     }
 
     def _send_api_error(self, error_code, http_status, *, detail=None, **extra):
@@ -1862,11 +2035,43 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         route = self.path.split("?")[0]
+        # Prefer the React build when present; fall back to legacy HTML only
+        # if dist is missing (fresh checkout before npm build).
         if route == "/":
-            self.send_response(302)
-            self.send_header("Location", "/mvp-eval-ui.html")
-            self.end_headers()
+            dist_index = os.path.join(REPO_DIR, "web", "dist", "index.html")
+            if os.path.isfile(dist_index):
+                self.send_response(302)
+                self.send_header("Location", "/web/dist/index.html")
+                self.end_headers()
+                return
+            legacy = os.path.join(REPO_DIR, "mvp-eval-ui.html")
+            if os.path.isfile(legacy):
+                self.send_response(302)
+                self.send_header("Location", "/mvp-eval-ui.html")
+                self.end_headers()
+                return
+            self._send_json({
+                "ok": True,
+                "service": "poi-eval",
+                "hint": "run npm --prefix web run dev (or build) for the UI; API is at /api/*",
+            })
             return
+        if route == "/api/health":
+            self._send_json({
+                "ok": True,
+                "bind": BIND_HOST,
+                "port": PORT,
+                "auth_required": bool(API_TOKEN),
+                "origin_check": ALLOWED_ORIGINS is not None,
+                "data_dir": DIRECTORY,
+            })
+            return
+        # Block sensitive static paths before SimpleHTTP fallback.
+        if not route.startswith("/api/"):
+            rel = route.lstrip("/")
+            if _is_blocked_static(rel):
+                self._send_api_error("not_found", 404, detail="not found")
+                return
         if route == "/api/runs":
             from urllib.parse import urlparse, parse_qs
             q = parse_qs(urlparse(self.path).query)
@@ -2070,6 +2275,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         from urllib.parse import urlparse, parse_qs
+        if not self._require_mutating_access():
+            return
         route = self.path.split("?")[0]
         if route != "/api/runs":
             self._send_api_error("not_found", 404)
@@ -2136,6 +2343,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self._send_json({"ok": False, "message": str(e)}, code=500)
 
+    def _handle_seed_upload(self):
+        """Onboarding: materialize a drag-and-dropped seed-bundle ZIP.
+
+        The raw request body is the ZIP (mirrors /api/ingest). Extraction is
+        whitelisted and zip-slip/zip-bomb safe (see _apply_seed_bundle)."""
+        upload = self._read_body(_SEED_MAX_TOTAL_BYTES)
+        if upload is None:
+            return
+        try:
+            result = _apply_seed_bundle(upload)
+        except Exception as e:
+            self.log_error("seed upload failed: %s", e)
+            self._send_json({"ok": False, "message": str(e)}, code=500)
+            return
+        code = result.pop("code", 200 if result.get("ok") else 400)
+        self._send_json(result, code=code)
+
     def _handle_gt_reconcile_save(self):
         """Persist a manual GT↔MapKit match chosen in the reconciliation UI."""
         raw = self._read_body(1024 * 1024)
@@ -2156,36 +2380,40 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         path = _gt_overrides_path()
         try:
+            from file_ops import file_lock
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
             fields = ["dataset", "photo", "gt", "chosen", "chosen_none", "manual", "ts"]
-            # Recover from a corrupt/non-TSV file (e.g. header written without tabs).
-            need_header = True
-            if os.path.isfile(path) and os.path.getsize(path) > 0:
-                with open(path, encoding="utf-8") as rf:
-                    first = rf.readline()
-                need_header = "\t" not in first
-                if need_header:
-                    # Replace broken file so DictReader/writes stay tab-separated.
-                    bak = path + ".bak-corrupt"
-                    try:
-                        os.replace(path, bak)
-                    except OSError:
-                        os.remove(path)
-            mode = "w" if need_header or not os.path.isfile(path) else "a"
-            with open(path, mode, newline="", encoding="utf-8") as f:
-                w = csv.DictWriter(f, fieldnames=fields, delimiter="\t", lineterminator="\n")
-                if mode == "w":
-                    w.writeheader()
-                w.writerow({"dataset": dataset, "photo": photo, "gt": gt, "chosen": chosen,
-                            "chosen_none": "" if chosen else "1",
-                            "manual": "1" if manual else "",
-                            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+            with file_lock(path):
+                # Recover from a corrupt/non-TSV file (e.g. header written without tabs).
+                need_header = True
+                if os.path.isfile(path) and os.path.getsize(path) > 0:
+                    with open(path, encoding="utf-8") as rf:
+                        first = rf.readline()
+                    need_header = "\t" not in first
+                    if need_header:
+                        # Replace broken file so DictWriter/writes stay tab-separated.
+                        bak = path + ".bak-corrupt"
+                        try:
+                            os.replace(path, bak)
+                        except OSError:
+                            os.remove(path)
+                mode = "w" if need_header or not os.path.isfile(path) else "a"
+                with open(path, mode, newline="", encoding="utf-8") as f:
+                    w = csv.DictWriter(f, fieldnames=fields, delimiter="\t", lineterminator="\n")
+                    if mode == "w":
+                        w.writeheader()
+                    w.writerow({"dataset": dataset, "photo": photo, "gt": gt, "chosen": chosen,
+                                "chosen_none": "" if chosen else "1",
+                                "manual": "1" if manual else "",
+                                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
             q = gt_reconcile_queue(limit=1)
             self._send_json({"ok": True, "done": q["done"], "remaining": q["remaining"]}, code=200)
         except Exception as e:
             self._send_json({"ok": False, "message": str(e)}, code=500)
 
     def do_POST(self):
+        if not self._require_mutating_access():
+            return
         route = self.path.split("?")[0]
         if route == "/api/gt/reconcile":
             self._handle_gt_reconcile_save()
@@ -2216,6 +2444,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if route == "/api/seed":
             self._handle_seed()
+            return
+        if route == "/api/seed/upload":
+            self._handle_seed_upload()
             return
         if route != "/api/validate-upload-package":
             self.send_error(404)
@@ -2393,7 +2624,17 @@ if __name__ == "__main__":
     handler = functools.partial(Handler, directory=REPO_DIR)
     http.server.ThreadingHTTPServer.allow_reuse_address = True
     # Long algorithm submissions must not block status/static/API requests.
-    with http.server.ThreadingHTTPServer(("127.0.0.1", PORT), handler) as httpd:
+    if BIND_HOST not in ("127.0.0.1", "localhost", "::1") and not API_TOKEN:
+        print(
+            f"WARNING: binding to {BIND_HOST} without POI_API_TOKEN — "
+            "mutating APIs are open to the network. Set POI_API_TOKEN.",
+            file=sys.stderr,
+        )
+    with http.server.ThreadingHTTPServer((BIND_HOST, PORT), handler) as httpd:
         where = REPO_DIR if DIRECTORY == REPO_DIR else f"{REPO_DIR} (UI) + {DIRECTORY} (data)"
-        print(f"serving {where} at http://127.0.0.1:{PORT}  — open /mvp-eval-ui.html")
+        auth = "token-required" if API_TOKEN else "local-trust"
+        print(
+            f"serving {where} at http://{BIND_HOST}:{PORT}  "
+            f"[{auth}; origin_check={'on' if ALLOWED_ORIGINS is not None else 'off'}]"
+        )
         httpd.serve_forever()

@@ -1,37 +1,35 @@
-import { useEffect, useMemo, useState } from "react";
-import Button from "../components/Button";
+import { useRef, useState } from "react";
 import { api } from "../lib/api";
-import { useAsync } from "../lib/useAsync";
 import styles from "./Onboarding.module.css";
 
 export default function Onboarding({ onSeeded }: { onSeeded: () => void }) {
-  const presets = useAsync(() => api.seedPresets(), []);
-  const [preset, setPreset] = useState<string>("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Selectable = present on disk. Default to the first available one.
-  const available = useMemo(
-    () => (presets.status === "ready" ? presets.data.presets.filter((p) => p.available) : []),
-    [presets],
-  );
-  useEffect(() => {
-    if (!preset && available.length) setPreset(available[0].id);
-  }, [available, preset]);
-
-  const current = available.find((p) => p.id === preset) ?? available[0] ?? null;
-
-  async function load() {
-    if (!current) return;
+  async function upload(file: File) {
+    if (!/\.zip$/i.test(file.name)) {
+      setError(`“${file.name}” is not a .zip — drop the seed bundle ZIP.`);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      await api.seed(current.id);
+      await api.seedUpload(file);
       onSeeded();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setLoading(false);
     }
+  }
+
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    if (loading) return;
+    const file = e.dataTransfer.files?.[0];
+    if (file) upload(file);
   }
 
   return (
@@ -40,73 +38,58 @@ export default function Onboarding({ onSeeded }: { onSeeded: () => void }) {
         <span className={styles.icon}>🗂</span>
         <h1 className={styles.title}>No dataset yet</h1>
         <p className={styles.desc}>
-          The evaluation API is connected. Load a bundled setup to explore with real data — or add
+          The evaluation API is connected. Drop a seed-bundle ZIP to explore with real data — or add
           your own dataset ZIP later.
         </p>
 
-        {presets.status === "loading" && (
-          <p className={styles.presetDesc}>Looking for seed bundles…</p>
-        )}
+        <button
+          type="button"
+          className={`${styles.dropzone} ${dragOver ? styles.dropzoneOver : ""} ${
+            loading ? styles.dropzoneBusy : ""
+          }`}
+          onClick={() => !loading && inputRef.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!loading) setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+          disabled={loading}
+        >
+          {loading ? (
+            <>
+              <span className={styles.spinner} aria-hidden />
+              <span className={styles.dzTitle}>Uploading &amp; seeding…</span>
+            </>
+          ) : (
+            <>
+              <span className={styles.dzIcon} aria-hidden>
+                ⬇
+              </span>
+              <span className={styles.dzTitle}>
+                Drag a seed-bundle ZIP here, or <span className={styles.dzLink}>browse</span>
+              </span>
+              <span className={styles.dzHint}>
+                expects <code>eval_set_reconciled.csv</code> + <code>dashboard_config.json</code> +{" "}
+                <code>generated/runs/</code>
+              </span>
+            </>
+          )}
+        </button>
 
-        {presets.status === "error" && (
-          <p className={styles.error}>Couldn’t list seed bundles — {presets.error.message}</p>
-        )}
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".zip,application/zip"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) upload(file);
+            e.target.value = ""; // allow re-selecting the same file
+          }}
+        />
 
-        {presets.status === "ready" && !presets.data.bundle_present && (
-          <p className={styles.error}>
-            No seed bundle found. Place the shared bundle at{" "}
-            <code>{presets.data.seed_path}/</code> (from Google Drive), then retry.
-          </p>
-        )}
-
-        {presets.status === "ready" && presets.data.bundle_present && available.length === 0 && (
-          <p className={styles.error}>
-            The bundle at <code>{presets.data.seed_path}/</code> has no usable preset
-            (missing <code>eval_set_reconciled.csv</code>).
-          </p>
-        )}
-
-        {available.length > 0 && (
-          <>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>Default setup</span>
-              <select
-                className={styles.select}
-                value={current?.id ?? ""}
-                onChange={(e) => setPreset(e.target.value)}
-                disabled={loading}
-              >
-                {available.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {current && (
-              <p className={styles.presetDesc}>
-                {current.desc}
-                {current.desc ? " " : ""}
-                <span className={styles.presetMeta}>
-                  {current.rows.toLocaleString()} rows · {current.runs} baseline
-                  {current.runs === 1 ? "" : "s"}
-                </span>
-              </p>
-            )}
-
-            <Button kind="primary" loading={loading} disabled={!current} onClick={load}>
-              Load default setup
-            </Button>
-          </>
-        )}
-
-        {presets.status === "error" || (presets.status === "ready" && !presets.data.bundle_present) ? (
-          <button type="button" className={styles.retry} onClick={presets.reload} disabled={loading}>
-            Retry
-          </button>
-        ) : null}
-
-        {error && <p className={styles.error}>Couldn’t load the seed — {error}</p>}
+        {error && <p className={styles.error}>Couldn’t seed — {error}</p>}
         <p className={styles.hint}>Seeds the backend once. You can delete or replace it anytime.</p>
       </div>
     </div>

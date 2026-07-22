@@ -6,8 +6,10 @@ import CaseCard, { type CaseCardData } from "../components/CaseCard";
 import {
   api,
   bestRun,
+  downloadText,
   formatDuration,
   photoUrl,
+  toCsv,
   type MatchRate,
   type Run,
   type RunDetail,
@@ -124,6 +126,7 @@ export default function Results() {
     matchrate,
     eligible,
     correct,
+    cases,
     failures,
     filtered,
     gallery,
@@ -149,6 +152,37 @@ export default function Results() {
   const onSelectRun = (value: string) => {
     const [name, ver] = value.split("::");
     setParams({ name, version: ver });
+  };
+
+  const exportCsv = (mode: "all" | "failures" = "all") => {
+    const source = mode === "failures" ? failures : cases;
+    const headers = [
+      "dataset",
+      "photo",
+      "gt",
+      "prediction",
+      "correct",
+      "correct_canonical",
+      "match_kind",
+      "reason",
+      "run_name",
+      "run_version",
+    ];
+    const rows = source.map((c) => ({
+      dataset: c.dataset,
+      photo: c.photo,
+      gt: c.gt,
+      prediction: c.prediction,
+      correct: c.correct ? "1" : "0",
+      correct_canonical: c.correct_canonical ? "1" : "0",
+      match_kind: c.match_kind || "",
+      reason: c.reason || "",
+      run_name: selected.name,
+      run_version: selected.version,
+    }));
+    const body = toCsv(headers, rows);
+    const slug = `${selected.name}__v${selected.version}${mode === "failures" ? "_failures" : ""}`;
+    downloadText(`${slug}.csv`, body);
   };
 
   return (
@@ -191,6 +225,13 @@ export default function Results() {
             ))}
           </select>
         </label>
+        <Button
+          kind="secondary"
+          onClick={() => exportCsv("all")}
+          title={`Export all ${cases.length} scored cases as CSV`}
+        >
+          Export CSV
+        </Button>
         <Link
           to={`/compare?b=${encodeURIComponent(selected.name)}&bv=${selected.version}`}
           style={{ textDecoration: "none" }}
@@ -249,6 +290,15 @@ export default function Results() {
           </button>
         ))}
         <span className={styles.filtersSpacer} />
+        <button
+          type="button"
+          className={styles.filter}
+          onClick={() => exportCsv("failures")}
+          title="Download currently filtered failures as CSV"
+          disabled={filtered.length === 0}
+        >
+          Export failures
+        </button>
         <span className={styles.sortNote}>
           1–{Math.min(12, filtered.length)} of {filtered.length}
         </span>

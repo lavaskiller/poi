@@ -32,6 +32,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 import match_score as ms
+from file_ops import atomic_write_json, file_lock
 
 RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_predict_runner.py")
 # Full MapKit-backed submissions may legitimately take many minutes. Runs are
@@ -503,31 +504,34 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
     if save_mode not in ("auto",) and not re.fullmatch(r"v\d+", save_mode):
         # Unknown modes fall back to auto-increment (never clobber silently).
         save_mode = "auto"
-    version = _pick_version(runs_dir, safe, save_mode)
     os.makedirs(runs_dir, exist_ok=True)
     hash_paths = [csv_path, config_path, *candidate_paths]
     if relations and os.path.isfile(rel_path):
         hash_paths.append(rel_path)
-    record = {
-        "name": display_name,
-        "safe_name": safe,
-        "version": version,
-        "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
-        "scope": dataset or "all",
-        "mode": "exact" if mode in ("exact", "raw", "") else "normalized",
-        "params": selected_params,
-        "candidate_limit": candidate_limit,
-        "lang": lang,
-        "script_sha256": hashlib.sha256(script_text.encode("utf-8")).hexdigest(),
-        "evaluation_set_sha256": evaluation_set_sha256(cases),
-        "data_snapshot_sha256": data_snapshot_sha256(hash_paths),
-        "label_relations_path": rel_path if relations else None,
-        "script_text": script_text,
-        "metrics": metrics,
-        "cases": scored["cases"],
-    }
-    with open(os.path.join(runs_dir, f"{safe}__v{version}.json"), "w", encoding="utf-8") as f:
-        json.dump(record, f, ensure_ascii=False, indent=2)
+    # Reserve version + write under a directory lock so concurrent /api/run
+    # (or CLI + UI) cannot pick the same version or leave a partial JSON.
+    with file_lock(os.path.join(runs_dir, ".runs")):
+        version = _pick_version(runs_dir, safe, save_mode)
+        record = {
+            "name": display_name,
+            "safe_name": safe,
+            "version": version,
+            "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
+            "scope": dataset or "all",
+            "mode": "exact" if mode in ("exact", "raw", "") else "normalized",
+            "params": selected_params,
+            "candidate_limit": candidate_limit,
+            "lang": lang,
+            "script_sha256": hashlib.sha256(script_text.encode("utf-8")).hexdigest(),
+            "evaluation_set_sha256": evaluation_set_sha256(cases),
+            "data_snapshot_sha256": data_snapshot_sha256(hash_paths),
+            "label_relations_path": rel_path if relations else None,
+            "script_text": script_text,
+            "metrics": metrics,
+            "cases": scored["cases"],
+        }
+        out_path = os.path.join(runs_dir, f"{safe}__v{version}.json")
+        atomic_write_json(out_path, record)
 
     return {k: v for k, v in record.items() if k not in ("script_text", "cases")} | {
         "metrics": record["metrics"],
@@ -647,11 +651,12 @@ def get_run(runs_dir: str, name: str, version: Any) -> Dict[str, Any]:
 
 
 def delete_run(runs_dir: str, name: str, version: Any) -> Dict[str, Any]:
-    run = get_run(runs_dir, name, version)
-    try:
-        os.unlink(_run_path(runs_dir, name, version))
-    except OSError as e:
-        raise RunError(f"could not delete run: {e}")
+    with file_lock(os.path.join(runs_dir, ".runs")):
+        run = get_run(runs_dir, name, version)
+        try:
+            os.unlink(_run_path(runs_dir, name, version))
+        except OSError as e:
+            raise RunError(f"could not delete run: {e}")
     return {"name": run.get("name"), "version": version,
             "run_id": f"{run.get('safe_name')}__v{version}"}
 

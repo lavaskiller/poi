@@ -41,21 +41,32 @@ export default function Home() {
   const countries = overview.countries ?? [];
 
   const best = bestRun(runs);
-  // Only compare versions with the same evaluation cohort when possible
+  // Only compare versions with the same evaluation cohort (eval hash) when known.
+  const sameCohort = (a: Run, b: Run) => {
+    if (a.evaluation_set_sha256 && b.evaluation_set_sha256) {
+      return a.evaluation_set_sha256 === b.evaluation_set_sha256;
+    }
+    // Unknown hash: still require same scope + mode so we don't mix apples.
+    return (a.scope || "all") === (b.scope || "all") && (a.mode || "exact") === (b.mode || "exact");
+  };
   const prevOfBest = best
     ? runs.find(
         (r) =>
           r.name === best.name &&
           r.version === best.version - 1 &&
-          (!best.evaluation_set_sha256 ||
-            !r.evaluation_set_sha256 ||
-            r.evaluation_set_sha256 === best.evaluation_set_sha256),
+          sameCohort(r, best),
       )
     : undefined;
   const delta =
     best && prevOfBest && typeof prevOfBest.accuracy_pct === "number"
       ? (best.accuracy_pct ?? 0) - prevOfBest.accuracy_pct
       : null;
+  const deltaNote =
+    delta == null
+      ? best
+        ? "No prior version in the same evaluation cohort"
+        : null
+      : `vs ${best!.name} v${prevOfBest!.version} · same cohort`;
 
   const trend = best
     ? runs
@@ -124,18 +135,39 @@ export default function Home() {
             <p className={`sectionLabel ${styles.metricLabel}`}>Selection accuracy — best run</p>
             <div className={styles.metricRow}>
               <span className={styles.metricValue}>{best ? `${best.accuracy_pct}%` : "—"}</span>
-              {delta != null && (
-                <span className={`${styles.delta} ${delta >= 0 ? styles.deltaUp : styles.deltaDown}`}>
+              {delta != null ? (
+                <span
+                  className={`${styles.delta} ${delta >= 0 ? styles.deltaUp : styles.deltaDown}`}
+                  title={deltaNote ?? undefined}
+                >
                   {delta >= 0 ? "▲" : "▼"} {delta >= 0 ? "+" : ""}
-                  {delta.toFixed(1)} pts vs v{best!.version - 1}
+                  {delta.toFixed(1)} pts vs v{prevOfBest!.version}
                 </span>
+              ) : (
+                best && (
+                  <span className={`${styles.delta} ${styles.deltaMuted}`} title={deltaNote ?? undefined}>
+                    no Δ · new cohort or first version
+                  </span>
+                )
               )}
             </div>
             <p className={styles.metricMeta}>
               {best
-                ? `${best.name} · v${best.version} · ${best.scope || "all"} · eligible ${best.n_eligible.toLocaleString()} / ${total.toLocaleString()}`
+                ? `${best.name} · v${best.version} · ${best.scope || "all"} · eligible ${best.n_eligible.toLocaleString()} / ${total.toLocaleString()}${
+                    best.evaluation_set_sha256
+                      ? ` · eval ${best.evaluation_set_sha256.slice(0, 8)}…`
+                      : ""
+                  }`
                 : "no scored runs yet"}
             </p>
+            {deltaNote && delta != null && (
+              <p className={styles.deltaExplain} title="Δ only vs the previous version of the same run name that shares evaluation_set_sha256 (or scope+mode when hash is missing).">
+                Δ {deltaNote}
+                {best?.evaluation_set_sha256
+                  ? ` · hash ${best.evaluation_set_sha256.slice(0, 8)}…`
+                  : ""}
+              </p>
+            )}
             {best && (
               <div className={styles.toggle}>
                 <Link
@@ -242,23 +274,24 @@ export default function Home() {
           </div>
           {recent.map((r) => {
             const prev = runs.find(
-              (x) =>
-                x.name === r.name &&
-                x.version === r.version - 1 &&
-                (!r.evaluation_set_sha256 ||
-                  !x.evaluation_set_sha256 ||
-                  x.evaluation_set_sha256 === r.evaluation_set_sha256),
+              (x) => x.name === r.name && x.version === r.version - 1 && sameCohort(x, r),
             );
             const d =
               typeof r.accuracy_pct === "number" && typeof prev?.accuracy_pct === "number"
                 ? r.accuracy_pct - prev.accuracy_pct
                 : null;
+            const title =
+              d == null
+                ? "No prior version in the same evaluation cohort"
+                : `vs v${prev!.version} same cohort` +
+                  (r.evaluation_set_sha256 ? ` · ${r.evaluation_set_sha256.slice(0, 8)}…` : "");
             return (
               <Link
                 key={`${r.name}-${r.version}`}
                 to={`/results?name=${encodeURIComponent(r.name)}&version=${r.version}`}
                 className={styles.row}
                 style={{ textDecoration: "none", color: "inherit" }}
+                title={title}
               >
                 <div className={`${styles.cName} mono ${styles.strong}`}>{r.name}</div>
                 <div className={`${styles.cVer} mono ${styles.muted}`}>v{r.version}</div>

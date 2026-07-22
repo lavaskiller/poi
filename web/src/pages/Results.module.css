@@ -85,6 +85,10 @@
   cursor: pointer;
   white-space: nowrap;
 }
+.filter:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .filterOn {
   background: var(--accent-default);
   color: var(--text-on-accent);

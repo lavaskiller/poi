@@ -21,7 +21,7 @@ poi-data/     local datasets + run snapshots (gitignored — shared privately, n
 Run the backend and the frontend together:
 
 ```bash
-# backend — serves /api on :8420
+# backend — serves /api on :8420 (loopback by default)
 python3 server.py
 
 # frontend — Vite dev on :5173, proxies /api → :8420
@@ -32,16 +32,33 @@ npm --prefix web run dev
 The frontend calls `/api/*` on its own origin; Vite proxies those to the
 Python backend (see `web/vite.config.ts`).
 
+### Tests
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+### Optional security env vars
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `POI_BIND` | `127.0.0.1` | Listen address (set `0.0.0.0` only intentionally) |
+| `POI_PORT` | `8420` | HTTP port |
+| `POI_API_TOKEN` | *(empty)* | When set, mutating requests need `X-POI-Token` or `Authorization: Bearer` |
+| `POI_ALLOWED_ORIGINS` | local Vite + server | Comma-separated Origin allowlist; empty string disables check |
+| `POI_RUN_TIMEOUT_S` | *(none)* | Optional wall-clock timeout for algorithm subprocesses |
+| `VITE_POI_API_TOKEN` | *(empty)* | Frontend token mirror when backend auth is enabled |
+
 Setting this up on a fresh machine (prerequisites, data bundle, env vars,
 platform notes)? See [`docs/onboarding.md`](docs/onboarding.md).
 
 ## Backend API (server.py)
 
-`/api/overview` · `/api/datasets` · `/api/dataset-template` · `/api/runs` ·
+`/api/health` · `/api/overview` · `/api/datasets` · `/api/dataset-template` · `/api/runs` ·
 `/api/run` (POST) · `/api/matchrate` · `/api/records` · `/api/poi-case-explorer` ·
 `/api/poi-case-photo` · `/api/field-profile` · `/api/jobs` ·
 `/api/jobs/status` · `/api/gt/classify` · `/api/ingest` (POST) ·
-`/api/validate-upload-package` (POST)
+`/api/validate-upload-package` (POST) · `/api/gt/reconcile` · `/api/mapkit/probe`
 
 ## Frontend structure (`web/src`)
 

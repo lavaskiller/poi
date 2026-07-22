@@ -24,7 +24,7 @@ import datetime as _dt
 import json
 import os
 import sys
-import fcntl
+import tempfile
 from contextlib import contextmanager
 from collections import Counter
 from dataclasses import dataclass
@@ -121,23 +121,32 @@ def read_csv(path: str) -> Tuple[List[str], List[Dict[str, str]]]:
 @contextmanager
 def csv_write_lock(path: str):
     """Cross-process lock for the short read/merge/replace commit transaction."""
-    lock_path = path + ".lock"
-    with open(lock_path, "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+    # Shared implementation so run saves / overrides use the same protocol.
+    from file_ops import file_lock
+    with file_lock(path):
+        yield
 
 
 def write_csv(path: str, fieldnames: List[str], rows: List[Dict[str, str]]) -> None:
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        for row in rows:
-            w.writerow(row)
-    os.replace(tmp, path)
+    """Atomic CSV rewrite (temp + replace). Callers should hold ``csv_write_lock``."""
+    parent = os.path.dirname(path) or "."
+    os.makedirs(parent, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", suffix=".csv", dir=parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=fieldnames)
+            w.writeheader()
+            for row in rows:
+                w.writerow(row)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def backup_csv(path: str) -> str:

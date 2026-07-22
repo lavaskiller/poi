@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import Button from "../components/Button";
 import StatTile from "../components/StatTile";
 import {
   api,
@@ -9,6 +10,19 @@ import {
 } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
 import styles from "./RetrievalDiagnostics.module.css";
+
+/** Nearest-candidate baseline used to optionally fill chart bars at exact k. */
+const BASELINE_NEAREST_SCRIPT = `"""Baseline: pick the nearest MapKit candidate (rank-1 after k truncation)."""
+
+def predict(case):
+    candidates = case.get("nearby_candidates") or []
+    if not candidates:
+        return ""
+    return candidates[0].get("name") or ""
+`;
+
+/** Optional sweep targets — fill empty bars without requiring every N. */
+const BASELINE_K_SWEEP = [1, 3, 10, 50] as const;
 
 function pct1(rate: number | undefined, n: number | undefined, d: number | undefined): string {
   if (rate != null && Number.isFinite(rate)) return `${(rate * 100).toFixed(1)}%`;
@@ -181,18 +195,19 @@ function latestRunsByName(runs: Run[]): Run[] {
 
 /**
  * Best model for chart N: **exact** ``candidate_limit === n`` only.
- * No ≥ N, no null fallback — missing k → no bar.
+ * Scans **all** scored runs (not only latest-per-name) so a newer v of the
+ * same algorithm at a different k does not erase the bar for this N.
  *
  * Storage contract: accuracy_pct is the selection score measured when nearby
  * was truncated to that k (see run metrics score_k / accuracy_at_k).
  */
 function bestModelAtExactN(
-  latest: Run[],
+  runs: Run[],
   dataset: string,
   n: number,
 ): { run: Run; pct: number } | null {
   let best: { run: Run; pct: number } | null = null;
-  for (const r of latest) {
+  for (const r of runs) {
     if (r.candidate_limit !== n) continue;
     const pct = accuracyForDataset(r, dataset);
     if (pct == null) continue;
@@ -203,6 +218,9 @@ function bestModelAtExactN(
 
 export default function RetrievalDiagnostics() {
   const [dataset, setDataset] = useState<string>("all");
+  const [sweepBusy, setSweepBusy] = useState(false);
+  const [sweepMsg, setSweepMsg] = useState<string | null>(null);
+  const [sweepErr, setSweepErr] = useState<string | null>(null);
 
   const state = useAsync<Data>(async () => {
     const [overview, { runs }] = await Promise.all([api.overview(), api.runs()]);
@@ -266,7 +284,7 @@ export default function RetrievalDiagnostics() {
     50: pctNum(m.top50_rate, m.top50, n),
   };
 
-  // Latest version per run name; accuracy scoped when a dataset is selected
+  // Latest version per run name for the algo ranking strip.
   const latest = latestRunsByName(runs);
   const algos = latest
     .map((a) => ({ run: a, pct: accuracyForDataset(a, dataset) }))
@@ -278,8 +296,9 @@ export default function RetrievalDiagnostics() {
       : algos[0]?.run ?? null;
   const ceiling = coverageByN[50] ?? 0;
 
+  // Bars use all runs at exact k (not just latest-per-name).
   const topNPoints: TopNPoint[] = TOP_NS.map((depth) => {
-    const win = bestModelAtExactN(latest, dataset, depth);
+    const win = bestModelAtExactN(runs, dataset, depth);
     return {
       n: depth,
       label: `N=${depth}`,
@@ -289,8 +308,42 @@ export default function RetrievalDiagnostics() {
       accuracy: win?.pct ?? null,
     };
   });
+  const missingBaselineKs = BASELINE_K_SWEEP.filter(
+    (k) => !runs.some((r) => r.candidate_limit === k && typeof r.accuracy_pct === "number"),
+  );
   const covVals = topNPoints.map((p) => p.coverage).filter((v) => Number.isFinite(v));
   const yMin = Math.max(0, Math.floor((Math.min(...covVals, 40) - 5) / 5) * 5);
+
+  const runBaselineSweep = async (ks: number[]) => {
+    if (!ks.length || sweepBusy) return;
+    setSweepBusy(true);
+    setSweepErr(null);
+    setSweepMsg(null);
+    const done: string[] = [];
+    try {
+      for (const k of ks) {
+        setSweepMsg(`Running baseline-nearest at k=${k}…`);
+        const res = await api.submitRun({
+          name: "baseline-nearest",
+          script_text: BASELINE_NEAREST_SCRIPT,
+          lang: "python",
+          scope: "all",
+          mode: "exact",
+          params: ["nearby_candidates"],
+          candidate_limit: k,
+          save_mode: "auto",
+        });
+        done.push(`k=${k}→v${res.version} (${res.metrics?.accuracy_pct ?? "—"}%)`);
+      }
+      setSweepMsg(`Saved baseline-nearest: ${done.join(" · ")}`);
+      state.reload();
+    } catch (e) {
+      setSweepErr(e instanceof Error ? e.message : String(e));
+      if (done.length) setSweepMsg(`Partial: ${done.join(" · ")}`);
+    } finally {
+      setSweepBusy(false);
+    }
+  };
 
   return (
     <main className={styles.main}>
@@ -400,6 +453,37 @@ export default function RetrievalDiagnostics() {
             Top-N ceiling (line) · best model at exact k (bars) · {scopeLabel}
           </p>
           <CoverageAndModelChart points={topNPoints} yMin={yMin} />
+          <div className={styles.sweepRow}>
+            <p className={styles.captionSmall}>
+              Bars need a scored run with <code>candidate_limit == N</code>. Missing baseline slots:{" "}
+              {missingBaselineKs.length
+                ? missingBaselineKs.map((k) => `k=${k}`).join(", ")
+                : "none (1/3/10/50 covered)"}
+              .
+            </p>
+            <div className={styles.sweepActions}>
+              <Button
+                kind="secondary"
+                disabled={sweepBusy || missingBaselineKs.length === 0}
+                loading={sweepBusy}
+                onClick={() => void runBaselineSweep([...missingBaselineKs])}
+                title="Run nearest-candidate baseline only for missing k among 1,3,10,50"
+              >
+                Fill missing k (baseline)
+              </Button>
+              <Button
+                kind="ghost"
+                disabled={sweepBusy}
+                loading={false}
+                onClick={() => void runBaselineSweep([...BASELINE_K_SWEEP])}
+                title="Re-run baseline-nearest at k=1,3,10,50 (new versions)"
+              >
+                Re-run k=1/3/10/50
+              </Button>
+            </div>
+            {sweepMsg && <p className={styles.captionSmall}>✓ {sweepMsg}</p>}
+            {sweepErr && <p className={styles.sweepErr}>⚠ {sweepErr}</p>}
+          </div>
         </div>
 
         <div className={styles.algoCard}>
