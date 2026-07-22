@@ -53,8 +53,16 @@ network path, so it **only runs on macOS**. On Linux/other:
 
 ```bash
 git clone git@github.com:lavaskiller/poi.git
-cd poi
+cd poi   # or: cd /any/path/you/prefer/poi
 ```
+
+**Clone location is free.** The tool never requires Desktop, a fixed username,
+or a fixed absolute path. Internally everything is rooted at the directory that
+contains `server.py`.
+
+**One clone per machine is enough.** If you keep two checkouts, always start
+`python3 server.py` and `npm --prefix web run dev` from the *same* tree —
+mixing them is the usual cause of `/api/... → 404` after updates.
 
 Remotes: `origin` → `lavaskiller/poi` (primary). A secondary `inseokr` remote
 also exists for the upstream mirror.

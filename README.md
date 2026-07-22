@@ -18,27 +18,40 @@ poi-data/     local datasets + run snapshots (gitignored — shared privately, n
 
 ## Develop
 
-Run the backend and the frontend together:
+**The repo can live anywhere** (`~/src/poi`, `/opt/poi`, a USB path, another
+machine). Nothing is hardcoded to Desktop or a username. Paths are resolved
+from `server.py` / this checkout (`REPO_DIR = dirname(server.py)`).
+
+What *does* matter: **backend and Vite must be started from the same clone.**
+Two copies (e.g. `~/Desktop/poi` and `~/Desktop/test_poi/poi`) with mixed
+processes cause API 404 / version skew — not a path-layout requirement.
 
 ```bash
-# Python deps (Pillow, …) — once per environment
+cd /wherever/you/cloned/poi      # any path is fine
+
+# one-shot backend (deps + free :8420 + server.py)
+chmod +x tools/dev_up.sh         # once
+./tools/dev_up.sh
+
+# frontend — second terminal, SAME directory
+npm --prefix web install         # first time
+npm --prefix web run dev         # :5173, proxies /api → :8420
+```
+
+Manual equivalent:
+
+```bash
 python3 -m pip install -r requirements.txt
-python3 tools/check_deps.py          # must exit 0 before server will start
-
-# backend — serves /api on :8420 (loopback by default); refuses to boot if deps fail
+python3 tools/check_deps.py
 python3 server.py
-
-# frontend — Vite dev on :5173, proxies /api → :8420
-npm --prefix web install   # first time
-npm --prefix web run dev
 ```
 
 **MapKit is not pip-installable.** Live nearby / EXIF / OCR probes on macOS use
 system `swift` + Apple frameworks (`tools/swift/*.swift`). `check_deps.py`
-requires that toolchain on Darwin.
+requires that toolchain on Darwin; on Linux that check is optional.
 
-The frontend calls `/api/*` on its own origin; Vite proxies those to the
-Python backend (see `web/vite.config.ts`).
+The frontend calls `/api/*` on its own origin; Vite proxies those to
+`localhost:8420` (see `web/vite.config.ts`) — also path-independent.
 
 ### Tests
 
