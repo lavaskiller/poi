@@ -10,7 +10,13 @@ import RetrievalDiagnostics from "./pages/RetrievalDiagnostics";
 import ReconcileMapKit from "./pages/ReconcileMapKit";
 import Onboarding from "./pages/Onboarding";
 import Jobs from "./pages/Jobs";
-import { api, isEmpty, type GitSyncStatus, type Overview } from "./lib/api";
+import {
+  api,
+  isEmpty,
+  type DepsStatus,
+  type GitSyncStatus,
+  type Overview,
+} from "./lib/api";
 import { useAsync } from "./lib/useAsync";
 import styles from "./App.module.css";
 
@@ -42,8 +48,51 @@ function AppRoutes() {
 }
 
 type BootState =
+  | { kind: "deps_missing"; deps: DepsStatus }
   | { kind: "update_required"; git: GitSyncStatus }
-  | { kind: "ready"; git: GitSyncStatus; overview: Overview };
+  | { kind: "ready"; git: GitSyncStatus; overview: Overview; deps: DepsStatus };
+
+function DepsMissingScreen({
+  deps,
+  onRetry,
+}: {
+  deps: DepsStatus;
+  onRetry: () => void;
+}) {
+  const cmds =
+    deps.install_commands?.length
+      ? deps.install_commands
+      : ["python3 -m pip install -r requirements.txt"];
+  const missing = deps.missing ?? [];
+  return (
+    <div className={styles.center}>
+      <span className={styles.errorTitle}>Dependencies missing</span>
+      <span className={styles.centerText}>
+        {deps.message ||
+          "Required runtime dependencies are not installed. Fix them before using the eval UI."}
+      </span>
+      {missing.length > 0 && (
+        <ul className={styles.centerList}>
+          {missing.map((m) => (
+            <li key={m.key}>
+              <strong>{m.label}</strong>
+              {m.detail ? ` — ${m.detail}` : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+      <pre className={styles.centerCode}>{cmds.join("\n")}</pre>
+      <span className={styles.centerText}>
+        MapKit is not a pip package — on macOS it needs the system{" "}
+        <code>swift</code> toolchain (Xcode / CLT). Then restart{" "}
+        <code>python3 server.py</code>.
+      </span>
+      <button type="button" className={styles.retry} onClick={onRetry}>
+        Re-check
+      </button>
+    </div>
+  );
+}
 
 function UpdateRequiredScreen({
   git,
@@ -83,19 +132,21 @@ function UpdateRequiredScreen({
 }
 
 export default function App() {
-  // On every open: fetch + compare to upstream; block the SPA when behind.
+  // Boot order: deps → git freshness → overview. Any hard failure blocks the SPA.
   const boot = useAsync(async (): Promise<BootState> => {
+    const deps = await api.depsStatus();
+    if (!deps.ready) return { kind: "deps_missing", deps };
     const git = await api.gitStatus(true);
     if (git.update_required) return { kind: "update_required", git };
     const overview = await api.overview();
-    return { kind: "ready", git, overview };
+    return { kind: "ready", git, overview, deps };
   }, []);
 
   if (boot.status === "loading") {
     return (
       <div className={styles.center}>
         <span className={styles.spinner} aria-hidden />
-        <span className={styles.centerText}>Checking for code updates…</span>
+        <span className={styles.centerText}>Checking environment…</span>
       </div>
     );
   }
@@ -107,12 +158,18 @@ export default function App() {
         <span className={styles.centerText}>
           {boot.error.message || "Failed to reach the evaluation API."} Start the
           backend with <code>python3 server.py</code> (serves :8420), then retry.
+          If deps are missing the server refuses to start — run{" "}
+          <code>python3 tools/check_deps.py</code>.
         </span>
         <button type="button" className={styles.retry} onClick={boot.reload}>
           Retry
         </button>
       </div>
     );
+  }
+
+  if (boot.data.kind === "deps_missing") {
+    return <DepsMissingScreen deps={boot.data.deps} onRetry={boot.reload} />;
   }
 
   if (boot.data.kind === "update_required") {

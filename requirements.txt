@@ -1,0 +1,9 @@
+# Core Python deps for the POI Eval backend (server.py + tools/).
+# Install once per environment:
+#   python3 -m pip install -r requirements.txt
+#
+# MapKit is NOT a pip package — on macOS it comes with the system Swift/
+# Xcode toolchain (see tools/check_deps.py). FastVLM / torch selectors use a
+# separate venv under poi-data/tools/ and are not listed here.
+
+Pillow>=10.0.0,<12

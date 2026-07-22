@@ -27,6 +27,21 @@
   color: var(--text-tertiary);
   max-width: 420px;
 }
+.centerList {
+  margin: 0;
+  padding: 0 0 0 1.2em;
+  max-width: 420px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.centerList li {
+  margin: 4px 0;
+}
+.centerList strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
 .centerCode {
   margin: 4px 0 0;
   padding: 12px 14px;

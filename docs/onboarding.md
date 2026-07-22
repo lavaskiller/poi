@@ -5,8 +5,9 @@ For the project overview and API list, see [`../README.md`](../README.md).
 
 The system is two processes:
 
-- **Backend** — `python3 server.py`, serves `/api/*` on `:8420`. Pure Python
-  **standard library** (Python 3.9+). No `pip install` is required to boot.
+- **Backend** — `python3 server.py`, serves `/api/*` on `:8420` (Python 3.9+).
+  Install deps from `requirements.txt` first; the server **refuses to start**
+  if the check fails (`python3 tools/check_deps.py`).
 - **Frontend** — React 18 + Vite (TypeScript) in `web/`, dev server on `:5173`,
   proxies `/api` → `:8420`.
 
@@ -17,14 +18,23 @@ The system is two processes:
 | Tool | Version tested | Needed for | Required? |
 |------|----------------|------------|-----------|
 | Python 3 | 3.9.6 | backend (`server.py`, `tools/`) | **yes** |
+| `requirements.txt` (`pip install -r`) | Pillow 10–11 | thumbnails + hard boot gate | **yes** |
 | Node.js + npm | Node 24 (18+ fine) | frontend (`web/`) | **yes** |
-| Pillow (`pip install Pillow`) | 11.3 | photo **thumbnails** | optional — without it, full-size images are served instead |
-| Swift + MapKit | Swift 6.3 (macOS) | live "Investigate" MapKit re-query | **macOS only**, optional |
+| Swift + MapKit (system) | Swift 6.3 (macOS) | live MapKit / EXIF / OCR probes | **yes on macOS** |
 
-The backend imports only the Python standard library, so it runs on a clean
-interpreter. The only third-party Python package the codebase touches is
-**Pillow**, and every call site is guarded (`try: from PIL import …`) — missing
-Pillow degrades thumbnails gracefully, it does not break the server.
+**MapKit is not a pip package.** It ships with Apple's Swift/Xcode toolchain.
+`tools/check_deps.py` (and server boot) require `swift` on PATH and the scripts
+under `tools/swift/` when running on Darwin.
+
+### Install
+
+```bash
+python3 -m pip install -r requirements.txt
+python3 tools/check_deps.py    # exit 0 required
+# macOS without Xcode CLT:
+#   xcode-select --install
+npm --prefix web install
+```
 
 ### Platform note — the Swift MapKit probe is macOS-only
 
@@ -34,9 +44,8 @@ network path, so it **only runs on macOS**. On Linux/other:
 
 - The rest of the tool works normally — runs, match-rate, case inspection, and
   the pre-computed candidate lists shipped in the dataset all function.
-- Only the *live* re-query button degrades: `mapkit_probe()` returns
-  `{"ok": false, "message": "probe script missing" | swift error}` and the UI
-  shows the probe as unavailable.
+- Live re-query is unavailable; `check_deps` marks Swift/MapKit as optional
+  off-macOS instead of failing the boot gate.
 
 ---
 
@@ -148,7 +157,10 @@ If the bundle is missing, the onboarding screen says so and tells you the path
 ## 4. Run it
 
 ```bash
-# backend — serves /api on :8420
+python3 -m pip install -r requirements.txt
+python3 tools/check_deps.py
+
+# backend — serves /api on :8420 (exits if deps missing)
 python3 server.py
 
 # frontend — in a second terminal

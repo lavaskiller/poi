@@ -21,6 +21,7 @@ from match_score import (
 )
 from run_algorithm import run_submission, list_runs, get_run, delete_run, RunError
 from gt_classify_common import read_csv as gc_read_csv, write_csv as gc_write_csv, backup_csv as gc_backup_csv
+from check_deps import check_runtime_deps
 import run_algorithm as algorithm
 import match_score as match_score
 
@@ -542,6 +543,12 @@ def mapkit_probe(lat, lon, radius_m=None):
     swift_file = os.path.join(REPO_DIR, "tools", "swift", "ls_mapkit_probe.swift")
     if not os.path.isfile(swift_file):
         return {"ok": False, "message": "probe script missing", "candidates": []}
+    if not shutil.which("swift"):
+        return {
+            "ok": False,
+            "message": "swift not found — install Xcode CLT (MapKit is not a pip package)",
+            "candidates": [],
+        }
     wide = MAPKIT_DEFAULT_WIDE_RADIUS_M
     if radius_m is not None:
         try:
@@ -2529,6 +2536,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             )
             self._send_json(git_sync_status(force_fetch=force))
             return
+        if route == "/api/deps-status":
+            # Hard deps (Python packages, macOS Swift/MapKit scripts, …).
+            self._send_json(check_runtime_deps())
+            return
         # Block sensitive static paths before SimpleHTTP fallback.
         if not route.startswith("/api/"):
             rel = route.lstrip("/")
@@ -3101,6 +3112,24 @@ if __name__ == "__main__":
     # Serve tool code (UI/templates) from the repo; dataset files are remapped
     # to DIRECTORY by Handler.translate_path.
     os.chdir(REPO_DIR)
+
+    # Refuse to listen when hard runtime deps are missing (Pillow, Swift on
+    # macOS, requirements.txt packages, …). Override with POI_SKIP_DEPS_CHECK=1.
+    _deps = check_runtime_deps()
+    if not _deps.get("ready"):
+        print("ERROR: runtime dependencies missing — server will not start.\n", file=sys.stderr)
+        from check_deps import format_report
+        print(format_report(_deps), file=sys.stderr)
+        print(
+            "\nInstall Python deps with:\n"
+            "  python3 -m pip install -r requirements.txt\n"
+            "Or skip this gate (not recommended): POI_SKIP_DEPS_CHECK=1",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    for _w in _deps.get("warnings") or []:
+        print(f"WARNING: {_w.get('label')}: {_w.get('detail')}", file=sys.stderr)
+
     handler = functools.partial(Handler, directory=REPO_DIR)
     http.server.ThreadingHTTPServer.allow_reuse_address = True
     # Long algorithm submissions must not block status/static/API requests.

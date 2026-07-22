@@ -21,13 +21,21 @@ poi-data/     local datasets + run snapshots (gitignored — shared privately, n
 Run the backend and the frontend together:
 
 ```bash
-# backend — serves /api on :8420 (loopback by default)
+# Python deps (Pillow, …) — once per environment
+python3 -m pip install -r requirements.txt
+python3 tools/check_deps.py          # must exit 0 before server will start
+
+# backend — serves /api on :8420 (loopback by default); refuses to boot if deps fail
 python3 server.py
 
 # frontend — Vite dev on :5173, proxies /api → :8420
 npm --prefix web install   # first time
 npm --prefix web run dev
 ```
+
+**MapKit is not pip-installable.** Live nearby / EXIF / OCR probes on macOS use
+system `swift` + Apple frameworks (`tools/swift/*.swift`). `check_deps.py`
+requires that toolchain on Darwin.
 
 The frontend calls `/api/*` on its own origin; Vite proxies those to the
 Python backend (see `web/vite.config.ts`).
@@ -48,6 +56,7 @@ python3 -m unittest discover -s tests -v
 | `POI_ALLOWED_ORIGINS` | local Vite + server | Comma-separated Origin allowlist; empty string disables check |
 | `POI_RUN_TIMEOUT_S` | *(none)* | Optional wall-clock timeout for algorithm subprocesses |
 | `POI_SKIP_GIT_SYNC_CHECK` | *(empty)* | Set `1` to skip the boot-time “behind origin?” gate |
+| `POI_SKIP_DEPS_CHECK` | *(empty)* | Set `1` to skip requirements / Swift gate (not recommended) |
 | `POI_GIT_STATUS_TTL_S` | `30` | Cache TTL (seconds) for `/api/git-status` |
 | `POI_GIT_FETCH_TIMEOUT_S` | `20` | Timeout for `git fetch` during the sync check |
 | `VITE_POI_API_TOKEN` | *(empty)* | Frontend token mirror when backend auth is enabled |
@@ -57,15 +66,16 @@ platform notes)? See [`docs/onboarding.md`](docs/onboarding.md).
 
 ## Backend API (server.py)
 
-`/api/health` · `/api/git-status` · `/api/overview` · `/api/datasets` · `/api/dataset-template` · `/api/runs` ·
+`/api/health` · `/api/deps-status` · `/api/git-status` · `/api/overview` · `/api/datasets` · `/api/dataset-template` · `/api/runs` ·
 `/api/run` (POST) · `/api/matchrate` · `/api/records` · `/api/poi-case-explorer` ·
 `/api/poi-case-photo` · `/api/field-profile` · `/api/jobs` ·
 `/api/jobs/status` · `/api/gt/classify` · `/api/ingest` (POST) ·
 `/api/validate-upload-package` (POST) · `/api/gt/reconcile` · `/api/mapkit/probe`
 
-On load the UI calls `/api/git-status` (fetch + compare to upstream). If the
-checkout is **behind** (or diverged), the SPA shows “Update required” and
-refuses to open the app until you `git pull --ff-only` and restart the server.
+On load the UI calls `/api/deps-status` then `/api/git-status`. Missing hard
+deps (from `requirements.txt`, or Swift/MapKit scripts on macOS) show
+“Dependencies missing” and block the app; a checkout **behind** origin shows
+“Update required”. `server.py` itself also exits on boot if hard deps fail.
 
 ## Frontend structure (`web/src`)
 

@@ -413,6 +413,29 @@ export function relTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+/** Runtime dependency gate (requirements.txt, Swift/MapKit on macOS, …). */
+export interface DepsStatusItem {
+  key: string;
+  label: string;
+  ok: boolean;
+  required: boolean;
+  detail: string;
+  fix?: string | null;
+}
+
+export interface DepsStatus {
+  ok: boolean;
+  ready: boolean;
+  skipped?: boolean;
+  platform?: string;
+  message?: string;
+  items?: DepsStatusItem[];
+  missing?: { key: string; label: string; detail: string; fix?: string | null }[];
+  warnings?: { key: string; label: string; detail: string; fix?: string | null }[];
+  install_commands?: string[];
+  requirements_file?: string;
+}
+
 /** Local-vs-remote git freshness (server runs fetch + rev-list). */
 export interface GitSyncStatus {
   ok: boolean;
@@ -441,6 +464,9 @@ export interface GitSyncStatus {
 
 export const api = {
   overview: () => getJSON<Overview>("/api/overview"),
+
+  /** Hard runtime deps (pip + macOS Swift). Blocks SPA when not ready. */
+  depsStatus: () => getJSON<DepsStatus>("/api/deps-status"),
 
   /** Compare local HEAD to upstream (fetch first). Blocks the SPA when behind. */
   gitStatus: (refresh = false) =>
