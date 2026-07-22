@@ -212,6 +212,34 @@
   font-weight: 700;
 }
 
+/* manual entry */
+.manualRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.manualLabel {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.manualInput {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-family: var(--font-sans);
+}
+.manualInput:focus {
+  outline: none;
+  border-color: var(--accent-default);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
 /* actions */
 .error {
   font-size: 12px;

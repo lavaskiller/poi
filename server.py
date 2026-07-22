@@ -163,8 +163,9 @@ def gt_reconcile_queue(limit=300):
                                 "category": c.get("category", "")}
                                for i, c in enumerate(cands)],
             })
+    no_candidate = sum(1 for c in out if not c["candidates"])
     return {"total_non_mapkit": total_non, "done": len(done),
-            "remaining": total_non - len(done), "cases": out}
+            "remaining": total_non - len(done), "no_candidate": no_candidate, "cases": out}
 
 
 def case_detail(dataset, photo):
@@ -1659,7 +1660,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         dataset = str((payload or {}).get("dataset", ""))
         photo = str((payload or {}).get("photo", ""))
         gt = str((payload or {}).get("gt", ""))
-        chosen = str((payload or {}).get("chosen", "") or "")
+        chosen = str((payload or {}).get("chosen", "") or "").strip()
+        # manual = the name was typed in (no candidate to pick), not chosen from the list
+        manual = bool((payload or {}).get("manual"))
         if not photo:
             self._send_json({"ok": False, "message": "photo required"}, code=400)
             return
@@ -1667,13 +1670,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             new_file = not os.path.isfile(path)
-            fields = ["dataset", "photo", "gt", "chosen", "chosen_none", "ts"]
+            fields = ["dataset", "photo", "gt", "chosen", "chosen_none", "manual", "ts"]
             with open(path, "a", newline="", encoding="utf-8") as f:
                 w = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
                 if new_file:
                     w.writeheader()
                 w.writerow({"dataset": dataset, "photo": photo, "gt": gt, "chosen": chosen,
                             "chosen_none": "" if chosen else "1",
+                            "manual": "1" if manual else "",
                             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
             q = gt_reconcile_queue(limit=1)
             self._send_json({"ok": True, "done": q["done"], "remaining": q["remaining"]}, code=200)

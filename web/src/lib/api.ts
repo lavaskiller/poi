@@ -126,6 +126,7 @@ export interface ReconcileQueue {
   total_non_mapkit: number;
   done: number;
   remaining: number;
+  no_candidate: number;
   cases: ReconcileCase[];
 }
 
@@ -149,12 +150,15 @@ export const api = {
   /** GT↔MapKit reconciliation queue — NON_MAPKIT cases with candidate lists. */
   reconcileQueue: () => getJSON<ReconcileQueue>("/api/gt/reconcile"),
 
-  /** Persist a manual match (chosen candidate name, or "" for not-in-list). */
-  async reconcileSave(c: { dataset: string; photo: string; gt: string; chosen: string }): Promise<{
-    ok: boolean;
-    done: number;
-    remaining: number;
-  }> {
+  /** Persist a match: a candidate picked from the list, a manually typed place
+   *  (manual=true, for no-candidate cases), or "" for not-in-MapKit. */
+  async reconcileSave(c: {
+    dataset: string;
+    photo: string;
+    gt: string;
+    chosen: string;
+    manual?: boolean;
+  }): Promise<{ ok: boolean; done: number; remaining: number }> {
     const res = await fetch("/api/gt/reconcile", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

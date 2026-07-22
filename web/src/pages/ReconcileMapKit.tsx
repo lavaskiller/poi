@@ -8,6 +8,7 @@ export default function ReconcileMapKit() {
   const [idx, setIdx] = useState(0);
   const [savedCount, setSavedCount] = useState(0);
   const [choice, setChoice] = useState<string | null>(null);
+  const [manualText, setManualText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,7 +44,7 @@ export default function ReconcileMapKit() {
 
   const current: ReconcileCase = cases[idx];
 
-  async function save(chosen: string) {
+  async function save(chosen: string, manual = false) {
     setBusy(true);
     setError(null);
     try {
@@ -52,9 +53,11 @@ export default function ReconcileMapKit() {
         photo: current.photo,
         gt: current.gt,
         chosen,
+        manual,
       });
       setSavedCount((n) => n + 1);
       setChoice(null);
+      setManualText("");
       setIdx((i) => i + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -100,30 +103,52 @@ export default function ReconcileMapKit() {
         {/* right: candidate picker */}
         <div className={styles.pickCol}>
           <p className={styles.pickLabel}>
-            Pick the matching MapKit place · {current.candidates.length} candidates
+            {current.candidates.length === 0
+              ? "No MapKit candidates — enter the correct place manually"
+              : `Pick the matching MapKit place · ${current.candidates.length} candidates`}
           </p>
-          <div className={styles.candList}>
-            {current.candidates.length === 0 && (
-              <p className={styles.noCand}>No MapKit candidates for this photo.</p>
-            )}
-            {current.candidates.map((c, i) => {
-              const on = choice === c.name;
-              return (
-                <button
-                  key={`${c.name}-${i}`}
-                  type="button"
-                  className={`${styles.cand} ${on ? styles.candOn : ""}`}
-                  onClick={() => setChoice(c.name)}
-                  disabled={busy}
-                >
-                  <span className={styles.candRank}>{c.rank}</span>
-                  <span className={styles.candName}>{c.name || "—"}</span>
-                  {c.category && <span className={styles.candCat}>{c.category}</span>}
-                  {c.distance != null && <span className={styles.candDist}>{Math.round(c.distance)}m</span>}
-                  {on && <span className={styles.candCheck}>✓</span>}
-                </button>
-              );
-            })}
+          {current.candidates.length > 0 && (
+            <div className={styles.candList}>
+              {current.candidates.map((c, i) => {
+                const on = choice === c.name && !manualText;
+                return (
+                  <button
+                    key={`${c.name}-${i}`}
+                    type="button"
+                    className={`${styles.cand} ${on ? styles.candOn : ""}`}
+                    onClick={() => {
+                      setChoice(c.name);
+                      setManualText("");
+                    }}
+                    disabled={busy}
+                  >
+                    <span className={styles.candRank}>{c.rank}</span>
+                    <span className={styles.candName}>{c.name || "—"}</span>
+                    {c.category && <span className={styles.candCat}>{c.category}</span>}
+                    {c.distance != null && <span className={styles.candDist}>{Math.round(c.distance)}m</span>}
+                    {on && <span className={styles.candCheck}>✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* manual entry — the only path for no-candidate cases, a fallback otherwise */}
+          <div className={styles.manualRow}>
+            <span className={styles.manualLabel}>
+              {current.candidates.length === 0 ? "Correct MapKit place" : "Or enter manually"}
+            </span>
+            <input
+              className={styles.manualInput}
+              type="text"
+              value={manualText}
+              onChange={(e) => {
+                setManualText(e.target.value);
+                if (e.target.value) setChoice(null);
+              }}
+              placeholder="Type the correct MapKit place name…"
+              disabled={busy}
+            />
           </div>
 
           {error && <p className={styles.error}>{error}</p>}
@@ -132,13 +157,15 @@ export default function ReconcileMapKit() {
             <button
               type="button"
               className={styles.primary}
-              disabled={busy || !choice}
-              onClick={() => choice && save(choice)}
+              disabled={busy || (!choice && !manualText.trim())}
+              onClick={() =>
+                manualText.trim() ? save(manualText.trim(), true) : choice && save(choice)
+              }
             >
-              {busy ? "Saving…" : "Save match"}
+              {busy ? "Saving…" : manualText.trim() ? "Save manual match" : "Save match"}
             </button>
             <button type="button" className={styles.secondary} disabled={busy} onClick={() => save("")}>
-              Not in list
+              Not in MapKit
             </button>
             <button
               type="button"
@@ -146,6 +173,7 @@ export default function ReconcileMapKit() {
               disabled={busy}
               onClick={() => {
                 setChoice(null);
+                setManualText("");
                 setIdx((i) => i + 1);
               }}
             >
