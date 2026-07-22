@@ -83,19 +83,19 @@
   width: 100%;
 }
 
-/* photo column */
+/* photo column — left stack; keep modest so detail (verdict/GT) can breathe */
 .photoCol {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  width: 470px;
+  width: 400px;
   flex-shrink: 0;
 }
 .photo {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 400px;
+  height: 360px;
   width: 100%;
   background: var(--bg-subtle);
   border: 1px solid var(--border-default);
@@ -124,7 +124,7 @@
 }
 .mapBox {
   width: 100%;
-  height: 200px;
+  height: 220px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -195,36 +195,40 @@
   flex-shrink: 0;
 }
 
-/* detail column */
+/* detail column — verdict / predicted / GT (the pane beside photo+map) */
 .detailCol {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  flex: 1 0 0;
+  gap: 16px;
+  flex: 1 1 0;
   min-width: 0;
+  max-width: none;
 }
 .verdict {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 14px 18px;
+  gap: 8px;
+  padding: 18px 22px;
   background: var(--warning-bg);
   border-radius: var(--radius-md);
 }
 .verdictTitle {
-  font-weight: 600;
-  font-size: 15px;
+  font-weight: 650;
+  font-size: 20px;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
   color: var(--warning-fg);
 }
 .verdictBody {
-  font-size: 12.5px;
+  font-size: 14.5px;
+  line-height: 1.45;
   color: var(--text-secondary);
 }
 .card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px 18px;
+  gap: 14px;
+  padding: 20px 22px;
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
@@ -238,21 +242,26 @@
 }
 .pvgRow {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: baseline;
+  gap: 12px;
   width: 100%;
   flex-wrap: wrap;
 }
 .pvgLabel {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
   color: var(--text-tertiary);
-  width: 110px;
+  width: 128px;
   flex-shrink: 0;
 }
 .pvgName {
-  font-weight: 600;
-  font-size: 15px;
+  font-weight: 650;
+  font-size: 20px;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .danger {
   color: var(--danger-fg);
@@ -275,12 +284,13 @@
   color: var(--success-fg);
 }
 .gtSrc {
-  padding: 2px 7px;
+  padding: 3px 9px;
   border-radius: var(--radius-pill);
   background: var(--bg-subtle);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 11px;
   color: var(--text-secondary);
+  flex-shrink: 0;
 }
 .moreLink {
   font-weight: 600;

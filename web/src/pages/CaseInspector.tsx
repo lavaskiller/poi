@@ -1,7 +1,7 @@
 import { Link, useSearchParams } from "react-router-dom";
 import MapPicker from "../components/MapPicker";
 import CandidateRow, { type CandidateRowData } from "../components/CandidateRow";
-import { api, type CaseDetail } from "../lib/api";
+import { api, photoUrl, type CaseDetail } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
 import styles from "./CaseInspector.module.css";
 
@@ -9,10 +9,16 @@ export default function CaseInspector() {
   const [params] = useSearchParams();
   const dataset = params.get("dataset") || "";
   const photo = params.get("photo") || "";
+  const runName = params.get("run_name") || params.get("name") || "";
+  const versionRaw = params.get("version");
+  const version = versionRaw ? Number(versionRaw) : undefined;
 
   const state = useAsync<CaseDetail | null>(
-    () => (dataset && photo ? api.case(dataset, photo) : Promise.resolve(null)),
-    [dataset, photo],
+    () =>
+      dataset && photo
+        ? api.case(dataset, photo, runName || undefined, version)
+        : Promise.resolve(null),
+    [dataset, photo, runName, version],
   );
 
   if (!dataset || !photo) {
@@ -84,10 +90,15 @@ export default function CaseInspector() {
       </header>
 
       <div className={styles.split}>
-        {/* photo column */}
+        {/* photo column — stacked photo, signals, map */}
         <div className={styles.photoCol}>
           <div className={styles.photo}>
-            <img className={styles.photoImg} src={c.image} alt={c.photo} loading="lazy" />
+            <img
+              className={styles.photoImg}
+              src={photoUrl(c.dataset, c.photo, { thumb: true, w: 900 })}
+              alt={c.photo}
+              loading="lazy"
+            />
           </div>
           <div className={styles.signals}>
             <p className={styles.miniLabel}>Signals on this case</p>

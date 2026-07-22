@@ -109,6 +109,9 @@ export interface MatchRate {
   counts: Record<string, number>;
   dataset?: string;
   mode?: string;
+  /** Rows whose gt_mapkit was patched from Reconcile overrides at read time. */
+  overrides_applied?: number;
+  excluded_non_mapkit?: number;
 }
 
 export interface CaseCandidate {
@@ -285,6 +288,24 @@ export interface ReconcileQueue {
   cases: ReconcileCase[];
 }
 
+/** Case photo URL. Galleries should pass ``thumb: true`` for a long-edge JPEG. */
+export function photoUrl(
+  dataset: string,
+  photo: string,
+  opts: { thumb?: boolean; w?: number } = {},
+): string {
+  const qs = new URLSearchParams({
+    dataset,
+    photo,
+  });
+  if (opts.thumb !== false) {
+    // Default to thumbnails — full-res only when explicitly disabled.
+    qs.set("thumb", "1");
+    if (opts.w) qs.set("w", String(opts.w));
+  }
+  return `/api/poi-case-photo?${qs.toString()}`;
+}
+
 /** Format duration_ms as a short human string. */
 export function formatDuration(ms: number | null | undefined): string {
   if (ms == null || !Number.isFinite(ms)) return "—";
@@ -455,6 +476,25 @@ export const api = {
       throw new Error(data.message || `/api/validate-upload-package → HTTP ${res.status}`);
     }
     return { ok: !!data.ok, errors: data.errors, warnings: data.warnings };
+  },
+
+  /** Download the sample upload-package ZIP (manifest + placeholder photos). */
+  async downloadTemplate(filename = "poi-dataset-template.zip"): Promise<void> {
+    const res = await fetch("/api/dataset-template", { headers: { Accept: "application/zip" } });
+    if (!res.ok) throw new Error(await readError(res, "/api/dataset-template"));
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    try {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   },
 };
 

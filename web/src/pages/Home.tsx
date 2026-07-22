@@ -1,22 +1,12 @@
+import { Link } from "react-router-dom";
 import Button from "../components/Button";
 import StatTile from "../components/StatTile";
-import { api, type Overview, type Run } from "../lib/api";
+import { api, bestRun, relTime, type Overview, type Run } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
 import styles from "./Home.module.css";
 
 function pct(part: number, whole: number): number {
   return whole > 0 ? Math.round((part / whole) * 100) : 0;
-}
-
-function relTime(iso: string): string {
-  if (!iso) return "—";
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "—";
-  const mins = Math.round((Date.now() - then) / 60000);
-  if (mins < 60) return `${Math.max(1, mins)} min ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
 }
 
 interface HomeData {
@@ -50,13 +40,17 @@ export default function Home() {
   const photoCov = pct(overview.photo_present ?? 0, total);
   const countries = overview.countries ?? [];
 
-  const scored = runs.filter((r) => typeof r.accuracy_pct === "number");
-  const best = scored.reduce<Run | null>(
-    (b, r) => (b === null || (r.accuracy_pct ?? 0) > (b.accuracy_pct ?? 0) ? r : b),
-    null,
-  );
+  const best = bestRun(runs);
+  // Only compare versions with the same evaluation cohort when possible
   const prevOfBest = best
-    ? runs.find((r) => r.name === best.name && r.version === best.version - 1)
+    ? runs.find(
+        (r) =>
+          r.name === best.name &&
+          r.version === best.version - 1 &&
+          (!best.evaluation_set_sha256 ||
+            !r.evaluation_set_sha256 ||
+            r.evaluation_set_sha256 === best.evaluation_set_sha256),
+      )
     : undefined;
   const delta =
     best && prevOfBest && typeof prevOfBest.accuracy_pct === "number"
@@ -65,20 +59,26 @@ export default function Home() {
 
   const trend = best
     ? runs
-        .filter((r) => r.name === best.name && typeof r.accuracy_pct === "number")
+        .filter(
+          (r) =>
+            r.name === best.name &&
+            typeof r.accuracy_pct === "number" &&
+            (!best.evaluation_set_sha256 ||
+              !r.evaluation_set_sha256 ||
+              r.evaluation_set_sha256 === best.evaluation_set_sha256),
+        )
         .sort((a, b) => a.version - b.version)
     : [];
   const trendMax = Math.max(1, ...trend.map((r) => r.accuracy_pct ?? 0));
 
-  // outcome composition from the best run (honest 3-way split)
   const nElig = best?.n_eligible ?? 0;
-  const correct = best ? Math.round(((best.accuracy_pct ?? 0) / 100) * nElig) : 0;
+  const correct = best?.correct ?? (best ? Math.round(((best.accuracy_pct ?? 0) / 100) * nElig) : 0);
   const incorrect = Math.max(0, nElig - correct);
   const noGt = Math.max(0, total - nElig);
   const outcomes = [
     { key: "correct", n: correct, color: "var(--success-fg)", label: `Correct ${correct}` },
     { key: "incorrect", n: incorrect, color: "var(--warning-fg)", label: `Incorrect ${incorrect}` },
-    { key: "nogt", n: noGt, color: "var(--bg-subtle)", label: `Ineligible / no GT ${noGt}` },
+    { key: "nogt", n: noGt, color: "var(--bg-subtle)", label: `Ineligible / holdout ${noGt}` },
   ];
   const outcomeTotal = Math.max(1, correct + incorrect + noGt);
 
@@ -89,7 +89,6 @@ export default function Home() {
 
   return (
     <main className={styles.main}>
-      {/* header */}
       <header className={styles.header}>
         <div className={styles.titles}>
           <p className={`sectionLabel ${styles.kicker}`}>POI Evaluation · Internal</p>
@@ -103,11 +102,14 @@ export default function Home() {
             {gtCov}% GT coverage · {total.toLocaleString()} cases across {nDatasets} datasets
           </p>
         </div>
-        <Button kind="secondary">Upload data</Button>
-        <Button kind="primary">▶&nbsp;&nbsp;New run</Button>
+        <Link to="/datasets" style={{ textDecoration: "none" }}>
+          <Button kind="secondary">Upload data</Button>
+        </Link>
+        <Link to="/new-run" style={{ textDecoration: "none" }}>
+          <Button kind="primary">▶&nbsp;&nbsp;New run</Button>
+        </Link>
       </header>
 
-      {/* config warnings (config-gap state) */}
       {(overview.config_warnings?.length ?? 0) > 0 && (
         <div className={styles.warnStrip}>
           {overview.config_warnings!.map((w, i) => (
@@ -116,7 +118,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* hero */}
       <section className={styles.hero}>
         <div className={styles.heroTop}>
           <div className={styles.metric}>
@@ -137,7 +138,13 @@ export default function Home() {
             </p>
             {best && (
               <div className={styles.toggle}>
-                <span className={`${styles.chip} ${styles.chipActive}`}>Strict · {best.accuracy_pct}%</span>
+                <Link
+                  to={`/results?name=${encodeURIComponent(best.name)}&version=${best.version}`}
+                  className={`${styles.chip} ${styles.chipActive}`}
+                  style={{ textDecoration: "none" }}
+                >
+                  Strict · {best.accuracy_pct}%
+                </Link>
                 {best.accuracy_canonical_pct != null && (
                   <span className={styles.chip}>Canonical · {best.accuracy_canonical_pct}%</span>
                 )}
@@ -147,7 +154,7 @@ export default function Home() {
 
           {trend.length > 0 && (
             <div className={styles.trend}>
-              <p className={`sectionLabel ${styles.trendLabel}`}>Version trend</p>
+              <p className={`sectionLabel ${styles.trendLabel}`}>Version trend (same cohort)</p>
               <div className={styles.bars}>
                 {trend.map((r) => {
                   const active = best && r.version === best.version;
@@ -194,7 +201,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* data health */}
       <section className={styles.block}>
         <div className={styles.blockHead}>
           <p className={`sectionLabel ${styles.blockLabel}`}>Data health</p>
@@ -223,7 +229,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* recent runs */}
       <section className={styles.block}>
         <p className={`sectionLabel ${styles.blockLabel}`}>Recent runs</p>
         <div className={styles.table}>
@@ -236,13 +241,25 @@ export default function Home() {
             <div className={styles.cStatus}>Eligible</div>
           </div>
           {recent.map((r) => {
-            const prev = runs.find((x) => x.name === r.name && x.version === r.version - 1);
+            const prev = runs.find(
+              (x) =>
+                x.name === r.name &&
+                x.version === r.version - 1 &&
+                (!r.evaluation_set_sha256 ||
+                  !x.evaluation_set_sha256 ||
+                  x.evaluation_set_sha256 === r.evaluation_set_sha256),
+            );
             const d =
               typeof r.accuracy_pct === "number" && typeof prev?.accuracy_pct === "number"
                 ? r.accuracy_pct - prev.accuracy_pct
                 : null;
             return (
-              <div key={`${r.name}-${r.version}`} className={styles.row}>
+              <Link
+                key={`${r.name}-${r.version}`}
+                to={`/results?name=${encodeURIComponent(r.name)}&version=${r.version}`}
+                className={styles.row}
+                style={{ textDecoration: "none", color: "inherit" }}
+              >
                 <div className={`${styles.cName} mono ${styles.strong}`}>{r.name}</div>
                 <div className={`${styles.cVer} mono ${styles.muted}`}>v{r.version}</div>
                 <div className={styles.cData}>{r.scope || "all"}</div>
@@ -265,7 +282,7 @@ export default function Home() {
                 <div className={`${styles.cStatus} mono ${styles.muted}`}>
                   {r.n_eligible?.toLocaleString?.() ?? r.n_eligible}
                 </div>
-              </div>
+              </Link>
             );
           })}
         </div>

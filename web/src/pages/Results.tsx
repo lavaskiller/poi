@@ -1,29 +1,114 @@
-import { Link } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import StatTile from "../components/StatTile";
 import CaseCard, { type CaseCardData } from "../components/CaseCard";
-import { api, type MatchRate, type Run, type RunDetail } from "../lib/api";
+import {
+  api,
+  bestRun,
+  formatDuration,
+  photoUrl,
+  type MatchRate,
+  type Run,
+  type RunDetail,
+} from "../lib/api";
 import { useAsync } from "../lib/useAsync";
 import styles from "./Results.module.css";
 
+type FilterId = "all" | "wrong" | "abstain" | "error" | "related";
+
 interface ResultsData {
-  best: Run;
+  runs: Run[];
+  selected: Run;
   detail: RunDetail;
   matchrate: MatchRate;
 }
 
 export default function Results() {
+  const [params, setParams] = useSearchParams();
+  const nameQ = params.get("name") || "";
+  const versionQ = params.get("version");
+
   const state = useAsync<ResultsData>(async () => {
     const [{ runs }, matchrate] = await Promise.all([api.runs(), api.matchrate()]);
-    const scored = runs.filter((r) => typeof r.accuracy_pct === "number");
-    const best = scored.reduce<Run | null>(
-      (b, r) => (b === null || (r.accuracy_pct ?? 0) > (b.accuracy_pct ?? 0) ? r : b),
-      null,
-    );
-    if (!best) throw new Error("no scored runs yet");
-    const { run } = await api.run(best.name, best.version);
-    return { best, detail: run, matchrate };
-  }, []);
+    let selected: Run | null = null;
+    if (nameQ && versionQ) {
+      selected =
+        runs.find((r) => r.name === nameQ && r.version === Number(versionQ)) ?? null;
+    }
+    if (!selected) selected = bestRun(runs);
+    if (!selected) throw new Error("no scored runs yet");
+    const { run } = await api.run(selected.name, selected.version);
+    return { runs, selected, detail: run, matchrate };
+  }, [nameQ, versionQ]);
+
+  const [filter, setFilter] = useState<FilterId>("all");
+
+  const derived = useMemo(() => {
+    if (state.status !== "ready") return null;
+    const { detail, matchrate, selected, runs } = state.data;
+    const cases = detail.cases ?? [];
+    const eligible = cases.length || selected.n_eligible || 0;
+    const correct =
+      selected.correct ?? cases.filter((c) => c.correct).length;
+    const failures = cases.filter((c) => !c.correct);
+    const byKind = (kind: string) => failures.filter((c) => c.match_kind === kind);
+
+    const filtered =
+      filter === "all"
+        ? failures
+        : filter === "wrong"
+          ? failures.filter((c) =>
+              ["wrong", "related", "related_credit", "alias"].includes(c.match_kind) ||
+              (!c.match_kind && !!c.prediction),
+            )
+          : filter === "related"
+            ? failures.filter((c) =>
+                ["related", "related_credit", "alias"].includes(c.match_kind),
+              )
+            : byKind(filter);
+
+    const gallery = filtered.slice(0, 12).map((c) => ({
+      dataset: c.dataset,
+      photo: c.photo,
+      card: {
+        band: c.prediction ? "warning" : "danger",
+        filename: c.photo,
+        image: photoUrl(c.dataset, c.photo, { thumb: true, w: 360 }),
+        title: `${c.dataset}${c.context?.category ? " · " + c.context.category : ""}${c.match_kind ? " · " + c.match_kind : ""}`,
+        predicted: `✗ ${c.prediction || "— no prediction"}`,
+        predictedTone: "danger" as const,
+        groundTruth: `✓ ${c.gt}`,
+        groundTruthTone: "success" as const,
+        gtSrc: "src · mapkit",
+      } satisfies CaseCardData,
+    }));
+
+    const scored = runs
+      .filter((r) => typeof r.accuracy_pct === "number")
+      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+
+    return {
+      cases,
+      eligible,
+      correct,
+      failures,
+      filtered,
+      gallery,
+      scored,
+      matchrate,
+      selected,
+      detail,
+      wrongN: failures.filter(
+        (c) => c.match_kind === "wrong" || (!c.match_kind && !!c.prediction),
+      ).length,
+      abstainN: byKind("abstain").length,
+      errorN: byKind("error").length,
+      relatedN: failures.filter((c) =>
+        ["related", "related_credit", "alias"].includes(c.match_kind),
+      ).length,
+    };
+  }, [state, filter]);
 
   if (state.status === "loading") {
     return <main className={styles.main}>Loading run results…</main>;
@@ -31,78 +116,110 @@ export default function Results() {
   if (state.status === "error") {
     return <main className={styles.main}>Couldn’t load results — {state.error.message}</main>;
   }
+  if (!derived) return null;
 
-  const { best, detail, matchrate } = state.data;
-  const cases = detail.cases ?? [];
-  const eligible = cases.length;
-  const correct = cases.filter((c) => c.correct).length;
-  const failures = cases.filter((c) => !c.correct);
-  const canonical = best.accuracy_canonical_pct;
+  const {
+    selected,
+    detail,
+    matchrate,
+    eligible,
+    correct,
+    failures,
+    filtered,
+    gallery,
+    scored,
+    wrongN,
+    abstainN,
+    errorN,
+    relatedN,
+  } = derived;
+  const canonical = selected.accuracy_canonical_pct;
+  const isBest =
+    bestRun(state.data.runs)?.name === selected.name &&
+    bestRun(state.data.runs)?.version === selected.version;
 
-  const gallery = failures.slice(0, 9).map((c) => ({
-    dataset: c.dataset,
-    photo: c.photo,
-    card: {
-      band: c.prediction ? "warning" : "danger",
-      filename: c.photo,
-      image: `/api/poi-case-photo?dataset=${encodeURIComponent(c.dataset)}&photo=${encodeURIComponent(c.photo)}`,
-      title: `${c.dataset}${c.context?.category ? " · " + c.context.category : ""}`,
-      predicted: `✗ ${c.prediction || "— no candidate matched"}`,
-      predictedTone: "danger",
-      groundTruth: `✓ ${c.gt}`,
-      groundTruthTone: "success",
-      gtSrc: "src · mapkit",
-    } as CaseCardData,
-  }));
-
-  const FILTERS = [
-    { label: `All failures · ${failures.length}`, active: true },
-    { label: `Selection miss · ${matchrate.selection_failure}`, dot: "var(--warning-fg)" },
-    { label: `Retrieval miss · ${matchrate.search_failure}`, dot: "var(--danger-fg)" },
-    { label: `Policy / non-POI · ${matchrate.counts.excluded_non_poi ?? 0}`, dot: "var(--policy-fg)" },
-    { label: `No GT · ${matchrate.counts.gt_no_gt ?? 0}`, dot: "var(--text-tertiary)" },
+  const FILTERS: { id: FilterId; label: string; dot?: string }[] = [
+    { id: "all", label: `All failures · ${failures.length}` },
+    { id: "wrong", label: `Wrong pick · ${wrongN}`, dot: "var(--warning-fg)" },
+    { id: "related", label: `Related / alias · ${relatedN}`, dot: "var(--accent-default)" },
+    { id: "abstain", label: `Abstain · ${abstainN}`, dot: "var(--text-tertiary)" },
+    { id: "error", label: `Error · ${errorN}`, dot: "var(--danger-fg)" },
   ];
+
+  const onSelectRun = (value: string) => {
+    const [name, ver] = value.split("::");
+    setParams({ name, version: ver });
+  };
 
   return (
     <main className={styles.main}>
-      {/* header */}
       <header className={styles.header}>
         <div className={styles.titles}>
           <p className={`sectionLabel ${styles.kicker}`}>Run result</p>
           <div className={styles.titleRow}>
             <h1 className={styles.h1}>
-              {best.name} · v{best.version}
+              {selected.name} · v{selected.version}
             </h1>
-            <span className={styles.bestPill}>BEST YET</span>
+            {isBest && <span className={styles.bestPill}>BEST YET</span>}
           </div>
           <p className={styles.sub}>
-            {eligible.toLocaleString()} eligible cases · {detail.mode || "exact"} match ·{" "}
-            {best.runtime || "—"} runtime
+            {eligible.toLocaleString()} eligible cases · {detail.mode || selected.mode || "exact"}{" "}
+            match · {formatDuration(selected.duration_ms)} runtime · scope{" "}
+            {selected.scope || "all"}
           </p>
         </div>
-        <Button kind="secondary">Compare with…</Button>
-        <Button kind="secondary">Export CSV</Button>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+          <span className={styles.sortNote}>Switch run</span>
+          <select
+            value={`${selected.name}::${selected.version}`}
+            onChange={(e) => onSelectRun(e.target.value)}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid var(--border-default)",
+              background: "var(--bg-panel)",
+              color: "var(--text-primary)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
+              maxWidth: 280,
+            }}
+          >
+            {scored.map((r) => (
+              <option key={`${r.name}-${r.version}`} value={`${r.name}::${r.version}`}>
+                {r.name} · v{r.version} · {r.accuracy_pct}%
+              </option>
+            ))}
+          </select>
+        </label>
+        <Link
+          to={`/compare`}
+          style={{ textDecoration: "none" }}
+        >
+          <Button kind="secondary">Compare with…</Button>
+        </Link>
+        <Link to="/retrieval" style={{ textDecoration: "none" }}>
+          <Button kind="secondary">Retrieval ceiling</Button>
+        </Link>
       </header>
 
-      {/* metrics */}
       <div className={styles.metrics}>
         <StatTile
           label="Selection accuracy"
-          value={`✓ ${best.accuracy_pct}%`}
+          value={`✓ ${selected.accuracy_pct}%`}
           valueTone="success"
           note={`${correct}/${eligible}${canonical != null ? ` · canonical ${canonical}%` : ""}`}
         />
         <StatTile
-          label="Selection miss"
-          value={String(matchrate.selection_failure)}
+          label="Failures (this run)"
+          value={String(failures.length)}
           valueTone="warning"
-          note="GT in candidates, wrong pick"
+          note="wrong + abstain + error on this run's cases"
         />
         <StatTile
-          label="Retrieval miss"
-          value={`✗ ${matchrate.search_failure}`}
+          label="Retrieval miss (MapKit)"
+          value={`✗ ${matchrate.search_failure ?? matchrate.miss ?? "—"}`}
           valueTone="danger"
-          note="GT absent from candidates"
+          note={`Provider ceiling · ${matchrate.n ?? matchrate.eligible} eligible (not run-specific)`}
         />
         <StatTile
           label="Canonical score"
@@ -111,14 +228,20 @@ export default function Results() {
         />
       </div>
 
-      {/* failure filters */}
+      <p className={styles.sortNote} style={{ marginTop: -4 }}>
+        Retrieval miss above is the global MapKit match-rate diagnostic — not this algorithm&apos;s
+        pick errors. Use{" "}
+        <Link to="/retrieval">Retrieval diagnostics</Link> for top-N coverage.
+      </p>
+
       <div className={styles.filters}>
         <span className={`sectionLabel ${styles.filtersLabel}`}>Failures</span>
         {FILTERS.map((f) => (
           <button
-            key={f.label}
+            key={f.id}
             type="button"
-            className={`${styles.filter} ${f.active ? styles.filterOn : ""}`}
+            className={`${styles.filter} ${filter === f.id ? styles.filterOn : ""}`}
+            onClick={() => setFilter(f.id)}
           >
             {f.dot && <span className={styles.dot} style={{ background: f.dot }} />}
             {f.label}
@@ -126,21 +249,23 @@ export default function Results() {
         ))}
         <span className={styles.filtersSpacer} />
         <span className={styles.sortNote}>
-          1–{Math.min(9, failures.length)} of {failures.length}
+          1–{Math.min(12, filtered.length)} of {filtered.length}
         </span>
       </div>
 
-      {/* gallery */}
       <div className={styles.gallery}>
-        {gallery.map((g, i) => (
+        {gallery.map((g) => (
           <Link
-            key={`${g.photo}-${i}`}
-            to={`/case?dataset=${encodeURIComponent(g.dataset)}&photo=${encodeURIComponent(g.photo)}`}
+            key={`${g.dataset}/${g.photo}`}
+            to={`/case?dataset=${encodeURIComponent(g.dataset)}&photo=${encodeURIComponent(g.photo)}&run_name=${encodeURIComponent(selected.name)}&version=${selected.version}`}
             className={styles.cardLink}
           >
             <CaseCard {...g.card} />
           </Link>
         ))}
+        {gallery.length === 0 && (
+          <p className={styles.sub}>No failures in this filter.</p>
+        )}
       </div>
     </main>
   );

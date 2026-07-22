@@ -9,7 +9,7 @@ import Datasets from "./pages/Datasets";
 import RetrievalDiagnostics from "./pages/RetrievalDiagnostics";
 import ReconcileMapKit from "./pages/ReconcileMapKit";
 import Onboarding from "./pages/Onboarding";
-import Placeholder from "./pages/Placeholder";
+import Jobs from "./pages/Jobs";
 import { api, isEmpty } from "./lib/api";
 import { useAsync } from "./lib/useAsync";
 import styles from "./App.module.css";
@@ -35,7 +35,7 @@ function AppRoutes() {
         <Route path="datasets" element={<Datasets />} />
         <Route path="reconcile" element={<ReconcileMapKit />} />
         <Route path="retrieval" element={<RetrievalDiagnostics />} />
-        <Route path="jobs" element={<Placeholder title="Jobs" />} />
+        <Route path="jobs" element={<Jobs />} />
       </Route>
     </Routes>
   );

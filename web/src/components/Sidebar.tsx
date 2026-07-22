@@ -1,4 +1,6 @@
 import { NavLink } from "react-router-dom";
+import { api } from "../lib/api";
+import { useAsync } from "../lib/useAsync";
 import styles from "./Sidebar.module.css";
 
 const WORKFLOW = [
@@ -6,6 +8,7 @@ const WORKFLOW = [
   { to: "/new-run", label: "New run" },
   { to: "/results", label: "Results" },
   { to: "/compare", label: "Compare" },
+  { to: "/retrieval", label: "Retrieval" },
 ];
 
 const DATA = [
@@ -28,6 +31,12 @@ function NavItem({ to, label, end }: { to: string; label: string; end?: boolean 
 }
 
 export default function Sidebar() {
+  const overview = useAsync(() => api.overview(), []);
+  const n =
+    overview.status === "ready"
+      ? overview.data.sources?.length ?? overview.data.datasets?.length ?? 0
+      : null;
+
   return (
     <aside className={styles.sidebar}>
       <div className={styles.brand}>
@@ -54,7 +63,13 @@ export default function Sidebar() {
 
       <div className={styles.status}>
         <span className={styles.statusDot} aria-hidden />
-        <span className={styles.statusText}>API connected · 3 datasets</span>
+        <span className={styles.statusText}>
+          {overview.status === "error"
+            ? "API unreachable"
+            : n == null
+              ? "API connected…"
+              : `API connected · ${n} dataset${n === 1 ? "" : "s"}`}
+        </span>
       </div>
     </aside>
   );
