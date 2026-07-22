@@ -22,41 +22,119 @@ function pctNum(rate: number | undefined, n: number | undefined, d: number | und
   return 0;
 }
 
-// chart geometry
+/** Chart N grid — only exact candidate_limit == N runs can fill model bars. */
+const TOP_NS = [1, 3, 5, 10, 20, 50] as const;
+
+// chart geometry: line = retrieval ceiling; bars = best model @ exact k
 const W = 580;
-const H = 250;
+const H = 260;
 const X0 = 40;
 const X1 = 540;
-const Y_TOP = 20;
-const Y_BOT = 220;
+const Y_TOP = 44; // room for coverage % + model labels above the line
+const Y_BOT = 210;
 
-function CoverageChart({ curve, yMin }: { curve: { n: string; cov: number }[]; yMin: number }) {
-  const yFor = (cov: number) => Y_BOT - ((cov - yMin) / (100 - yMin)) * (Y_BOT - Y_TOP);
+interface TopNPoint {
+  n: number;
+  label: string;
+  /** MapKit retrieval ceiling (always drawn on the line). */
+  coverage: number;
+  /** Best model when candidate_limit === n only; null → no bar. */
+  modelName: string | null;
+  modelVer: number | null;
+  accuracy: number | null;
+}
+
+function shortModelName(name: string, max = 13): string {
+  if (name.length <= max) return name;
+  return `${name.slice(0, max - 1)}…`;
+}
+
+/**
+ * Line = MapKit GT-in-top-N ceiling (matchrate).
+ * Bars = best selection accuracy among runs with candidate_limit === N only.
+ * Missing exact-k runs → no bar / no model label at that N.
+ */
+function CoverageAndModelChart({
+  points,
+  yMin,
+}: {
+  points: TopNPoint[];
+  yMin: number;
+}) {
+  const yFor = (v: number) => Y_BOT - ((v - yMin) / (100 - yMin)) * (Y_BOT - Y_TOP);
   const xFor = (i: number) =>
-    curve.length <= 1 ? (X0 + X1) / 2 : X0 + (i * (X1 - X0)) / (curve.length - 1);
-  const line = curve.map((p, i) => `${xFor(i)},${yFor(p.cov)}`).join(" ");
+    points.length <= 1 ? (X0 + X1) / 2 : X0 + (i * (X1 - X0)) / (points.length - 1);
+  const slot = points.length > 0 ? (X1 - X0) / Math.max(1, points.length - 1) : 40;
+  const barW = Math.min(36, slot * 0.42);
+  const line = points.map((p, i) => `${xFor(i)},${yFor(p.coverage)}`).join(" ");
   const grid = [yMin, ...[60, 70, 80, 90, 100].filter((g) => g > yMin)];
+
   return (
-    <svg className={styles.chart} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="GT coverage in top-N">
+    <svg
+      className={styles.chart}
+      viewBox={`0 0 ${W} ${H}`}
+      role="img"
+      aria-label="MapKit top-N coverage line and best model bars at exact k"
+    >
       {grid.map((g) => (
         <g key={g}>
           <line x1={X0} x2={X1} y1={yFor(g)} y2={yFor(g)} stroke="var(--bg-subtle)" strokeWidth={1} />
-          <text x={16} y={yFor(g) + 3} className={styles.axisText}>
+          <text x={14} y={yFor(g) + 3} className={styles.axisText}>
             {g}
           </text>
         </g>
       ))}
-      {curve.length > 0 && (
-        <polyline points={line} fill="none" stroke="var(--accent-default)" strokeWidth={2} />
+
+      {/* model accuracy bars (only where candidate_limit === N) */}
+      {points.map((p, i) => {
+        if (p.accuracy == null) return null;
+        const cx = xFor(i);
+        const yAcc = yFor(p.accuracy);
+        const h = Math.max(0, Y_BOT - yAcc);
+        const modelLabel = p.modelName
+          ? `${shortModelName(p.modelName)}${p.modelVer != null ? ` v${p.modelVer}` : ""}`
+          : "";
+        return (
+          <g key={`bar-${p.label}`}>
+            <rect
+              x={cx - barW / 2}
+              y={yAcc}
+              width={barW}
+              height={h}
+              rx={3}
+              fill="var(--accent-default)"
+              opacity={0.28}
+            />
+            {/* model name on top of the bar */}
+            {modelLabel && (
+              <text x={cx} y={yAcc - 5} textAnchor="middle" className={styles.barModel}>
+                {modelLabel}
+              </text>
+            )}
+          </g>
+        );
+      })}
+
+      {/* coverage line (always) */}
+      {points.length > 0 && (
+        <polyline points={line} fill="none" stroke="var(--accent-default)" strokeWidth={2.25} />
       )}
-      {curve.map((p, i) => (
-        <g key={p.n}>
-          <circle cx={xFor(i)} cy={yFor(p.cov)} r={4} fill="var(--accent-default)" />
-          <text x={xFor(i)} y={H - 8} textAnchor="middle" className={styles.axisText}>
-            {p.n}
-          </text>
-        </g>
-      ))}
+      {points.map((p, i) => {
+        const cx = xFor(i);
+        const cy = yFor(p.coverage);
+        return (
+          <g key={`pt-${p.label}`}>
+            <circle cx={cx} cy={cy} r={4} fill="var(--accent-default)" />
+            {/* coverage % sits on the line */}
+            <text x={cx} y={cy - 8} textAnchor="middle" className={styles.linePct}>
+              {Number.isFinite(p.coverage) ? `${Math.round(p.coverage)}%` : "—"}
+            </text>
+            <text x={cx} y={H - 12} textAnchor="middle" className={styles.axisText}>
+              {p.label}
+            </text>
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -81,10 +159,7 @@ function accuracyForDataset(run: Run, dataset: string): number | null {
   if (dataset === "all") {
     return typeof run.accuracy_pct === "number" ? run.accuracy_pct : null;
   }
-  // Prefer per-dataset metrics when the run JSON carried them.
-  const metrics = (run as Run & { metrics?: { by_dataset?: Record<string, { accuracy?: number; accuracy_pct?: number }> } })
-    .metrics;
-  const bd = metrics?.by_dataset?.[dataset];
+  const bd = run.metrics?.by_dataset?.[dataset];
   if (bd) {
     if (typeof bd.accuracy_pct === "number") return bd.accuracy_pct;
     if (typeof bd.accuracy === "number") return Math.round(bd.accuracy * 100);
@@ -92,6 +167,38 @@ function accuracyForDataset(run: Run, dataset: string): number | null {
   // scope-limited runs that only cover this dataset
   if (run.scope === dataset && typeof run.accuracy_pct === "number") return run.accuracy_pct;
   return null;
+}
+
+function latestRunsByName(runs: Run[]): Run[] {
+  const latestByName = new Map<string, Run>();
+  for (const r of runs) {
+    if (typeof r.accuracy_pct !== "number") continue;
+    const prev = latestByName.get(r.name);
+    if (!prev || r.version > prev.version) latestByName.set(r.name, r);
+  }
+  return [...latestByName.values()];
+}
+
+/**
+ * Best model for chart N: **exact** ``candidate_limit === n`` only.
+ * No ≥ N, no null fallback — missing k → no bar.
+ *
+ * Storage contract: accuracy_pct is the selection score measured when nearby
+ * was truncated to that k (see run metrics score_k / accuracy_at_k).
+ */
+function bestModelAtExactN(
+  latest: Run[],
+  dataset: string,
+  n: number,
+): { run: Run; pct: number } | null {
+  let best: { run: Run; pct: number } | null = null;
+  for (const r of latest) {
+    if (r.candidate_limit !== n) continue;
+    const pct = accuracyForDataset(r, dataset);
+    if (pct == null) continue;
+    if (!best || pct > best.pct) best = { run: r, pct };
+  }
+  return best;
 }
 
 export default function RetrievalDiagnostics() {
@@ -150,25 +257,18 @@ export default function RetrievalDiagnostics() {
     },
   ];
 
-  const curve = [
-    { n: "N=1", cov: pctNum(m.rank1_rate, m.rank1, n) },
-    { n: "N=3", cov: pctNum(m.top3_rate, m.top3, n) },
-    { n: "N=5", cov: pctNum(m.top5_rate, m.top5, n) },
-    { n: "N=10", cov: pctNum(m.top10_rate, m.top10, n) },
-    { n: "N=20", cov: pctNum(m.top20_rate, m.top20, n) },
-    { n: "N=50", cov: pctNum(m.top50_rate, m.top50, n) },
-  ].filter((p) => Number.isFinite(p.cov));
-
-  const yMin = Math.max(0, Math.floor((Math.min(...curve.map((c) => c.cov), 40) - 5) / 5) * 5);
+  const coverageByN: Record<number, number> = {
+    1: pctNum(m.rank1_rate, m.rank1, n),
+    3: pctNum(m.top3_rate, m.top3, n),
+    5: pctNum(m.top5_rate, m.top5, n),
+    10: pctNum(m.top10_rate, m.top10, n),
+    20: pctNum(m.top20_rate, m.top20, n),
+    50: pctNum(m.top50_rate, m.top50, n),
+  };
 
   // Latest version per run name; accuracy scoped when a dataset is selected
-  const latestByName = new Map<string, Run>();
-  for (const r of runs) {
-    if (typeof r.accuracy_pct !== "number") continue;
-    const prev = latestByName.get(r.name);
-    if (!prev || r.version > prev.version) latestByName.set(r.name, r);
-  }
-  const algos = [...latestByName.values()]
+  const latest = latestRunsByName(runs);
+  const algos = latest
     .map((a) => ({ run: a, pct: accuracyForDataset(a, dataset) }))
     .filter((a) => a.pct != null)
     .sort((a, b) => (b.pct ?? 0) - (a.pct ?? 0));
@@ -176,7 +276,21 @@ export default function RetrievalDiagnostics() {
     dataset === "all"
       ? bestRun(runs)
       : algos[0]?.run ?? null;
-  const ceiling = pctNum(m.top50_rate, m.top50, n);
+  const ceiling = coverageByN[50] ?? 0;
+
+  const topNPoints: TopNPoint[] = TOP_NS.map((depth) => {
+    const win = bestModelAtExactN(latest, dataset, depth);
+    return {
+      n: depth,
+      label: `N=${depth}`,
+      coverage: coverageByN[depth] ?? 0,
+      modelName: win?.run.name ?? null,
+      modelVer: win?.run.version ?? null,
+      accuracy: win?.pct ?? null,
+    };
+  });
+  const covVals = topNPoints.map((p) => p.coverage).filter((v) => Number.isFinite(v));
+  const yMin = Math.max(0, Math.floor((Math.min(...covVals, 40) - 5) / 5) * 5);
 
   return (
     <main className={styles.main}>
@@ -212,11 +326,19 @@ export default function RetrievalDiagnostics() {
               aria-selected={active}
               className={`${styles.filter} ${active ? styles.filterOn : ""}`}
               onClick={() => setDataset(opt.key)}
+              title={
+                opt.key === "all"
+                  ? `All datasets · ${opt.count} rows`
+                  : `${opt.key} · ${opt.count} rows` +
+                    (elig != null ? ` · ${elig} eligible` : "")
+              }
             >
-              {opt.key === "all" ? "All" : opt.key}
+              <span className={styles.filterName}>
+                {opt.key === "all" ? "All" : opt.key}
+              </span>
               <span className={styles.filterMeta}>
                 {opt.count.toLocaleString()}
-                {elig != null && opt.key !== "all" ? ` · elig ${elig}` : ""}
+                {elig != null && opt.key !== "all" ? ` · ${elig}` : ""}
               </span>
             </button>
           );
@@ -274,13 +396,10 @@ export default function RetrievalDiagnostics() {
 
       <div className={styles.charts}>
         <div className={styles.card}>
-          <p className={styles.miniLabel}>Provider coverage — GT in top-N · {scopeLabel}</p>
-          <CoverageChart curve={curve} yMin={yMin} />
-          <p className={styles.caption}>
-            Retrieval only — whether MapKit returned the GT place at all. Ceiling at N=50:{" "}
-            {ceiling.toFixed(1)}%. Selection failures: {m.selection_failure}; retrieval misses:{" "}
-            {m.search_failure ?? m.miss}.
+          <p className={styles.miniLabel}>
+            Top-N ceiling (line) · best model at exact k (bars) · {scopeLabel}
           </p>
+          <CoverageAndModelChart points={topNPoints} yMin={yMin} />
         </div>
 
         <div className={styles.algoCard}>

@@ -56,10 +56,17 @@ export interface Run {
   runtime?: string | { device_class?: string; platform?: string };
   duration_ms?: number | null;
   params?: string[];
+  candidate_limit?: number | null;
   evaluation_set_sha256?: string | null;
   match_kind_counts?: Record<string, number>;
   abstained?: number;
   errored?: number;
+  metrics?: {
+    by_dataset?: Record<
+      string,
+      { n?: number; correct?: number; accuracy?: number; accuracy_pct?: number }
+    >;
+  };
 }
 
 export interface RunCase {
@@ -119,6 +126,10 @@ export interface CaseCandidate {
   name: string;
   distance?: number | null;
   category?: string;
+  lat?: number | null;
+  lon?: number | null;
+  /** true when rank is within the linked run's candidate_limit */
+  in_run_window?: boolean;
 }
 export interface CaseDetail {
   dataset: string;
@@ -131,6 +142,11 @@ export interface CaseDetail {
   match_kind: string;
   correct: boolean;
   run: { name: string; version: number } | null;
+  /** Run's nearby top-K window (what predict() saw), when known */
+  candidate_limit?: number | null;
+  /** Full MapKit list size before display cap */
+  candidate_total?: number;
+  candidate_source?: string;
   lat: string;
   lon: string;
   signals: { gps: string; ocr: string; nearby: string; category: string };
@@ -277,6 +293,8 @@ export interface ProbeResult {
   ok: boolean;
   lat?: number;
   lon?: number;
+  /** Wide radius actually used by the probe (meters). */
+  radius_m?: number;
   candidates: ReconcileCandidate[];
   message?: string;
 }
@@ -361,12 +379,17 @@ export const api = {
     return getJSON<CaseDetail>(`/api/case?${qs.toString()}`);
   },
 
-  /** Live MapKit nearby query for a coordinate (Investigate). Slow (~20–30s). */
-  async mapkitProbe(lat: number, lon: number): Promise<ProbeResult> {
+  /**
+   * Live MapKit nearby query for a coordinate (Investigate). Slow (~20–30s).
+   * Optional ``radiusM`` overrides the wide radius (default 250; app path).
+   */
+  async mapkitProbe(lat: number, lon: number, radiusM?: number): Promise<ProbeResult> {
+    const body: { lat: number; lon: number; radius_m?: number } = { lat, lon };
+    if (radiusM != null && Number.isFinite(radiusM)) body.radius_m = radiusM;
     const res = await fetch("/api/mapkit/probe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lat, lon }),
+      body: JSON.stringify(body),
     });
     return (await res.json()) as ProbeResult;
   },

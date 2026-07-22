@@ -139,6 +139,8 @@ export default function NewRun() {
   const [fileName, setFileName] = useState("baseline_nearest.py");
   const [fileSize, setFileSize] = useState(new Blob([DEFAULT_SCRIPT]).size);
   const [runName, setRunName] = useState("baseline-nearest");
+  /** Exact k for nearby_candidates truncation — stored as run.candidate_limit. */
+  const [candidateLimit, setCandidateLimit] = useState<number>(20);
   const [selected, setSelected] = useState<Set<string> | null>(null);
   const [scopeAll, setScopeAll] = useState(true);
   const [scopeKeys, setScopeKeys] = useState<Set<string>>(new Set());
@@ -257,6 +259,7 @@ export default function NewRun() {
         scopeAll || activeScope.size === sources.length
           ? "all"
           : [...activeScope].join(",");
+      const usesNearby = active.has("nearby_candidates");
       const res = await api.submitRun({
         name: stableName,
         script_text: scriptText,
@@ -264,6 +267,8 @@ export default function NewRun() {
         scope,
         mode: "exact",
         params: [...active],
+        // Exact k for /retrieval bars: only runs with candidate_limit == N are plotted.
+        candidate_limit: usesNearby ? candidateLimit : null,
         save_mode: "auto",
       });
       const acc = res.metrics?.accuracy_pct;
@@ -505,6 +510,31 @@ export default function NewRun() {
             <p className={styles.fieldHint}>
               {eligible.toLocaleString()} eligible with current scope · mode exact
             </p>
+            {active.has("nearby_candidates") && (
+              <label className={styles.fieldHint} style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 10 }}>
+                Candidate depth k (stored as candidate_limit — chart uses exact == N)
+                <select
+                  value={candidateLimit}
+                  onChange={(e) => setCandidateLimit(Number(e.target.value))}
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 13,
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    border: "1px solid var(--border-default)",
+                    background: "var(--bg-panel)",
+                    color: "var(--text-primary)",
+                    maxWidth: 200,
+                  }}
+                >
+                  {[1, 3, 5, 10, 20, 50].map((k) => (
+                    <option key={k} value={k}>
+                      k = {k}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
           <div className={styles.scopeSpacer} />
           <div className={styles.runCol}>

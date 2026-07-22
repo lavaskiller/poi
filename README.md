@@ -32,6 +32,9 @@ npm --prefix web run dev
 The frontend calls `/api/*` on its own origin; Vite proxies those to the
 Python backend (see `web/vite.config.ts`).
 
+Setting this up on a fresh machine (prerequisites, data bundle, env vars,
+platform notes)? See [`docs/onboarding.md`](docs/onboarding.md).
+
 ## Backend API (server.py)
 
 `/api/overview` · `/api/datasets` · `/api/dataset-template` · `/api/runs` ·

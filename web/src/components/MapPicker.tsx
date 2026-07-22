@@ -8,6 +8,16 @@ interface LatLon {
   lon: number;
 }
 
+export type MapCandidateKind = "default" | "gt" | "pick" | "hit";
+
+export interface MapCandidate {
+  lat: number;
+  lon: number;
+  rank?: number;
+  name?: string;
+  kind?: MapCandidateKind;
+}
+
 interface MapPickerProps {
   /** photo capture location — a fixed reference marker, always shown */
   photo?: LatLon;
@@ -15,13 +25,45 @@ interface MapPickerProps {
   point: LatLon;
   /** location of the currently selected candidate — pinned + panned to */
   selected?: LatLon | null;
+  /** MapKit (or other) nearby candidates to plot */
+  candidates?: MapCandidate[];
+  /**
+   * Outer search radius in meters around photo (fallback: point).
+   * Fixed probe/app radii should be passed here (e.g. MapKit wide 250 m) —
+   * do not infer from max candidate distance.
+   */
+  radiusM?: number | null;
+  /**
+   * Optional inner radius (e.g. MapKit strict 80 m). Drawn dashed.
+   */
+  radiusInnerM?: number | null;
   onChange?: (lat: number, lon: number) => void;
 }
 
-export default function MapPicker({ photo, point, selected, onChange }: MapPickerProps) {
+const KIND_CLASS: Record<MapCandidateKind, string> = {
+  default: styles.candPin,
+  gt: styles.candPinGt,
+  pick: styles.candPinPick,
+  hit: styles.candPinHit,
+};
+
+function isFiniteLatLon(p: LatLon | null | undefined): p is LatLon {
+  return !!p && Number.isFinite(p.lat) && Number.isFinite(p.lon);
+}
+
+export default function MapPicker({
+  photo,
+  point,
+  selected,
+  candidates,
+  radiusM,
+  radiusInnerM,
+  onChange,
+}: MapPickerProps) {
   const elRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const selectedRef = useRef<L.Marker | null>(null);
+  const overlayRef = useRef<L.LayerGroup | null>(null);
   const cbRef = useRef(onChange);
   cbRef.current = onChange;
 
@@ -60,6 +102,7 @@ export default function MapPicker({ photo, point, selected, onChange }: MapPicke
       });
     }
 
+    overlayRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     setTimeout(() => map.invalidateSize(), 60);
     return () => {
@@ -67,6 +110,7 @@ export default function MapPicker({ photo, point, selected, onChange }: MapPicke
       if (inner.parentNode === host) host.removeChild(inner);
       mapRef.current = null;
       selectedRef.current = null;
+      overlayRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -93,6 +137,86 @@ export default function MapPicker({ photo, point, selected, onChange }: MapPicke
     }
     map.panTo(ll);
   }, [selected?.lat, selected?.lon]);
+
+  // candidates + search-radius circles
+  useEffect(() => {
+    const map = mapRef.current;
+    const group = overlayRef.current;
+    if (!map || !group) return;
+    group.clearLayers();
+
+    const center = isFiniteLatLon(photo) ? photo : isFiniteLatLon(point) ? point : null;
+    const list = (candidates || []).filter(
+      (c) => Number.isFinite(c.lat) && Number.isFinite(c.lon),
+    );
+
+    const outer = radiusM != null && Number.isFinite(radiusM) && radiusM > 0 ? radiusM : null;
+    const inner =
+      radiusInnerM != null && Number.isFinite(radiusInnerM) && radiusInnerM > 0
+        ? radiusInnerM
+        : null;
+
+    if (center && outer != null) {
+      L.circle([center.lat, center.lon], {
+        radius: outer,
+        className: styles.radiusOuter,
+        color: "var(--accent-default)",
+        fillColor: "var(--accent-default)",
+        fillOpacity: 0.08,
+        weight: 1.5,
+        opacity: 0.55,
+        interactive: false,
+      })
+        .bindTooltip(`${Math.round(outer)} m search radius`, {
+          sticky: true,
+          direction: "center",
+        })
+        .addTo(group);
+    }
+    if (center && inner != null && (outer == null || inner < outer * 0.98)) {
+      L.circle([center.lat, center.lon], {
+        radius: inner,
+        className: styles.radiusInner,
+        color: "var(--accent-default)",
+        fill: false,
+        weight: 1.5,
+        opacity: 0.75,
+        dashArray: "5 4",
+        interactive: false,
+      })
+        .bindTooltip(`${Math.round(inner)} m strict radius`, {
+          sticky: true,
+          direction: "center",
+        })
+        .addTo(group);
+    }
+
+    for (const c of list) {
+      const kind: MapCandidateKind = c.kind || "default";
+      const label = c.rank != null ? String(c.rank) : "·";
+      const icon = L.divIcon({
+        className: `${styles.candPinBase} ${KIND_CLASS[kind]}`,
+        html: `<span class="${styles.candRank}">${label}</span>`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      });
+      const tip = [c.rank != null ? `#${c.rank}` : null, c.name].filter(Boolean).join(" · ");
+      L.marker([c.lat, c.lon], { icon, interactive: true, zIndexOffset: kind === "default" ? 0 : 200 })
+        .addTo(group)
+        .bindTooltip(tip || "candidate", { direction: "top", offset: [0, -10] });
+    }
+
+    // Prefer the fixed outer radius so short lists don't zoom in past the
+    // actual search window (few POIs ≠ smaller radius).
+    if (center && outer != null) {
+      const tmp = L.circle([center.lat, center.lon], { radius: outer });
+      map.fitBounds(tmp.getBounds().pad(0.08), { maxZoom: 18, animate: false });
+    } else if (list.length >= 1 && center) {
+      const boundsPts: L.LatLngExpression[] = [[center.lat, center.lon]];
+      for (const c of list) boundsPts.push([c.lat, c.lon]);
+      map.fitBounds(L.latLngBounds(boundsPts).pad(0.35), { maxZoom: 18, animate: false });
+    }
+  }, [candidates, radiusM, radiusInnerM, photo?.lat, photo?.lon, point.lat, point.lon]);
 
   return <div ref={elRef} className={styles.map} />;
 }

@@ -474,6 +474,27 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
         metrics["label_relations_path"] = rel_path
         metrics["label_relations_n"] = len(relations)
 
+    # --- Retrieval-depth contract (for /retrieval charts) ---
+    # ``candidate_limit`` is the exact k used to truncate nearby_candidates
+    # before predict(). accuracy_pct is the selection score *at that k only*.
+    # Charts must match on candidate_limit == N; they must not interpolate
+    # accuracy@N from a different k. null means "no truncation" / unknown k
+    # and must not be plotted as any N.
+    selected_params = ALL_PARAMS if params is None else list(params)
+    used_nearby = "nearby_candidates" in selected_params
+    metrics["candidate_limit"] = candidate_limit
+    metrics["score_k"] = candidate_limit  # alias: accuracy is for this k
+    metrics["accuracy_at_k"] = candidate_limit is not None and used_nearby
+    metrics["scoring_note"] = (
+        f"strict accuracy with nearby_candidates truncated to k={candidate_limit}"
+        if candidate_limit is not None and used_nearby
+        else (
+            "strict accuracy; nearby list not truncated (candidate_limit=null)"
+            if used_nearby
+            else "strict accuracy; nearby_candidates not in params"
+        )
+    )
+
     safe = _safe_name(name)
     # Display name tracks the stable slug so the UI never shows a one-off
     # free-text label that diverges from the versioned filename.
@@ -494,7 +515,7 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
         "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
         "scope": dataset or "all",
         "mode": "exact" if mode in ("exact", "raw", "") else "normalized",
-        "params": ALL_PARAMS if params is None else params,
+        "params": selected_params,
         "candidate_limit": candidate_limit,
         "lang": lang,
         "script_sha256": hashlib.sha256(script_text.encode("utf-8")).hexdigest(),
@@ -547,6 +568,8 @@ def list_runs(runs_dir: str) -> List[Dict[str, Any]]:
             "mode": r.get("mode"),
             "params": r.get("params", []),
             "candidate_limit": r.get("candidate_limit"),
+            # score_k mirrors candidate_limit when present (chart: exact == N only)
+            "score_k": (r.get("metrics") or {}).get("score_k", r.get("candidate_limit")),
             "lang": r.get("lang"),
             "script_sha256": stored_hash or (
                 hashlib.sha256(str(r["script_text"]).encode("utf-8")).hexdigest()

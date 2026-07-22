@@ -174,12 +174,35 @@ def gt_reconcile_queue(limit=300):
             "remaining": total_non - len(done), "no_candidate": no_candidate, "cases": out}
 
 
-def mapkit_probe(lat, lon):
+# Default / app-path wide radius; optional override for sparse-list investigate.
+MAPKIT_DEFAULT_WIDE_RADIUS_M = 250.0
+MAPKIT_MAX_WIDE_RADIUS_M = 5000.0
+
+
+def mapkit_probe(lat, lon, radius_m=None):
     """Live MapKit nearby query for an arbitrary coordinate (Investigate flow).
-    Runs ls_mapkit_probe.swift — slow (~20–30s: swift compile + network)."""
+
+    Runs ``ls_mapkit_probe.swift`` — slow (~20–30s: swift compile + network).
+
+    ``radius_m`` optionally overrides the probe's *wide* radius (default 250 m).
+    Used by Case inspector sparse-list expand (500 / 1000 / 2000 m). Batch eval
+    and Reconcile keep the default when omitted.
+    """
     swift_file = os.path.join(REPO_DIR, "tools", "swift", "ls_mapkit_probe.swift")
     if not os.path.isfile(swift_file):
         return {"ok": False, "message": "probe script missing", "candidates": []}
+    wide = MAPKIT_DEFAULT_WIDE_RADIUS_M
+    if radius_m is not None:
+        try:
+            wide = float(radius_m)
+        except (TypeError, ValueError):
+            return {"ok": False, "message": "radius_m must be a number", "candidates": []}
+        if not (0 < wide <= MAPKIT_MAX_WIDE_RADIUS_M):
+            return {
+                "ok": False,
+                "message": "radius_m must be in (0, %s]" % int(MAPKIT_MAX_WIDE_RADIUS_M),
+                "candidates": [],
+            }
     in_tsv = out_tsv = None
     try:
         with tempfile.NamedTemporaryFile("w", suffix=".tsv", delete=False, newline="") as f:
@@ -187,12 +210,15 @@ def mapkit_probe(lat, lon):
             f.write("probe\t%s\t%s\t\n" % (lat, lon))
             in_tsv = f.name
         out_tsv = in_tsv + ".out"
+        cmd = ["swift", swift_file, in_tsv]
+        if radius_m is not None:
+            cmd.append(str(wide))
         with open(out_tsv, "w", encoding="utf-8") as out:
-            proc = subprocess.run(["swift", swift_file, in_tsv], stdout=out,
+            proc = subprocess.run(cmd, stdout=out,
                                   stderr=subprocess.PIPE, text=True, timeout=150)
         if proc.returncode != 0:
             return {"ok": False, "message": "probe failed: %s" % (proc.stderr or "")[:200],
-                    "candidates": []}
+                    "candidates": [], "radius_m": wide}
         cands = []
         with open(out_tsv, encoding="utf-8", errors="replace") as f:
             for row in csv.DictReader(f, delimiter="\t"):
@@ -205,11 +231,11 @@ def mapkit_probe(lat, lon):
                  "distance": c.get("distance_m"), "category": c.get("category", ""),
                  "lat": c.get("lat"), "lon": c.get("lon")}
                 for i, c in enumerate(cands) if (c.get("name") or "").strip()]
-        return {"ok": True, "lat": lat, "lon": lon, "candidates": norm}
+        return {"ok": True, "lat": lat, "lon": lon, "radius_m": wide, "candidates": norm}
     except subprocess.TimeoutExpired:
-        return {"ok": False, "message": "probe timed out", "candidates": []}
+        return {"ok": False, "message": "probe timed out", "candidates": [], "radius_m": wide}
     except Exception as e:
-        return {"ok": False, "message": str(e), "candidates": []}
+        return {"ok": False, "message": str(e), "candidates": [], "radius_m": wide}
     finally:
         for p in (in_tsv, out_tsv):
             if p:
@@ -217,6 +243,100 @@ def mapkit_probe(lat, lon):
                     os.remove(p)
                 except OSError:
                     pass
+
+
+# Soft cap for Case inspector lists (retrieval diagnosis needs more than top-3;
+# full MapKit wide lists are routinely 20–50).
+_CASE_CANDIDATE_DISPLAY_CAP = 50
+
+
+def _norm_case_candidates(raw, *, limit=None):
+    """Normalize candidate dicts for the Case inspector API."""
+    out = []
+    for i, c in enumerate(raw or []):
+        if not isinstance(c, dict):
+            continue
+        name = (c.get("name") or "").strip()
+        if not name:
+            continue
+        out.append({
+            "rank": c.get("rank") or i + 1,
+            "name": name,
+            "distance": c.get("distance") if c.get("distance") is not None else c.get("distance_m"),
+            "category": c.get("category") or "",
+            "lat": c.get("lat"),
+            "lon": c.get("lon"),
+        })
+    if limit is not None and limit > 0:
+        out = out[:limit]
+    return out
+
+
+def _case_mapkit_candidates(dataset, photo, row=None):
+    """MapKit nearby list for a case — same artifact algorithms score against.
+
+    Priority:
+      1. Active MapKit / Kakao candidate JSONL (MATCH_CANDIDATE_PATHS)
+      2. Legacy probe TSV fallback (``_load_original_mapkit_outputs``)
+
+    Returns ``(candidates, meta)`` where meta has source / total / provider.
+    """
+    photo_base = os.path.basename((photo or "").strip())
+    ds = (dataset or "").strip()
+    cfg = {}
+    try:
+        cfg = match_score.load_config(config_read_path())
+    except Exception:
+        cfg = {}
+    provider = "mapkit"
+    if row is not None:
+        try:
+            provider = provider_for_row(row, cfg) or "mapkit"
+        except Exception:
+            provider = "mapkit"
+
+    # 1) Versioned full-candidate snapshot (what predict() receives).
+    try:
+        grouped = load_match_candidates(MATCH_CANDIDATE_PATHS)
+    except Exception:
+        grouped = {}
+    qualified = (provider, f"{ds}/{photo_base}") if ds else None
+    bare = (provider, photo_base)
+    source_key = None
+    raw = []
+    if qualified and qualified in grouped:
+        raw = grouped[qualified]
+        source_key = "active_snapshot"
+    elif bare in grouped:
+        raw = grouped[bare]
+        source_key = "active_snapshot"
+    if source_key:
+        cands = _norm_case_candidates(raw, limit=_CASE_CANDIDATE_DISPLAY_CAP)
+        return cands, {
+            "source": source_key,
+            "provider": provider,
+            "total": len(raw),
+            "shown": len(cands),
+        }
+
+    # 2) Legacy probe TSV (ls / rerun) — often top-N only, but better than empty.
+    legacy = (_load_original_mapkit_outputs(limit=_CASE_CANDIDATE_DISPLAY_CAP)
+              .get(photo_base) or {})
+    raw = legacy.get("candidates") or []
+    cands = _norm_case_candidates(raw, limit=_CASE_CANDIDATE_DISPLAY_CAP)
+    total = len(raw)
+    try:
+        reported = int(legacy.get("reportedWideCount") or 0)
+        if reported > total:
+            total = reported
+    except (TypeError, ValueError):
+        pass
+    return cands, {
+        "source": legacy.get("source") or "none",
+        "provider": "mapkit",
+        "total": total,
+        "shown": len(cands),
+    }
 
 
 def case_detail(dataset, photo, run_name=None, version=None):
@@ -240,13 +360,13 @@ def case_detail(dataset, photo, run_name=None, version=None):
     # effective MapKit GT after a manual match, not the stale NON_MAPKIT cell.
     overlaid_rows, _ = overlay_gt_mapkit_overrides([row], path=_gt_overrides_path())
     row = overlaid_rows[0] if overlaid_rows else row
-    cand = (_load_original_mapkit_outputs().get(os.path.basename(photo)) or {}).get("candidates", [])
-    chosen, pred = None, {}
+    chosen, pred, full_run = None, {}, None
     try:
         if run_name and version is not None:
-            full = get_run(RUNS_DIR, run_name, int(version))
-            chosen = {"name": full.get("name") or run_name, "version": full.get("version") or int(version)}
-            for c in full.get("cases", []):
+            full_run = get_run(RUNS_DIR, run_name, int(version))
+            chosen = {"name": full_run.get("name") or run_name,
+                      "version": full_run.get("version") or int(version)}
+            for c in full_run.get("cases", []):
                 if c.get("dataset") == dataset and c.get("photo") == photo:
                     pred = c
                     break
@@ -255,15 +375,36 @@ def case_detail(dataset, photo, run_name=None, version=None):
             best = max(scored, key=lambda r: r.get("accuracy_pct") or 0) if scored else None
             if best:
                 chosen = {"name": best["name"], "version": best["version"]}
-                full = get_run(RUNS_DIR, best["name"], best["version"])
-                for c in full.get("cases", []):
+                full_run = get_run(RUNS_DIR, best["name"], best["version"])
+                for c in full_run.get("cases", []):
                     if c.get("dataset") == dataset and c.get("photo") == photo:
                         pred = c
                         break
     except Exception:
-        chosen, pred = None, {}
+        chosen, pred, full_run = None, {}, None
+
+    cand, cand_meta = _case_mapkit_candidates(dataset, photo, row)
+    run_limit = None
+    if full_run is not None:
+        try:
+            lim = full_run.get("candidate_limit")
+            run_limit = int(lim) if lim is not None else None
+        except (TypeError, ValueError):
+            run_limit = None
+    # Annotate which ranks were inside the run's candidate window (selection scope).
+    if run_limit is not None and run_limit > 0:
+        for c in cand:
+            try:
+                rk = int(c.get("rank") or 0)
+            except (TypeError, ValueError):
+                rk = 0
+            c["in_run_window"] = rk > 0 and rk <= run_limit
+
     lat = (row.get("capture_lat") or "").strip()[:9]
     lon = (row.get("capture_lon") or "").strip()[:9]
+    nearby_signal = (row.get("app_nearby_n_wide") or "").strip()
+    if not nearby_signal and cand_meta.get("total"):
+        nearby_signal = str(cand_meta["total"])
     return {
         "dataset": dataset, "photo": photo,
         "image": f"/api/poi-case-photo?dataset={urllib.parse.quote(dataset)}&photo={urllib.parse.quote(photo)}",
@@ -274,17 +415,17 @@ def case_detail(dataset, photo, run_name=None, version=None):
         "match_kind": pred.get("match_kind", ""),
         "correct": bool(pred.get("correct")),
         "run": chosen,
+        "candidate_limit": run_limit,
+        "candidate_total": cand_meta.get("total", len(cand)),
+        "candidate_source": cand_meta.get("source") or "none",
         "lat": lat, "lon": lon,
         "signals": {
             "gps": (", ".join(x for x in (lat, lon) if x)),
             "ocr": (row.get("caption_ondevice") or "").strip()[:240],
-            "nearby": (row.get("app_nearby_n_wide") or "").strip(),
+            "nearby": nearby_signal,
             "category": (row.get("category") or "").strip(),
         },
-        "candidates": [{"rank": c.get("rank") or i + 1, "name": c.get("name", ""),
-                        "distance": c.get("distance") or c.get("distance_m"),
-                        "category": c.get("category", "")}
-                       for i, c in enumerate(cand)],
+        "candidates": cand,
     }
 
 
@@ -1922,7 +2063,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             except Exception:
                 self._send_json({"ok": False, "message": "lat and lon (numbers) required"}, code=400)
                 return
-            self._send_json(mapkit_probe(lat, lon))
+            radius_m = payload.get("radius_m") if isinstance(payload, dict) else None
+            self._send_json(mapkit_probe(lat, lon, radius_m=radius_m))
             return
         if route == "/api/run":
             self._handle_run()

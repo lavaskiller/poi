@@ -8,7 +8,12 @@
 //     A genuinely-empty coord stays empty after the cooldown; a throttled one recovers.
 //   - a coord is only accepted (and cached) once it's non-empty OR has exhausted retries.
 //
-// Usage:  swift ls_mapkit_probe.swift ls_probe_input.tsv > ls_nearby_results.tsv
+// Usage:
+//   swift ls_mapkit_probe.swift <input.tsv> [wide_radius_m]
+//
+// Default radii match the app path (strict 80 → wide 250). An optional second
+// CLI arg overrides *only* the wide radius for investigate re-queries
+// (e.g. 500 / 1000 / 2000) without changing the batch eval contract.
 //
 // Column layout matches the original probe so downstream parsing is unchanged.
 
@@ -17,7 +22,10 @@ import MapKit
 import CoreLocation
 
 let STRICT_RADIUS = 80.0
-let WIDE_RADIUS   = 250.0
+let DEFAULT_WIDE_RADIUS = 250.0
+// Apple docs: MKLocalPointsOfInterestRequest accepts up to 50 km; keep a
+// practical investigate ceiling so UI presets cannot request absurd circles.
+let MAX_WIDE_RADIUS = 5_000.0
 let PACE_S: UInt64   = 1_500_000_000            // 1.5s between fresh unique-coord lookups
 let RETRY_WAITS: [UInt64] = [4_000_000_000, 9_000_000_000, 15_000_000_000] // cooldowns on empty wide
 
@@ -67,9 +75,13 @@ func rankOf(_ keyword: String, in list: [Ranked]) -> Int? {
 
 let args = CommandLine.arguments
 guard args.count >= 2, let raw = try? String(contentsOfFile: args[1], encoding: .utf8) else {
-    FileHandle.standardError.write("usage: swift ls_mapkit_probe.swift <input.tsv>\n".data(using: .utf8)!)
+    FileHandle.standardError.write("usage: swift ls_mapkit_probe.swift <input.tsv> [wide_radius_m]\n".data(using: .utf8)!)
     exit(1)
 }
+let WIDE_RADIUS: Double = {
+    guard args.count >= 3, let v = Double(args[2]), v > 0 else { return DEFAULT_WIDE_RADIUS }
+    return min(v, MAX_WIDE_RADIUS)
+}()
 var lines = raw.split(separator: "\n").map(String.init)
 lines.removeFirst()
 
