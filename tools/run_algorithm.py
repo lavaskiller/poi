@@ -64,7 +64,26 @@ class RunError(Exception):
 
 
 def _safe_name(name: str) -> str:
-    slug = NAME_RE.sub("-", (name or "").strip()).strip("-")
+    """Stable filesystem / versioning slug for a run.
+
+    Collapses whitespace and punctuation to ``-``, lowercases, strips leading
+    timestamps / random hex prefixes (the historical source of 30+ near-dup
+    names), and caps length so versions stay readable.
+    """
+    raw = (name or "").strip()
+    # Drop trailing version suffixes users sometimes type ("algo-v3" → "algo").
+    raw = re.sub(r"(?:__)?v\d+$", "", raw, flags=re.I).strip("-_ ")
+    # Strip leading ObjectId / UUID / epoch noise if someone pastes a filename.
+    raw = re.sub(
+        r"^(?:[0-9a-f]{24}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|\d{10,13})[_-]+",
+        "",
+        raw,
+        flags=re.I,
+    )
+    slug = NAME_RE.sub("-", raw).strip("-").lower()
+    slug = re.sub(r"-{2,}", "-", slug)
+    if len(slug) > 64:
+        slug = slug[:64].rstrip("-")
     return slug or "algorithm"
 
 
@@ -421,6 +440,9 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
 
     cfg = ms.load_config(config_path)
     rows = ms.read_rows(csv_path)
+    # Same read-time Reconcile overlay as matchrate so identification scoring
+    # sees promoted MapKit names without rewriting the eval CSV.
+    rows, _n_ovr = ms.overlay_gt_mapkit_overrides(rows)
     candidates = ms.load_candidates(candidate_paths)
     if candidate_limit is not None and (type(candidate_limit) is not int or candidate_limit < 1 or candidate_limit > 250):
         raise RunError("candidate_limit must be an integer between 1 and 250, or null")
@@ -453,13 +475,20 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
         metrics["label_relations_n"] = len(relations)
 
     safe = _safe_name(name)
+    # Display name tracks the stable slug so the UI never shows a one-off
+    # free-text label that diverges from the versioned filename.
+    display_name = safe
+    save_mode = (save_mode or "auto").strip() or "auto"
+    if save_mode not in ("auto",) and not re.fullmatch(r"v\d+", save_mode):
+        # Unknown modes fall back to auto-increment (never clobber silently).
+        save_mode = "auto"
     version = _pick_version(runs_dir, safe, save_mode)
     os.makedirs(runs_dir, exist_ok=True)
     hash_paths = [csv_path, config_path, *candidate_paths]
     if relations and os.path.isfile(rel_path):
         hash_paths.append(rel_path)
     record = {
-        "name": (name or safe).strip(),
+        "name": display_name,
         "safe_name": safe,
         "version": version,
         "created_at": datetime.datetime.now().isoformat(timespec="seconds"),

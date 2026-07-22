@@ -5,8 +5,8 @@ Runs as a background job (tracked in the job panel). Given an upload package
 (`dataset_slug/manifest.csv` + `photos/`), it: validates the package, copies
 photos into the dataset's photo dir under POI_DATA_DIR, appends one CSV row per
 manifest row (dataset=slug, photo=basename, input_place_name=gt_input_raw,
-notes, gt_confidence=source default, plus optional capture_lat/capture_lon/
-timestamp when the manifest supplies them), and registers the source in
+notes, gt_confidence=source default, plus required capture_lat/capture_lon/
+timestamp from the manifest and/or EXIF), and registers the source in
 dashboard_config.json if new. A successful server-managed ingest then starts
 its EXIF/OCR/MapKit/GT post-processing pipeline (fill-empty-only). Geocoding is
 reported as skipped until a real CLGeocoder worker is implemented.
@@ -27,17 +27,26 @@ import sys
 import time
 import zipfile
 from pathlib import PurePosixPath
+from typing import Set
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 import match_score as ms  # noqa: E402
 import gt_classify_common as common  # noqa: E402
 from validate_upload_package import validate_zip, ValidationError  # noqa: E402
+from photo_names import (  # noqa: E402
+    CaptureGpsRequired,
+    CaptureTimeRequired,
+    allocate_local_photo_basenames,
+    resolve_capture_gps,
+)
 
 
 # Stable store schema used when the first upload bootstraps a fresh data root.
+# ``photo`` is the local eval identity (0001.jpg …). ``photo_original`` keeps
+# the upload basename for provenance only — never used as a join key.
 CANONICAL_FIELDS = [
-    "dataset", "photo", "capture_lat", "capture_lon", "timestamp",
+    "dataset", "photo", "photo_original", "capture_lat", "capture_lon", "timestamp",
     "caption_oracle", "caption_ondevice", "input_place_name", "gt_mapkit",
     "gt_kakao", "poi_list_match", "poi_match_keyword", "category",
     "gt_confidence", "baseline_place_title", "app_nearby_n_wide",
@@ -60,37 +69,105 @@ def _photo_dir_for(cfg, slug):
 
 
 def _extract_rows(zip_path, report, root, slug, photo_dir, dest_dir, default_conf):
-    """Copy package photos and return reconciled-row fragments."""
+    """Copy package photos under local composite names; return row fragments.
+
+    Local identity: ``{dataset}_{YYYYMMDD}_{sha256[:12]}{ext}`` (see
+    ``photo_names``). Capture time and GPS are required: manifest columns or
+    EXIF; resolved values are always written to the CSV row. Upload basenames
+    go to ``photo_original`` only.
+    """
     with zipfile.ZipFile(zip_path) as zf:
         names = set(n.replace("\\", "/").lstrip("/") for n in zf.namelist())
         manifest_text = zf.read(report["manifest_path"]).decode("utf-8-sig")
         rows = list(csv.DictReader(io.StringIO(manifest_text)))
         n = len(rows)
-        print(f"[ingest] slug={slug} manifest_rows={n} photo_dir={photo_dir}")
+        print(
+            f"[ingest] slug={slug} manifest_rows={n} photo_dir={photo_dir} "
+            f"local_ids={{dataset}}_{{YYYYMMDD}}_{{sha256[:12]}} "
+            f"(capture time + GPS required)",
+            flush=True,
+        )
         _progress(0, n)
+
+        # Read each photo once → (name, bytes, dataset, timestamp) for allocate.
+        payloads: list = []
+        for i, r in enumerate(rows, start=2):
+            photo_rel = (r.get("photo") or "").strip()
+            raw_base = PurePosixPath(photo_rel).name if photo_rel else ""
+            src_name = f"{root}/{photo_rel}" if root else photo_rel
+            data = b""
+            if photo_rel and src_name in names:
+                with zf.open(src_name) as src:
+                    data = src.read()
+            ts = (r.get("timestamp") or r.get("capture_time") or "").strip() or None
+            payloads.append((raw_base, data, slug, ts))
+
+        try:
+            allocated = allocate_local_photo_basenames(payloads)
+        except CaptureTimeRequired as e:
+            # Surface as a clean ingest failure (which rows lack time).
+            missing = []
+            from photo_names import resolve_capture_timestamp
+            for i, (raw, data, _ds, ts) in enumerate(payloads, start=2):
+                try:
+                    resolve_capture_timestamp(ts, data if data else None)
+                except CaptureTimeRequired:
+                    missing.append({"row": i, "photo": raw or "(empty)"})
+            raise CaptureTimeRequired(
+                f"{e}; {len(missing)} row(s) without capture time: "
+                + ", ".join(f"row {m['row']} ({m['photo']})" for m in missing[:8])
+                + ("…" if len(missing) > 8 else "")
+            ) from e
+
         new_rows = []
         photos_copied = photos_missing = 0
-        for i, r in enumerate(rows, 1):
-            photo_rel = (r.get("photo") or "").strip()
-            src_name = f"{root}/{photo_rel}" if root else photo_rel
-            base = PurePosixPath(photo_rel).name
-            if photo_rel and src_name in names:
-                with zf.open(src_name) as src, open(os.path.join(dest_dir, base), "wb") as out:
-                    shutil.copyfileobj(src, out)
+        written: Set[str] = set()
+        filled_ts_from_exif = 0
+        filled_gps_from_exif = 0
+        for i, (r, (_raw, data, _ds, ts_in), (raw_base, local_base, photo_original, ts_iso)) in enumerate(
+            zip(rows, payloads, allocated), 1
+        ):
+            dest_path = os.path.join(dest_dir, local_base)
+            if data:
+                if local_base not in written:
+                    with open(dest_path, "wb") as out:
+                        out.write(data)
+                    written.add(local_base)
                 photos_copied += 1
             else:
                 photos_missing += 1
+            if not (ts_in or "").strip():
+                filled_ts_from_exif += 1
+            lat_in = (r.get("lat") or r.get("capture_lat") or "").strip()
+            lon_in = (r.get("lon") or r.get("capture_lon") or "").strip()
+            lat_out, lon_out = resolve_capture_gps(
+                lat_in or None, lon_in or None, data if data else None
+            )
+            if not (lat_in and lon_in):
+                filled_gps_from_exif += 1
             new_rows.append({
-                "dataset": slug, "photo": base,
+                "dataset": slug,
+                "photo": local_base,
+                "photo_original": photo_original or raw_base,
                 "input_place_name": (r.get("gt_input_raw") or "").strip(),
                 "notes": (r.get("notes") or "").strip(),
                 "gt_confidence": default_conf,
-                "capture_lat": (r.get("lat") or r.get("capture_lat") or "").strip(),
-                "capture_lon": (r.get("lon") or r.get("capture_lon") or "").strip(),
-                "timestamp": (r.get("timestamp") or "").strip(),
+                # Always filled: manifest value or EXIF-resolved coordinates.
+                "capture_lat": lat_out,
+                "capture_lon": lon_out,
+                # Always filled: manifest value or EXIF-resolved ISO.
+                "timestamp": ts_iso,
             })
             if i % 5 == 0 or i == n:
                 _progress(i, n)
+        print(
+            f"[ingest] local ids for {len(allocated)} rows "
+            f"({len(written)} unique files; "
+            f"{filled_ts_from_exif} timestamps from EXIF; "
+            f"{filled_gps_from_exif} GPS from EXIF) "
+            f"e.g. {allocated[0][1] if allocated else '—'}",
+            flush=True,
+        )
     return new_rows, photos_copied, photos_missing
 
 
@@ -147,6 +224,14 @@ def main() -> int:
     except Exception as e:
         _result({"ok": False, "step": "ingest", "error": f"could not read existing CSV: {e}"})
         return 1
+    # Ensure provenance column exists for new and legacy CSVs.
+    if "photo_original" not in fieldnames:
+        # Insert right after photo for readability.
+        if "photo" in fieldnames:
+            i = fieldnames.index("photo") + 1
+            fieldnames = list(fieldnames[:i]) + ["photo_original"] + list(fieldnames[i:])
+        else:
+            fieldnames = list(fieldnames) + ["photo_original"]
     if slug in {(x.get("dataset") or "").strip() for x in existing}:
         _result({"ok": False, "step": "ingest", "error": f"dataset {slug!r} already exists"})
         return 1
@@ -162,6 +247,16 @@ def main() -> int:
     try:
         new_rows, photos_copied, photos_missing = _extract_rows(
             args.zip, report, root, slug, photo_dir, dest_dir, default_conf)
+    except CaptureTimeRequired as e:
+        shutil.rmtree(dest_dir, ignore_errors=True)
+        _result({"ok": False, "step": "ingest", "error": str(e),
+                 "error_code": "capture_time_required"})
+        return 1
+    except CaptureGpsRequired as e:
+        shutil.rmtree(dest_dir, ignore_errors=True)
+        _result({"ok": False, "step": "ingest", "error": str(e),
+                 "error_code": "capture_gps_required"})
+        return 1
     except Exception as e:
         shutil.rmtree(dest_dir, ignore_errors=True)
         _result({"ok": False, "step": "ingest", "error": f"photo extraction failed: {e}"})
@@ -247,7 +342,7 @@ def main() -> int:
              "photos_copied": photos_copied, "photos_missing": photos_missing,
              "photo_dir": photo_dir, "config_source_added": config_source_added,
              "backup": backup,
-             "note": "Coordinates (EXIF), OCR, MapKit, and GT start empty — fill them with rerun jobs"})
+             "note": "Capture time and GPS are required at ingest; OCR, MapKit, and GT start empty — fill them with rerun jobs"})
     return 0
 
 

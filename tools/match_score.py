@@ -41,6 +41,9 @@ CONFIG_PATH = _data_cfg if os.path.exists(_data_cfg) else os.path.join(ROOT, "da
 CANDIDATE_DIR = os.path.join(DATA_ROOT, "generated")
 ACTIVE_MAPKIT_SNAPSHOT_POINTER = "active-mapkit-candidate-snapshot.json"
 DEFAULT_LABEL_RELATIONS_PATH = os.path.join(DATA_ROOT, "eval_label_relations.v1.jsonl")
+# Manual GT↔MapKit matches from the Reconcile UI. Applied at read time so
+# matchrate / algorithm runs see reconciled names without rewriting the CSV.
+GT_MAPKIT_OVERRIDES_PATH = os.path.join(DATA_ROOT, "gt_mapkit_overrides.tsv")
 
 
 def active_mapkit_candidate_file(data_root: Optional[str] = None) -> str:
@@ -145,6 +148,82 @@ GT_SENTINEL_STATUS = {
 }
 
 
+def load_gt_mapkit_overrides(path: Optional[str] = None) -> Dict[Tuple[str, str], Dict[str, str]]:
+    """Load Reconcile-UI overrides keyed by ``(dataset, photo)``.
+
+    Later rows win when the same key is written more than once. Empty / missing
+    files yield an empty dict (first-run safe).
+    """
+    path = path or GT_MAPKIT_OVERRIDES_PATH
+    out: Dict[Tuple[str, str], Dict[str, str]] = {}
+    if not path or not os.path.isfile(path):
+        return out
+    with open(path, encoding="utf-8", newline="") as f:
+        for row in csv.DictReader(f, delimiter="\t"):
+            ds = (row.get("dataset") or "").strip()
+            photo = (row.get("photo") or "").strip()
+            if not photo:
+                continue
+            out[(ds, photo)] = {k: (v if v is not None else "") for k, v in row.items()}
+    return out
+
+
+def overlay_gt_mapkit_overrides(
+    rows: List[Dict[str, str]],
+    overrides: Optional[Dict[Tuple[str, str], Dict[str, str]]] = None,
+    *,
+    path: Optional[str] = None,
+) -> Tuple[List[Dict[str, str]], int]:
+    """Return shallow-copied rows with ``gt_mapkit`` patched from overrides.
+
+    Non-destructive: the CSV is never written. Rules for a matching override:
+
+    * ``chosen`` non-empty → ``gt_mapkit = chosen`` (promotes NON_MAPKIT →
+      canonical for scoring / eligibility).
+    * ``chosen_none`` truthy (or empty chosen after a deliberate save) → keep
+      sentinel ``NON_MAPKIT`` (confirmed absence).
+    * no override → row unchanged.
+
+    Returns ``(rows, n_applied)`` where ``n_applied`` counts rows whose
+    ``gt_mapkit`` value changed.
+    """
+    if overrides is None:
+        overrides = load_gt_mapkit_overrides(path)
+    if not overrides:
+        return rows, 0
+    out: List[Dict[str, str]] = []
+    applied = 0
+    for row in rows:
+        ds = (row.get("dataset") or "").strip()
+        photo = (row.get("photo") or "").strip()
+        ovr = overrides.get((ds, photo))
+        if not ovr:
+            out.append(row)
+            continue
+        chosen = (ovr.get("chosen") or "").strip()
+        chosen_none = str(ovr.get("chosen_none") or "").strip().lower() in {
+            "1", "true", "yes", "y",
+        }
+        new_row = dict(row)
+        before = (new_row.get("gt_mapkit") or "").strip()
+        if chosen:
+            new_row["gt_mapkit"] = chosen
+            new_row["_gt_mapkit_override"] = "chosen"
+            new_row["_gt_mapkit_override_source"] = "reconcile"
+        elif chosen_none or (ovr.get("chosen") is not None and not chosen):
+            # Explicit "not in MapKit" — keep non-canonical sentinel.
+            new_row["gt_mapkit"] = "NON_MAPKIT"
+            new_row["_gt_mapkit_override"] = "none"
+            new_row["_gt_mapkit_override_source"] = "reconcile"
+        else:
+            out.append(row)
+            continue
+        if (new_row.get("gt_mapkit") or "").strip() != before:
+            applied += 1
+        out.append(new_row)
+    return out, applied
+
+
 def gt_resolution(row: Dict[str, str], provider: str) -> Tuple[str, str]:
     """Return ``(canonical_name, resolution_status)`` for a provider.
 
@@ -152,6 +231,10 @@ def gt_resolution(row: Dict[str, str], provider: str) -> Tuple[str, str]:
     being verified, so falling back to it would manufacture a canonical label.
     Empty cells and classifier sentinel values are ineligible for canonical-name
     scoring.
+
+    When rows have been passed through ``overlay_gt_mapkit_overrides``, a
+    reconciled MapKit name already sits in ``gt_mapkit`` and is treated as
+    canonical here — no second lookup is required.
     """
     col = "gt_kakao" if provider == "kakao_local" else "gt_mapkit"
     value = (row.get(col) or "").strip()
@@ -474,9 +557,15 @@ def _rank_from_legacy(row: Dict[str, str]) -> Optional[int | str]:
 
 def evaluate(dataset: str = "all", mode: str = "exact", rows: Optional[List[Dict[str, str]]] = None,
              candidates: Optional[Dict[Tuple[str, str], List[Dict[str, Any]]]] = None,
-             cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+             cfg: Optional[Dict[str, Any]] = None,
+             *,
+             apply_overrides: bool = True,
+             overrides_path: Optional[str] = None) -> Dict[str, Any]:
     cfg = cfg or load_config()
     rows = rows if rows is not None else read_rows()
+    overrides_applied = 0
+    if apply_overrides:
+        rows, overrides_applied = overlay_gt_mapkit_overrides(rows, path=overrides_path)
     candidates = candidates if candidates is not None else load_candidates()
     matcher = exact_equal if mode in ("exact", "raw") else normalized_equal
 
@@ -614,7 +703,12 @@ def evaluate(dataset: str = "all", mode: str = "exact", rows: Optional[List[Dict
             "korea_provider": "kakao_local (held out until Kakao data is available)",
             "non_korea_provider": "mapkit",
             "provider_place_id": "nullable/fallback; not required for MVP scoring",
+            "gt_mapkit_overrides": (
+                "read-time overlay from gt_mapkit_overrides.tsv "
+                "(Reconcile UI); promotes chosen names to canonical"
+            ),
         },
+        "overrides_applied": overrides_applied,
         "counts": dict(counts),
         "n": n,
         "rank1": counts["rank1"],
