@@ -25,3 +25,13 @@
   border: 3px solid #fff;
   box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
 }
+/* selected candidate location */
+.selectedPin {
+  width: 20px;
+  height: 20px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  background: var(--success-fg);
+  border: 3px solid #fff;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+}

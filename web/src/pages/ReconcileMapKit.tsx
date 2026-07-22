@@ -98,6 +98,11 @@ export default function ReconcileMapKit() {
   }
 
   const activeCands = probeCands ?? current.candidates;
+  const selectedCand = choice ? activeCands.find((c) => c.name === choice) : null;
+  const selectedLoc =
+    selectedCand && selectedCand.lat != null && selectedCand.lon != null
+      ? { lat: Number(selectedCand.lat), lon: Number(selectedCand.lon) }
+      : null;
   const visible = showAll ? activeCands : activeCands.slice(0, TOP_N);
   const hiddenCount = activeCands.length - visible.length;
   const listLabel = probeCands
@@ -142,6 +147,7 @@ export default function ReconcileMapKit() {
                   key={current.photo}
                   photo={{ lat: caseLat, lon: caseLon }}
                   point={point}
+                  selected={selectedLoc}
                   onChange={(lat, lon) => {
                     setCoord({ lat, lon });
                     setProbeCands(null);
@@ -155,6 +161,12 @@ export default function ReconcileMapKit() {
                 <span className={styles.coordText}>
                   query {point.lat.toFixed(5)}, {point.lon.toFixed(5)}
                 </span>
+                {selectedLoc && (
+                  <>
+                    <span className={styles.legendDot} style={{ background: "var(--success-fg)" }} />
+                    <span className={styles.coordText}>picked</span>
+                  </>
+                )}
                 <span style={{ flex: 1 }} />
                 {moved && (
                   <button type="button" className={styles.seeMore} onClick={() => { setCoord(null); setProbeCands(null); }}>

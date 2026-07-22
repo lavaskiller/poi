@@ -162,7 +162,8 @@ def gt_reconcile_queue(limit=300):
                 "ocr": (r.get("ocr_text") or r.get("caption_ondevice") or "").strip(),
                 "candidates": [{"rank": c.get("rank") or i + 1, "name": c.get("name", ""),
                                 "distance": c.get("distance") or c.get("distance_m"),
-                                "category": c.get("category", "")}
+                                "category": c.get("category", ""),
+                                "lat": c.get("lat"), "lon": c.get("lon")}
                                for i, c in enumerate(cands)],
             })
     no_candidate = sum(1 for c in out if not c["candidates"])

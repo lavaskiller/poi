@@ -13,12 +13,15 @@ interface MapPickerProps {
   photo?: LatLon;
   /** the query / reference point (draggable when onChange is given) */
   point: LatLon;
+  /** location of the currently selected candidate — pinned + panned to */
+  selected?: LatLon | null;
   onChange?: (lat: number, lon: number) => void;
 }
 
-export default function MapPicker({ photo, point, onChange }: MapPickerProps) {
+export default function MapPicker({ photo, point, selected, onChange }: MapPickerProps) {
   const elRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const selectedRef = useRef<L.Marker | null>(null);
   const cbRef = useRef(onChange);
   cbRef.current = onChange;
 
@@ -63,9 +66,33 @@ export default function MapPicker({ photo, point, onChange }: MapPickerProps) {
       map.remove();
       if (inner.parentNode === host) host.removeChild(inner);
       mapRef.current = null;
+      selectedRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // reactively pin the selected candidate's location
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!selected || !Number.isFinite(selected.lat) || !Number.isFinite(selected.lon)) {
+      if (selectedRef.current) {
+        map.removeLayer(selectedRef.current);
+        selectedRef.current = null;
+      }
+      return;
+    }
+    const ll: L.LatLngExpression = [selected.lat, selected.lon];
+    if (selectedRef.current) {
+      selectedRef.current.setLatLng(ll);
+    } else {
+      const icon = L.divIcon({ className: styles.selectedPin, iconSize: [20, 20], iconAnchor: [10, 10] });
+      selectedRef.current = L.marker(ll, { icon, interactive: false })
+        .addTo(map)
+        .bindTooltip("selected", { direction: "top", offset: [0, -10] });
+    }
+    map.panTo(ll);
+  }, [selected?.lat, selected?.lon]);
 
   return <div ref={elRef} className={styles.map} />;
 }

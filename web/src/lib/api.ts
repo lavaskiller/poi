@@ -6,6 +6,8 @@ export interface OverviewSource {
   count: number;
   label: string;
   known?: boolean;
+  source_type?: string;
+  desc?: string;
 }
 
 export interface OverviewCountry {
@@ -35,18 +37,29 @@ export interface Overview {
   gt_present?: number;
   config_warnings?: string[];
   schema?: SchemaField[];
+  fill?: Record<string, number>;
+  fill_by_dataset?: Record<string, Record<string, number>>;
+  total_by_dataset?: Record<string, number>;
 }
 
 export interface Run {
   name: string;
   version: number;
   scope: string;
+  mode?: string;
   accuracy_pct: number | null;
   accuracy_canonical_pct: number | null;
   n_eligible: number;
   correct: number;
+  correct_canonical?: number;
   created_at: string;
-  runtime?: string;
+  runtime?: string | { device_class?: string; platform?: string };
+  duration_ms?: number | null;
+  params?: string[];
+  evaluation_set_sha256?: string | null;
+  match_kind_counts?: Record<string, number>;
+  abstained?: number;
+  errored?: number;
 }
 
 export interface RunCase {
@@ -58,6 +71,7 @@ export interface RunCase {
   correct_canonical: boolean;
   match_kind: string;
   photo_url?: string;
+  reason?: string;
   context?: {
     input_place_name?: string;
     category?: string;
@@ -78,7 +92,23 @@ export interface MatchRate {
   selection_failure: number;
   search_failure: number;
   miss: number;
+  n?: number;
+  rank1?: number;
+  top3?: number;
+  top5?: number;
+  top10?: number;
+  top20?: number;
+  top50?: number;
+  rank1_rate?: number;
+  top3_rate?: number;
+  top5_rate?: number;
+  top10_rate?: number;
+  top20_rate?: number;
+  top50_rate?: number;
+  miss_rate?: number;
   counts: Record<string, number>;
+  dataset?: string;
+  mode?: string;
 }
 
 export interface CaseCandidate {
@@ -104,10 +134,121 @@ export interface CaseDetail {
   candidates: CaseCandidate[];
 }
 
+export interface SignalCoverageMetric {
+  key: string;
+  label: string;
+  count: number;
+  pct: number;
+}
+
+export interface SignalInfo {
+  label: string;
+  col: string | null;
+  cols: string[];
+  fill: number;
+  empty: number;
+  pct: number;
+  processed: number | null;
+  unprocessed: number | null;
+  processed_pct: number | null;
+  coverage_metrics: SignalCoverageMetric[];
+  label_breakdown?: {
+    total: number;
+    items: { key: string; count: number; pct: number }[];
+    excluded?: Record<string, number>;
+  } | null;
+  result_label: string;
+  step: string | null;
+  status: string;
+}
+
+export interface DatasetInfo {
+  key: string;
+  label: string;
+  count: number;
+  known: boolean;
+  config_source: boolean;
+  source_type: string;
+  photo_dir: string | null;
+  signals: Record<string, SignalInfo>;
+}
+
+export interface DatasetsResponse {
+  datasets: DatasetInfo[];
+  signals_meta: Record<string, unknown>;
+}
+
+export interface JobProgress {
+  done?: number;
+  total?: number;
+  pct?: number;
+  message?: string;
+  eta_s?: number;
+  [key: string]: unknown;
+}
+
+export interface Job {
+  id: string;
+  step: string;
+  status: string; // "running" | "done" | "error" | ...
+  params?: Record<string, unknown>;
+  started?: number | null;
+  finished?: number | null;
+  elapsed_s?: number | null;
+  progress?: JobProgress | null;
+  warnings?: unknown[];
+  error?: string | null;
+  log_path?: string | null;
+}
+
+export interface JobsResponse {
+  ok: boolean;
+  active: string | null;
+  steps: Record<string, string>;
+  jobs: Job[];
+}
+
+export interface RunSubmissionRequest {
+  name: string;
+  script_text: string;
+  lang?: string;
+  scope?: string;
+  mode?: string;
+  params?: string[];
+  save_mode?: string;
+  candidate_limit?: number | null;
+}
+
+export interface RunSubmissionResult {
+  ok: boolean;
+  name: string;
+  version: number;
+  scope?: string;
+  mode?: string;
+  n_cases?: number;
+  metrics?: {
+    n_eligible?: number;
+    correct?: number;
+    accuracy_pct?: number;
+    accuracy_canonical_pct?: number;
+    duration_ms?: number;
+  };
+  message?: string;
+}
+
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { Accept: "application/json" } });
   if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
   return (await res.json()) as T;
+}
+
+async function readError(res: Response, fallback: string): Promise<string> {
+  const data = (await res.json().catch(() => ({}))) as {
+    detail?: string;
+    message?: string;
+    error?: string;
+  };
+  return data.detail || data.message || data.error || `${fallback} → HTTP ${res.status}`;
 }
 
 export interface ReconcileCandidate {
@@ -115,6 +256,8 @@ export interface ReconcileCandidate {
   name: string;
   distance?: number | null;
   category?: string;
+  lat?: number | null;
+  lon?: number | null;
 }
 export interface ReconcileCase {
   dataset: string;
@@ -142,6 +285,32 @@ export interface ReconcileQueue {
   cases: ReconcileCase[];
 }
 
+/** Format duration_ms as a short human string. */
+export function formatDuration(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms)) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.round(s - m * 60);
+  return `${m}m ${rem.toString().padStart(2, "0")}s`;
+}
+
+/** Relative time from ISO / local timestamp. */
+export function relTime(iso: string): string {
+  if (!iso) return "—";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "—";
+  const mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 14) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 export const api = {
   overview: () => getJSON<Overview>("/api/overview"),
 
@@ -152,12 +321,24 @@ export const api = {
       `/api/runs?name=${encodeURIComponent(name)}&version=${encodeURIComponent(version)}`,
     ),
 
-  matchrate: () => getJSON<MatchRate>("/api/matchrate"),
-
-  case: (dataset: string, photo: string) =>
-    getJSON<CaseDetail>(
-      `/api/case?dataset=${encodeURIComponent(dataset)}&photo=${encodeURIComponent(photo)}`,
+  matchrate: (dataset = "all", mode = "exact") =>
+    getJSON<MatchRate>(
+      `/api/matchrate?dataset=${encodeURIComponent(dataset)}&mode=${encodeURIComponent(mode)}`,
     ),
+
+  datasets: () => getJSON<DatasetsResponse>("/api/datasets"),
+
+  jobs: () => getJSON<JobsResponse>("/api/jobs"),
+
+  jobStatus: (jobId: string) =>
+    getJSON<{ ok: boolean } & Job>(`/api/jobs/status?job_id=${encodeURIComponent(jobId)}`),
+
+  case: (dataset: string, photo: string, runName?: string, version?: number) => {
+    const qs = new URLSearchParams({ dataset, photo });
+    if (runName) qs.set("run_name", runName);
+    if (version != null) qs.set("version", String(version));
+    return getJSON<CaseDetail>(`/api/case?${qs.toString()}`);
+  },
 
   /** Live MapKit nearby query for a coordinate (Investigate). Slow (~20–30s). */
   async mapkitProbe(lat: number, lon: number): Promise<ProbeResult> {
@@ -186,8 +367,14 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(c),
     });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; done?: number; remaining?: number; message?: string };
-    if (!res.ok || data.ok === false) throw new Error(data.message || `/api/gt/reconcile → HTTP ${res.status}`);
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      done?: number;
+      remaining?: number;
+      message?: string;
+    };
+    if (!res.ok || data.ok === false)
+      throw new Error(data.message || `/api/gt/reconcile → HTTP ${res.status}`);
     return { ok: true, done: data.done ?? 0, remaining: data.remaining ?? 0 };
   },
 
@@ -202,9 +389,85 @@ export const api = {
     if (!res.ok) throw new Error(data.message || `/api/seed → HTTP ${res.status}`);
     return { ok: data.ok ?? true, message: data.message };
   },
+
+  /** Submit a predict() script and score it. May take minutes for full cohorts. */
+  async submitRun(req: RunSubmissionRequest): Promise<RunSubmissionResult> {
+    const res = await fetch("/api/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(req),
+    });
+    const data = (await res.json().catch(() => ({}))) as RunSubmissionResult & {
+      detail?: string;
+      message?: string;
+    };
+    if (!res.ok || data.ok === false) {
+      throw new Error(data.detail || data.message || `/api/run → HTTP ${res.status}`);
+    }
+    return data;
+  },
+
+  /** Start a background enrichment / maintenance job. */
+  async startJob(
+    step: string,
+    params: {
+      dataset?: string | null;
+      only_empty?: boolean;
+      delete_photos?: boolean;
+      remove_config_source?: boolean;
+    } = {},
+  ): Promise<{ ok: boolean; job_id: string; step: string; status: string }> {
+    const res = await fetch("/api/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ step, ...params }),
+    });
+    if (!res.ok) throw new Error(await readError(res, "/api/jobs"));
+    return (await res.json()) as { ok: boolean; job_id: string; step: string; status: string };
+  },
+
+  /** Ingest a dataset ZIP (starts a tracked job). */
+  async ingest(file: File, dataset?: string): Promise<{ ok: boolean; job_id: string }> {
+    const qs = dataset ? `?dataset=${encodeURIComponent(dataset)}` : "";
+    const res = await fetch(`/api/ingest${qs}`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      body: file,
+    });
+    if (!res.ok) throw new Error(await readError(res, "/api/ingest"));
+    return (await res.json()) as { ok: boolean; job_id: string };
+  },
+
+  /** Validate an upload package without writing. */
+  async validateUpload(file: File): Promise<{ ok: boolean; errors?: unknown[]; warnings?: unknown[] }> {
+    const res = await fetch("/api/validate-upload-package", {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      body: file,
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      errors?: unknown[];
+      warnings?: unknown[];
+      message?: string;
+    };
+    if (!res.ok && data.ok === undefined) {
+      throw new Error(data.message || `/api/validate-upload-package → HTTP ${res.status}`);
+    }
+    return { ok: !!data.ok, errors: data.errors, warnings: data.warnings };
+  },
 };
 
 /** True when the backend has no dataset loaded yet (first-run / onboarding). */
 export function isEmpty(o: Overview): boolean {
   return !o.csv_present || o.data_state === "empty" || (o.sources?.length ?? 0) === 0;
+}
+
+/** Pick the highest-accuracy scored run. */
+export function bestRun(runs: Run[]): Run | null {
+  const scored = runs.filter((r) => typeof r.accuracy_pct === "number");
+  return scored.reduce<Run | null>(
+    (b, r) => (b === null || (r.accuracy_pct ?? 0) > (b.accuracy_pct ?? 0) ? r : b),
+    null,
+  );
 }
