@@ -241,6 +241,49 @@ def _copy_seed_photos(seed_dir, dest_root):
     return n, nbytes
 
 
+def _seed_is_generated_member(rel_path):
+    """Allow generated/runs + MapKit candidate artifacts from a seed ZIP."""
+    rel = (rel_path or "").replace("\\", "/").lstrip("/")
+    if not rel or _is_unsafe_path(rel):
+        return False
+    if rel.startswith("generated/runs/") and rel.endswith(".json") and rel.count("/") == 2:
+        return True
+    if rel == "generated/active-mapkit-candidate-snapshot.json":
+        return True
+    if rel.startswith("generated/candidate-snapshots/") and ".." not in rel.split("/"):
+        return True
+    if rel in (
+        "generated/mapkit_candidates.jsonl",
+        "generated/mapkit_nearby_candidates.jsonl",
+        "generated/kakao_local_candidates.jsonl",
+    ):
+        return True
+    if rel in ("rerun_mapkit_output.tsv", "ls_nearby_results.tsv"):
+        return True
+    return False
+
+
+def _copy_seed_generated(seed_dir, dest_root):
+    """Copy runs + MapKit candidate artifacts from a filesystem seed bundle."""
+    import shutil as _shutil
+    n = 0
+    seed_dir = os.path.abspath(seed_dir)
+    dest_root = os.path.abspath(dest_root)
+    for dirpath, _dirnames, filenames in os.walk(seed_dir):
+        for fn in filenames:
+            src = os.path.join(dirpath, fn)
+            rel = os.path.relpath(src, seed_dir).replace("\\", "/")
+            if not _seed_is_generated_member(rel):
+                continue
+            dst = os.path.join(dest_root, rel)
+            if not os.path.abspath(dst).startswith(dest_root + os.sep):
+                continue
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            _shutil.copy2(src, dst)
+            n += 1
+    return n
+
+
 def _apply_seed_bundle(zip_bytes):
     """Materialize a drag-and-dropped seed-bundle ZIP into the live data root.
 
@@ -296,23 +339,24 @@ def _apply_seed_bundle(zip_bytes):
             with zf.open(zi) as src, open(dst, "wb") as out:
                 shutil.copyfileobj(src, out)
 
-        runs, runs_prefix = 0, base + "generated/runs/"
-        run_members = [(n, zi) for n, zi in by_name.items()
-                       if n.startswith(runs_prefix) and n.endswith(".json")
-                       and "/" not in n[len(runs_prefix):]]
-        if run_members:
-            os.makedirs(RUNS_DIR, exist_ok=True)
-            for n, zi in run_members:
-                with zf.open(zi) as src, open(os.path.join(RUNS_DIR, PurePosixPath(n).name), "wb") as out:
-                    shutil.copyfileobj(src, out)
-                runs += 1
-
-        # Photos: any image under allowed photo_dir prefixes (relative to base).
-        photos = 0
+        runs, photos, generated = 0, 0, 0
         for n, zi in by_name.items():
             if not n.startswith(base):
                 continue
             rel = n[len(base):]
+            # Runs + MapKit candidate artifacts under generated/ (and probe TSVs).
+            if _seed_is_generated_member(rel):
+                dst = os.path.join(DIRECTORY, rel)
+                if not os.path.abspath(dst).startswith(os.path.abspath(DIRECTORY) + os.sep):
+                    continue
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                with zf.open(zi) as src, open(dst, "wb") as out:
+                    shutil.copyfileobj(src, out)
+                generated += 1
+                if rel.startswith("generated/runs/") and rel.endswith(".json"):
+                    runs += 1
+                continue
+            # Photos under allowed photo_dir prefixes.
             if not _seed_is_photo_member(rel):
                 continue
             dst = os.path.join(DIRECTORY, rel)
@@ -327,9 +371,11 @@ def _apply_seed_bundle(zip_bytes):
     msg = f"seeded from upload ({rows} rows · {runs} baselines"
     if photos:
         msg += f" · {photos} photos"
+    if generated:
+        msg += f" · {generated} generated files"
     msg += ")"
     return {"ok": True, "rows": rows, "runs": runs, "photos": photos,
-            "message": msg, "code": 200}
+            "generated_files": generated, "message": msg, "code": 200}
 
 
 def _parse_source_candidate_text(value):
@@ -2730,22 +2776,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     continue
                 if os.path.isfile(src):
                     shutil.copy2(src, dst)
-            seed_runs = os.path.join(seed_dir, "generated", "runs")
-            if os.path.isdir(seed_runs):
-                os.makedirs(RUNS_DIR, exist_ok=True)
-                for fn in os.listdir(seed_runs):
-                    if fn.endswith(".json"):
-                        shutil.copy2(os.path.join(seed_runs, fn), os.path.join(RUNS_DIR, fn))
+            # Runs + MapKit candidate snapshots (Case nearby list / predict).
+            n_gen = _copy_seed_generated(seed_dir, DIRECTORY)
             # Photos (optional in older seeds; required for case images).
             n_photos, photo_bytes = _copy_seed_photos(seed_dir, DIRECTORY)
             msg = f"seeded from {preset}"
+            bits = []
             if n_photos:
-                msg += f" ({n_photos} photos · {photo_bytes / (1024 * 1024):.1f} MiB)"
+                bits.append(f"{n_photos} photos · {photo_bytes / (1024 * 1024):.1f} MiB")
             else:
-                msg += " (no photos in seed bundle — case images will be missing)"
+                bits.append("no photos — case images missing")
+            if n_gen:
+                bits.append(f"{n_gen} generated artifacts")
+            else:
+                bits.append("no MapKit candidate snapshot — Case shows sparse/0 candidates")
+            msg += " (" + "; ".join(bits) + ")"
             self._send_json({
                 "ok": True, "message": msg,
                 "photos": n_photos, "photos_bytes": photo_bytes,
+                "generated_files": n_gen,
             }, code=200)
         except Exception as e:
             self._send_json({"ok": False, "message": str(e)}, code=500)

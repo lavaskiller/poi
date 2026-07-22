@@ -161,6 +161,71 @@ def _select_runs(runs_dir: Path, pattern: str) -> List[Path]:
     return out
 
 
+def _copy_mapkit_candidate_artifacts(data_root: Path, out_dir: Path) -> Tuple[List[str], int]:
+    """Copy active MapKit candidate snapshot (+ pointer, legacy JSONL) into seed.
+
+    Case inspector loads candidates from MATCH_CANDIDATE_PATHS / active snapshot,
+    not from photos. Omitting these yields candidate_total=0 and the sparse banner.
+    """
+    copied: List[str] = []
+    nbytes = 0
+    gen = data_root / "generated"
+    out_gen = out_dir / "generated"
+    out_gen.mkdir(parents=True, exist_ok=True)
+
+    def _copy_file(src: Path, dest: Path) -> None:
+        nonlocal nbytes
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        copied.append(str(dest.relative_to(out_dir)).replace("\\", "/"))
+        try:
+            nbytes += src.stat().st_size
+        except OSError:
+            pass
+
+    # Active pointer + referenced snapshot directory (authoritative for UI/runs).
+    pointer = gen / "active-mapkit-candidate-snapshot.json"
+    if pointer.is_file():
+        _copy_file(pointer, out_gen / pointer.name)
+        try:
+            with open(pointer, encoding="utf-8") as f:
+                meta = json.load(f)
+            snap_id = meta.get("snapshot_id")
+            artifact = meta.get("candidate_artifact") or "mapkit_candidates.jsonl"
+            if isinstance(snap_id, str) and snap_id:
+                snap_dir = gen / "candidate-snapshots" / snap_id
+                if snap_dir.is_dir():
+                    for src in sorted(snap_dir.rglob("*")):
+                        if not src.is_file():
+                            continue
+                        rel = src.relative_to(gen)
+                        _copy_file(src, out_gen / rel)
+                # Always try the named artifact path if present.
+                art = snap_dir / artifact
+                if art.is_file() and str((out_gen / "candidate-snapshots" / snap_id / artifact).relative_to(out_dir)).replace("\\", "/") not in copied:
+                    _copy_file(art, out_gen / "candidate-snapshots" / snap_id / artifact)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as e:
+            print(f"[pack] warn: active snapshot pointer unreadable: {e}")
+
+    # Legacy flat JSONL + nearby-cache used by GT / fallback loaders.
+    for name in (
+        "mapkit_candidates.jsonl",
+        "mapkit_nearby_candidates.jsonl",
+        "kakao_local_candidates.jsonl",
+    ):
+        src = gen / name
+        if src.is_file():
+            _copy_file(src, out_gen / name)
+
+    # Latest probe TSV (full wide_candidates_json) if present — small, useful fallback.
+    for name in ("rerun_mapkit_output.tsv", "ls_nearby_results.tsv"):
+        src = data_root / name
+        if src.is_file():
+            _copy_file(src, out_dir / name)
+
+    return copied, nbytes
+
+
 def pack(
     data_root: Path,
     out_dir: Path,
@@ -192,6 +257,10 @@ def pack(
     for p in run_files:
         shutil.copy2(p, runs_dst / p.name)
 
+    # MapKit candidate artifacts — Case inspector / predict() nearby lists.
+    # Without these, seeded installs show "Sparse list — 0 candidates".
+    cand_files, cand_bytes = _copy_mapkit_candidate_artifacts(data_root, out_dir)
+
     photo_jobs: List[Tuple[Path, str]] = []
     missing: List[dict] = []
     bytes_photos = 0
@@ -218,6 +287,8 @@ def pack(
         "photos_bytes": bytes_photos,
         "photos_missing": missing,
         "photo_dirs": sorted({rel.split("/")[0] for _, rel in photo_jobs}),
+        "mapkit_candidate_files": cand_files,
+        "mapkit_candidate_bytes": cand_bytes,
     }
     with open(out_dir / "MANIFEST.json", "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
@@ -267,7 +338,9 @@ def main() -> int:
         f"[pack] rows={manifest['rows']} runs={len(manifest['runs'])} "
         f"photos={manifest['photos_copied']} "
         f"({manifest['photos_bytes'] / (1024 * 1024):.1f} MiB) "
-        f"missing={len(manifest['photos_missing'])}"
+        f"missing={len(manifest['photos_missing'])} "
+        f"mapkit_artifacts={len(manifest.get('mapkit_candidate_files') or [])} "
+        f"({(manifest.get('mapkit_candidate_bytes') or 0) / (1024 * 1024):.1f} MiB)"
     )
     if manifest["photos_missing"]:
         for m in manifest["photos_missing"][:10]:

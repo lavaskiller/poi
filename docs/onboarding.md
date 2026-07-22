@@ -105,6 +105,9 @@ poi-data-seed/
   eval_set_reconciled.csv      initial evaluation set
   dashboard_config.json        matching config
   generated/runs/*.json        pre-scored baseline runs
+  generated/active-mapkit-candidate-snapshot.json
+  generated/candidate-snapshots/<id>/mapkit_candidates.jsonl
+                               full nearby lists for Case / predict()
   photos/ …                    CSV-referenced images (vancouver, …)
   linkedspaces-photos/ …
   union-city-trip/ …
@@ -113,8 +116,10 @@ poi-data-seed/
   presets.json                 (optional) manifest for multiple named bundles
 ```
 
-A seed **without** photo dirs still loads CSV + runs, but case images 404 until
-photos are present. Prefer the photo-inclusive pack for new machines.
+A seed **without** photo dirs still loads CSV + runs, but case images 404.
+A seed **without** the MapKit candidate snapshot still loads, but Case shows
+**Sparse list — 0 candidates** (nearby list is not stored in the CSV). Prefer
+the pack that includes both photos and `generated/candidate-snapshots/`.
 
 With the bundle in place, the app self-seeds on first run:
 
