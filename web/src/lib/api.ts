@@ -413,8 +413,40 @@ export function relTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+/** Local-vs-remote git freshness (server runs fetch + rev-list). */
+export interface GitSyncStatus {
+  ok: boolean;
+  status:
+    | "current"
+    | "ahead"
+    | "behind"
+    | "diverged"
+    | "skipped"
+    | "not_a_repo"
+    | "check_failed";
+  /** True when the UI must refuse to load until the user pulls. */
+  update_required: boolean;
+  message?: string;
+  hint?: string | null;
+  commands?: string[] | null;
+  branch?: string;
+  upstream?: string;
+  local_sha?: string;
+  local_short?: string;
+  remote_sha?: string;
+  remote_short?: string;
+  behind?: number;
+  ahead?: number;
+}
+
 export const api = {
   overview: () => getJSON<Overview>("/api/overview"),
+
+  /** Compare local HEAD to upstream (fetch first). Blocks the SPA when behind. */
+  gitStatus: (refresh = false) =>
+    getJSON<GitSyncStatus>(
+      refresh ? "/api/git-status?refresh=1" : "/api/git-status",
+    ),
 
   runs: () => getJSON<{ runs: Run[] }>("/api/runs"),
 

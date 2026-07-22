@@ -2097,6 +2097,207 @@ _BLOCKED_STATIC_NAMES = {
     "server.py", ".env", "dashboard_config.json",
 }
 
+# Git freshness gate (UI blocks when local HEAD is behind origin).
+# Set POI_SKIP_GIT_SYNC_CHECK=1 to disable (offline / intentional pin).
+_GIT_STATUS_CACHE = {"ts": 0.0, "payload": None}
+_GIT_STATUS_TTL_S = float(os.environ.get("POI_GIT_STATUS_TTL_S") or "30")
+_GIT_FETCH_TIMEOUT_S = float(os.environ.get("POI_GIT_FETCH_TIMEOUT_S") or "20")
+
+
+def _git_run(*args, timeout=10):
+    """Run a git subcommand in REPO_DIR; returns CompletedProcess."""
+    return subprocess.run(
+        ["git", *args],
+        cwd=REPO_DIR,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        stdin=subprocess.DEVNULL,
+    )
+
+
+def _git_truthy_env(name):
+    return (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def git_sync_status(*, force_fetch=False, now=None):
+    """Compare local HEAD to its upstream (fetch first).
+
+    Returns a dict consumed by ``/api/git-status`` and the frontend gate:
+      status: current | ahead | behind | diverged | skipped | not_a_repo | check_failed
+      update_required: True only when we know the clone is behind remote
+    """
+    if _git_truthy_env("POI_SKIP_GIT_SYNC_CHECK"):
+        return {
+            "ok": True,
+            "status": "skipped",
+            "update_required": False,
+            "message": "Git sync check disabled (POI_SKIP_GIT_SYNC_CHECK).",
+        }
+
+    now = time.time() if now is None else now
+    cached = _GIT_STATUS_CACHE.get("payload")
+    if (
+        not force_fetch
+        and cached is not None
+        and (now - float(_GIT_STATUS_CACHE.get("ts") or 0)) < _GIT_STATUS_TTL_S
+    ):
+        return dict(cached)
+
+    git_dir = os.path.join(REPO_DIR, ".git")
+    if not os.path.isdir(git_dir) and not os.path.isfile(git_dir):
+        payload = {
+            "ok": True,
+            "status": "not_a_repo",
+            "update_required": False,
+            "message": "Not a git checkout — sync check skipped.",
+        }
+        _GIT_STATUS_CACHE["ts"] = now
+        _GIT_STATUS_CACHE["payload"] = payload
+        return dict(payload)
+
+    try:
+        head = _git_run("rev-parse", "HEAD", timeout=5)
+        if head.returncode != 0:
+            raise RuntimeError((head.stderr or head.stdout or "rev-parse HEAD failed").strip())
+        local_sha = head.stdout.strip()
+        short = _git_run("rev-parse", "--short", "HEAD", timeout=5)
+        local_short = (short.stdout.strip() if short.returncode == 0 else local_sha[:7])
+
+        branch_p = _git_run("rev-parse", "--abbrev-ref", "HEAD", timeout=5)
+        branch = branch_p.stdout.strip() if branch_p.returncode == 0 else ""
+
+        upstream = ""
+        up_p = _git_run("rev-parse", "--abbrev-ref", "@{u}", timeout=5)
+        if up_p.returncode == 0 and up_p.stdout.strip():
+            upstream = up_p.stdout.strip()
+        else:
+            for candidate in ("origin/main", "origin/master"):
+                v = _git_run("rev-parse", "--verify", candidate, timeout=5)
+                if v.returncode == 0:
+                    upstream = candidate
+                    break
+        if not upstream:
+            payload = {
+                "ok": False,
+                "status": "check_failed",
+                "update_required": False,
+                "branch": branch,
+                "local_sha": local_sha,
+                "local_short": local_short,
+                "message": "No upstream remote branch (set tracking or origin/main).",
+            }
+            _GIT_STATUS_CACHE["ts"] = now
+            _GIT_STATUS_CACHE["payload"] = payload
+            return dict(payload)
+
+        remote_name = upstream.split("/", 1)[0] if "/" in upstream else "origin"
+        fetch = _git_run("fetch", "--quiet", remote_name, timeout=_GIT_FETCH_TIMEOUT_S)
+        if fetch.returncode != 0:
+            err = (fetch.stderr or fetch.stdout or "git fetch failed").strip()
+            payload = {
+                "ok": False,
+                "status": "check_failed",
+                "update_required": False,
+                "branch": branch,
+                "upstream": upstream,
+                "local_sha": local_sha,
+                "local_short": local_short,
+                "message": f"Could not fetch {remote_name}: {err[:240]}",
+            }
+            # Short cache on failure so the UI can retry soon.
+            _GIT_STATUS_CACHE["ts"] = now - max(0.0, _GIT_STATUS_TTL_S - 5.0)
+            _GIT_STATUS_CACHE["payload"] = payload
+            return dict(payload)
+
+        remote_p = _git_run("rev-parse", upstream, timeout=5)
+        if remote_p.returncode != 0:
+            raise RuntimeError((remote_p.stderr or f"missing {upstream}").strip())
+        remote_sha = remote_p.stdout.strip()
+        remote_short_p = _git_run("rev-parse", "--short", upstream, timeout=5)
+        remote_short = (
+            remote_short_p.stdout.strip()
+            if remote_short_p.returncode == 0
+            else remote_sha[:7]
+        )
+
+        behind_p = _git_run("rev-list", "--count", f"HEAD..{upstream}", timeout=10)
+        ahead_p = _git_run("rev-list", "--count", f"{upstream}..HEAD", timeout=10)
+        behind_n = int((behind_p.stdout or "0").strip() or "0")
+        ahead_n = int((ahead_p.stdout or "0").strip() or "0")
+
+        if behind_n > 0 and ahead_n > 0:
+            status = "diverged"
+            update_required = True
+            message = (
+                f"Local branch has diverged from {upstream} "
+                f"({behind_n} behind, {ahead_n} ahead). Update required."
+            )
+        elif behind_n > 0:
+            status = "behind"
+            update_required = True
+            message = (
+                f"Local checkout is {behind_n} commit(s) behind {upstream}. "
+                "Pull the latest code before using the eval UI."
+            )
+        elif ahead_n > 0:
+            status = "ahead"
+            update_required = False
+            message = f"Local checkout is {ahead_n} commit(s) ahead of {upstream}."
+        else:
+            status = "current"
+            update_required = False
+            message = f"Up to date with {upstream}."
+
+        payload = {
+            "ok": not update_required,
+            "status": status,
+            "update_required": update_required,
+            "branch": branch,
+            "upstream": upstream,
+            "local_sha": local_sha,
+            "local_short": local_short,
+            "remote_sha": remote_sha,
+            "remote_short": remote_short,
+            "behind": behind_n,
+            "ahead": ahead_n,
+            "message": message,
+            "hint": (
+                "cd to the repo, run `git pull --ff-only`, restart `python3 server.py`, "
+                "then reload this page."
+                if update_required
+                else None
+            ),
+            "commands": (
+                ["git pull --ff-only", "# then restart: python3 server.py"]
+                if update_required
+                else None
+            ),
+        }
+        _GIT_STATUS_CACHE["ts"] = now
+        _GIT_STATUS_CACHE["payload"] = payload
+        return dict(payload)
+    except subprocess.TimeoutExpired:
+        payload = {
+            "ok": False,
+            "status": "check_failed",
+            "update_required": False,
+            "message": "Git command timed out while checking for updates.",
+        }
+        _GIT_STATUS_CACHE["ts"] = now - max(0.0, _GIT_STATUS_TTL_S - 5.0)
+        _GIT_STATUS_CACHE["payload"] = payload
+        return dict(payload)
+    except Exception as e:
+        payload = {
+            "ok": False,
+            "status": "check_failed",
+            "update_required": False,
+            "message": f"Git sync check failed: {e}",
+        }
+        _GIT_STATUS_CACHE["ts"] = now - max(0.0, _GIT_STATUS_TTL_S - 5.0)
+        _GIT_STATUS_CACHE["payload"] = payload
+        return dict(payload)
+
 
 def _is_blocked_static(rel_url: str) -> bool:
     """True when a static path would leak source, VCS, or config."""
@@ -2252,6 +2453,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 "origin_check": ALLOWED_ORIGINS is not None,
                 "data_dir": DIRECTORY,
             })
+            return
+        if route == "/api/git-status":
+            # UI boot gate: fetch + compare to upstream. ?refresh=1 bypasses cache.
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            force = (q.get("refresh", [""])[0] or "").strip().lower() in (
+                "1", "true", "yes",
+            )
+            self._send_json(git_sync_status(force_fetch=force))
             return
         # Block sensitive static paths before SimpleHTTP fallback.
         if not route.startswith("/api/"):
