@@ -3,12 +3,14 @@ import { api, type ReconcileCase } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
 import styles from "./ReconcileMapKit.module.css";
 
+const TOP_N = 5;
+
 export default function ReconcileMapKit() {
   const queue = useAsync(() => api.reconcileQueue(), []);
   const [idx, setIdx] = useState(0);
   const [savedCount, setSavedCount] = useState(0);
   const [choice, setChoice] = useState<string | null>(null);
-  const [manualText, setManualText] = useState("");
+  const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +28,11 @@ export default function ReconcileMapKit() {
   if (cases.length === 0 || idx >= cases.length) {
     return (
       <main className={styles.main}>
-        <Header total={data.total_non_mapkit} done={doneBase + savedCount} remaining={Math.max(0, data.remaining - savedCount)} />
+        <Header
+          total={data.total_non_mapkit}
+          done={doneBase + savedCount}
+          remaining={Math.max(0, data.remaining - savedCount)}
+        />
         <div className={styles.empty}>
           <span className={styles.emptyIcon}>✓</span>
           <p className={styles.emptyTitle}>Nothing left in this batch</p>
@@ -43,28 +49,29 @@ export default function ReconcileMapKit() {
   }
 
   const current: ReconcileCase = cases[idx];
+  const advance = () => {
+    setChoice(null);
+    setShowAll(false);
+    setIdx((i) => i + 1);
+  };
 
-  async function save(chosen: string, manual = false) {
+  async function save(chosen: string) {
     setBusy(true);
     setError(null);
     try {
-      await api.reconcileSave({
-        dataset: current.dataset,
-        photo: current.photo,
-        gt: current.gt,
-        chosen,
-        manual,
-      });
+      await api.reconcileSave({ dataset: current.dataset, photo: current.photo, gt: current.gt, chosen });
       setSavedCount((n) => n + 1);
-      setChoice(null);
-      setManualText("");
-      setIdx((i) => i + 1);
+      advance();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   }
+
+  const noCandidates = current.candidates.length === 0;
+  const visible = showAll ? current.candidates : current.candidates.slice(0, TOP_N);
+  const hiddenCount = current.candidates.length - visible.length;
 
   return (
     <main className={styles.main}>
@@ -90,7 +97,7 @@ export default function ReconcileMapKit() {
         {/* left: the case */}
         <div className={styles.caseCol}>
           <div className={styles.photo}>
-            <span className={styles.photoName}>{current.photo}</span>
+            <img className={styles.photoImg} src={current.image} alt={current.photo} loading="lazy" />
           </div>
           <div className={styles.gtBox}>
             <span className={styles.gtLabel}>Ground truth (unmatched)</span>
@@ -103,23 +110,26 @@ export default function ReconcileMapKit() {
         {/* right: candidate picker */}
         <div className={styles.pickCol}>
           <p className={styles.pickLabel}>
-            {current.candidates.length === 0
-              ? "No MapKit candidates — enter the correct place manually"
+            {noCandidates
+              ? "No MapKit candidates — investigate to re-query"
               : `Pick the matching MapKit place · ${current.candidates.length} candidates`}
           </p>
-          {current.candidates.length > 0 && (
+
+          {noCandidates ? (
+            <p className={styles.noCand}>
+              MapKit returned nothing near this photo’s coordinate. Use “Investigate on map” to move
+              the point and re-query, or mark it not in MapKit.
+            </p>
+          ) : (
             <div className={styles.candList}>
-              {current.candidates.map((c, i) => {
-                const on = choice === c.name && !manualText;
+              {visible.map((c, i) => {
+                const on = choice === c.name;
                 return (
                   <button
                     key={`${c.name}-${i}`}
                     type="button"
                     className={`${styles.cand} ${on ? styles.candOn : ""}`}
-                    onClick={() => {
-                      setChoice(c.name);
-                      setManualText("");
-                    }}
+                    onClick={() => setChoice(c.name)}
                     disabled={busy}
                   >
                     <span className={styles.candRank}>{c.rank}</span>
@@ -130,26 +140,13 @@ export default function ReconcileMapKit() {
                   </button>
                 );
               })}
+              {current.candidates.length > TOP_N && (
+                <button type="button" className={styles.seeMore} onClick={() => setShowAll((s) => !s)}>
+                  {showAll ? "See fewer" : `See more (${hiddenCount})`}
+                </button>
+              )}
             </div>
           )}
-
-          {/* manual entry — the only path for no-candidate cases, a fallback otherwise */}
-          <div className={styles.manualRow}>
-            <span className={styles.manualLabel}>
-              {current.candidates.length === 0 ? "Correct MapKit place" : "Or enter manually"}
-            </span>
-            <input
-              className={styles.manualInput}
-              type="text"
-              value={manualText}
-              onChange={(e) => {
-                setManualText(e.target.value);
-                if (e.target.value) setChoice(null);
-              }}
-              placeholder="Type the correct MapKit place name…"
-              disabled={busy}
-            />
-          </div>
 
           {error && <p className={styles.error}>{error}</p>}
 
@@ -157,26 +154,18 @@ export default function ReconcileMapKit() {
             <button
               type="button"
               className={styles.primary}
-              disabled={busy || (!choice && !manualText.trim())}
-              onClick={() =>
-                manualText.trim() ? save(manualText.trim(), true) : choice && save(choice)
-              }
+              disabled={busy || !choice}
+              onClick={() => choice && save(choice)}
             >
-              {busy ? "Saving…" : manualText.trim() ? "Save manual match" : "Save match"}
+              {busy ? "Saving…" : "Save match"}
             </button>
-            <button type="button" className={styles.secondary} disabled={busy} onClick={() => save("")}>
+            <button type="button" className={styles.secondary} disabled title="Coming next">
+              Investigate on map
+            </button>
+            <button type="button" className={styles.ghost} disabled={busy} onClick={() => save("")}>
               Not in MapKit
             </button>
-            <button
-              type="button"
-              className={styles.ghost}
-              disabled={busy}
-              onClick={() => {
-                setChoice(null);
-                setManualText("");
-                setIdx((i) => i + 1);
-              }}
-            >
+            <button type="button" className={styles.ghost} disabled={busy} onClick={advance}>
               Skip
             </button>
           </div>

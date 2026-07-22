@@ -51,7 +51,7 @@ def _parse_source_candidate_text(value):
             for i, c in enumerate(match_score.parse_top_candidates(value or ""))]
 
 
-def _load_original_mapkit_outputs():
+def _load_original_mapkit_outputs(limit=5):
     """Read original MapKit probe TSVs, never generated candidate JSONL."""
     records = {}
     for filename, rich_field in (("rerun_mapkit_output.tsv", "wide_candidates_json"),
@@ -81,7 +81,7 @@ def _load_original_mapkit_outputs():
                     variants.append(candidates)
             chosen = variants[-1] if variants else []
             has_rich = rich_field == "wide_candidates_json" and bool((rows[-1].get(rich_field) or "").strip())
-            records[photo] = {"candidates": chosen[:5], "source": filename,
+            records[photo] = {"candidates": chosen[:limit], "source": filename,
                 "sourceField": rich_field if has_rich else "top3_wide",
                 "sourceRows": len(rows), "sourceVariants": len(variants),
                 "sourceRetained": len(chosen), "reportedWideCount": rows[-1].get("wide_n", "")}
@@ -138,7 +138,7 @@ def gt_reconcile_queue(limit=300):
     if not os.path.isfile(CSV_PATH):
         return {"total_non_mapkit": 0, "done": 0, "remaining": 0, "cases": []}
     done = _load_gt_overrides()
-    cand_map = _load_original_mapkit_outputs()
+    cand_map = _load_original_mapkit_outputs(limit=50)
     out, total_non = [], 0
     with open(CSV_PATH, encoding="utf-8") as f:
         for r in csv.DictReader(f):

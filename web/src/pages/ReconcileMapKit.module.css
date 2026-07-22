@@ -101,6 +101,27 @@
   background: var(--bg-subtle);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.photoImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.seeMore {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--accent-default);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+.seeMore:hover {
+  text-decoration: underline;
 }
 .photoName {
   font-family: var(--font-mono);
