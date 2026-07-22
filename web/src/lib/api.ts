@@ -14,6 +14,15 @@ export interface OverviewCountry {
   flag?: string;
 }
 
+export interface SchemaField {
+  group: string; // human label, e.g. "photo_url / photo"
+  role_key: string; // "in" | "gt" | "bl" | "mt"
+  role_label: string;
+  fill: number; // rows with this field present
+  cols: string[];
+  desc?: string;
+}
+
 export interface Overview {
   data_state: string; // "ready" | "empty" | ...
   csv_present: boolean;
@@ -25,6 +34,7 @@ export interface Overview {
   photo_present?: number;
   gt_present?: number;
   config_warnings?: string[];
+  schema?: SchemaField[];
 }
 
 export interface Run {

@@ -1,33 +1,27 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Button from "../components/Button";
 import ProgressBar from "../components/ProgressBar";
+import { api, type SchemaField } from "../lib/api";
+import { useAsync } from "../lib/useAsync";
 import styles from "./NewRun.module.css";
 
 const STEPS = ["Algorithm", "Inputs", "Scope & run"];
 
-const PRESETS = [
-  { label: "Recommended · 4", active: true },
-  { label: "Everything · 11", active: false },
-  { label: "Minimal · 2", active: false },
-];
+// which real columns each preset selects (matched against a field's cols)
+const RECOMMENDED = new Set(["photo", "capture_lat", "caption_ondevice", "app_nearby_top1", "app_nearby_n_wide"]);
+const MINIMAL = new Set(["photo", "capture_lat"]);
 
-type Input = {
+interface Field {
+  key: string;
   name: string;
   path: string;
-  pct: string;
-  checked: boolean;
-  warn?: string;
-  warnTone?: boolean;
-};
+  fill: number;
+  cols: string[];
+}
 
-const INPUTS: Input[] = [
-  { name: "photo", path: "case.photo", pct: "100%", checked: true },
-  { name: "exif.gps", path: "case.exif.gps", pct: "94%", checked: true },
-  { name: "mapkit.nearby", path: "case.candidates[ ]", pct: "100%", checked: true },
-  { name: "ocr.text", path: "case.ocr.text", pct: "61%", checked: true, warn: "⚠ drops 223 rows", warnTone: true },
-  { name: "heading", path: "case.exif.heading", pct: "38%", checked: false, warn: "⚠ sparse", warnTone: true },
-  { name: "device.locale", path: "case.locale", pct: "100%", checked: false },
-];
+function fieldsMatch(f: Field, set: Set<string>): boolean {
+  return f.cols.some((c) => set.has(c));
+}
 
 function Stepper() {
   return (
@@ -35,9 +29,7 @@ function Stepper() {
       {STEPS.map((label, i) => (
         <div key={label} className={styles.stepGroup}>
           <span className={`${styles.stepNum} ${i === 0 ? styles.stepActive : ""}`}>{i + 1}</span>
-          <span className={`${styles.stepLabel} ${i === 0 ? styles.stepLabelActive : ""}`}>
-            {label}
-          </span>
+          <span className={`${styles.stepLabel} ${i === 0 ? styles.stepLabelActive : ""}`}>{label}</span>
           {i < STEPS.length - 1 && <span className={styles.connector} />}
         </div>
       ))}
@@ -45,33 +37,57 @@ function Stepper() {
   );
 }
 
-function InputChip({ input, onToggle }: { input: Input; onToggle: () => void }) {
-  return (
-    <button
-      type="button"
-      className={`${styles.chip} ${input.checked ? styles.chipOn : styles.chipOff}`}
-      onClick={onToggle}
-    >
-      <span className={`${styles.box} ${input.checked ? styles.boxOn : ""}`}>
-        {input.checked && "✓"}
-      </span>
-      <span className={styles.chipName}>{input.name}</span>
-      <span className={styles.chipPath}>{input.path}</span>
-      <span className={styles.chipSpacer} />
-      {input.warn && (
-        <span className={input.warnTone ? styles.warnText : styles.mutedText}>{input.warn}</span>
-      )}
-      <span className={input.warnTone ? styles.warnPct : styles.chipPct}>{input.pct}</span>
-    </button>
-  );
-}
-
 export default function NewRun() {
-  const [inputs, setInputs] = useState(INPUTS);
-  const [preset, setPreset] = useState(0);
+  const overview = useAsync(() => api.overview(), []);
 
-  const toggle = (idx: number) =>
-    setInputs((prev) => prev.map((it, i) => (i === idx ? { ...it, checked: !it.checked } : it)));
+  const fields = useMemo<Field[]>(() => {
+    const schema: SchemaField[] = overview.status === "ready" ? overview.data.schema ?? [] : [];
+    // exposable to predict(case): input signals + MapKit baseline hints (GT excluded)
+    return schema
+      .filter((s) => s.role_key === "in" || s.role_key === "bl")
+      .map((s) => ({
+        key: s.cols[0] ?? s.group,
+        name: s.group,
+        path: `case.${s.cols[0] ?? ""}`,
+        fill: s.fill,
+        cols: s.cols,
+      }));
+  }, [overview.status]);
+
+  const total = overview.status === "ready" ? overview.data.total : 0;
+
+  const presets = useMemo(
+    () => [
+      { id: "recommended", label: "Recommended", members: fields.filter((f) => fieldsMatch(f, RECOMMENDED)) },
+      { id: "everything", label: "Everything", members: fields },
+      { id: "minimal", label: "Minimal", members: fields.filter((f) => fieldsMatch(f, MINIMAL)) },
+    ],
+    [fields],
+  );
+
+  const [selected, setSelected] = useState<Set<string> | null>(null);
+  // default to Recommended once fields load
+  const active = selected ?? new Set(presets[0].members.map((f) => f.key));
+
+  const applyPreset = (members: Field[]) => setSelected(new Set(members.map((f) => f.key)));
+  const toggle = (key: string) => {
+    const next = new Set(active);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setSelected(next);
+  };
+
+  const selectedFields = fields.filter((f) => active.has(f.key));
+  // a row is eligible if it has every selected input → min coverage across them
+  const eligible = selectedFields.length ? Math.min(...selectedFields.map((f) => f.fill)) : total;
+  const binding = selectedFields.length
+    ? selectedFields.reduce((a, b) => (a.fill <= b.fill ? a : b))
+    : null;
+  const eligPct = total > 0 ? Math.round((eligible / total) * 100) : 0;
+
+  const activePresetId = presets.find(
+    (p) => p.members.length === active.size && p.members.every((f) => active.has(f.key)),
+  )?.id;
 
   return (
     <main className={styles.main}>
@@ -79,14 +95,13 @@ export default function NewRun() {
         <p className={`sectionLabel ${styles.kicker}`}>Run → Score → Inspect</p>
         <h1 className={styles.h1}>New run</h1>
         <p className={styles.sub}>
-          Attach a prediction script, choose the inputs it receives, and score it against ground
-          truth.
+          Attach a prediction script, choose the inputs it receives, and score it against ground truth.
         </p>
       </div>
 
       <Stepper />
 
-      {/* 1 · Algorithm */}
+      {/* 1 · Algorithm (attach — not yet wired to execution) */}
       <section className={styles.card}>
         <div className={styles.cardHead}>
           <span className={`sectionLabel ${styles.stepTag}`}>1 · Algorithm</span>
@@ -104,61 +119,83 @@ export default function NewRun() {
               <span className={styles.fileName}>heuristic_v2.py</span>
               <span className={styles.fileSize}>4.2 KB</span>
             </div>
-            <code className={styles.signature}>
-              def predict(case) → str | {'{'}"prediction", "reason"{'}'}
-            </code>
+            <code className={styles.signature}>def predict(case) → str</code>
             <div className={styles.fileActions}>
-              <a href="#" className={styles.linkAccent}>
-                View code →
-              </a>
-              <a href="#" className={styles.linkMuted}>
-                Replace
-              </a>
+              <span className={styles.linkMuted}>Run execution wiring is next (POST /api/run).</span>
             </div>
           </div>
-        </div>
-        <div className={styles.exampleRow}>
-          <Button kind="secondary">Load example</Button>
-          <span className={styles.headHint}>
-            Minimal baseline that returns the nearest candidate — a safe starting point.
-          </span>
         </div>
       </section>
 
-      {/* 2 · Inputs */}
+      {/* 2 · Inputs — real schema */}
       <section className={styles.card}>
         <div className={styles.cardHead}>
           <span className={`sectionLabel ${styles.stepTag}`}>2 · Inputs</span>
-          <span className={styles.headHint}>— what each case exposes to predict(case)</span>
+          <span className={styles.headHint}>— what each case actually exposes to predict(case)</span>
         </div>
-        <div className={styles.presets}>
-          {PRESETS.map((p, i) => (
-            <button
-              key={p.label}
-              type="button"
-              className={`${styles.preset} ${i === preset ? styles.presetOn : ""}`}
-              onClick={() => setPreset(i)}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <div className={styles.inputsRow}>
-          <div className={styles.inputGrid}>
-            {inputs.map((it, i) => (
-              <InputChip key={it.name} input={it} onToggle={() => toggle(i)} />
-            ))}
-          </div>
-          <div className={styles.eligibility}>
-            <p className={styles.eligLabel}>Eligible cases</p>
-            <div className={styles.eligValueRow}>
-              <span className={styles.eligValue}>1,032</span>
-              <span className={styles.eligOf}>/ 1,284 (80%)</span>
+
+        {overview.status === "loading" && <p className={styles.headHint}>Loading fields…</p>}
+        {overview.status === "error" && (
+          <p className={styles.headHint}>Couldn’t load fields — {overview.error.message}</p>
+        )}
+
+        {overview.status === "ready" && (
+          <>
+            <div className={styles.presets}>
+              {presets.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`${styles.preset} ${activePresetId === p.id ? styles.presetOn : ""}`}
+                  onClick={() => applyPreset(p.members)}
+                >
+                  {p.label} · {p.members.length}
+                </button>
+              ))}
+              {!activePresetId && <span className={styles.headHint}>Custom · {active.size}</span>}
             </div>
-            <ProgressBar value={0.8} width="100%" />
-            <p className={styles.eligNote}>ocr.text is the binding constraint — 223 rows lack it.</p>
-          </div>
-        </div>
+
+            <div className={styles.inputsRow}>
+              <div className={styles.inputGrid}>
+                {fields.map((f) => {
+                  const on = active.has(f.key);
+                  const cov = total > 0 ? Math.round((f.fill / total) * 100) : 0;
+                  const sparse = cov < 90;
+                  return (
+                    <button
+                      key={f.key}
+                      type="button"
+                      className={`${styles.chip} ${on ? styles.chipOn : styles.chipOff}`}
+                      onClick={() => toggle(f.key)}
+                    >
+                      <span className={`${styles.box} ${on ? styles.boxOn : ""}`}>{on && "✓"}</span>
+                      <span className={styles.chipName}>{f.name}</span>
+                      <span className={styles.chipPath}>{f.path}</span>
+                      <span className={styles.chipSpacer} />
+                      {sparse && <span className={styles.warnText}>⚠ {total - f.fill} missing</span>}
+                      <span className={sparse ? styles.warnPct : styles.chipPct}>{cov}%</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className={styles.eligibility}>
+                <p className={styles.eligLabel}>Eligible cases</p>
+                <div className={styles.eligValueRow}>
+                  <span className={styles.eligValue}>{eligible.toLocaleString()}</span>
+                  <span className={styles.eligOf}>
+                    / {total.toLocaleString()} ({eligPct}%)
+                  </span>
+                </div>
+                <ProgressBar value={total > 0 ? eligible / total : 0} width="100%" />
+                <p className={styles.eligNote}>
+                  {binding
+                    ? `${binding.name} is the binding constraint — ${total - binding.fill} rows lack it.`
+                    : "Select at least one input."}
+                </p>
+              </div>
+            </div>
+          </>
+        )}
       </section>
 
       {/* 3 · Scope & run */}
@@ -168,37 +205,22 @@ export default function NewRun() {
         </div>
         <div className={styles.scopeRow}>
           <div className={styles.field}>
-            <p className={styles.fieldLabel}>Run name</p>
-            <div className={styles.input}>
-              <span className={styles.inputText}>heuristic-v2</span>
-            </div>
-            <p className={styles.fieldHint}>saves as v8 — versions are automatic</p>
-          </div>
-
-          <div className={styles.field}>
-            <p className={styles.fieldLabel}>Save mode</p>
-            <div className={styles.input}>
-              <span className={styles.inputText}>Auto — next version (v8)</span>
-              <span className={styles.caret}>▾</span>
-            </div>
-            <p className={styles.fieldHint}>or overwrite an existing version</p>
-          </div>
-
-          <div className={styles.field}>
             <p className={styles.fieldLabel}>Datasets</p>
             <div className={styles.datasetRow}>
-              <span className={`${styles.dataset} ${styles.datasetOn}`}>✓ linkedspaces · 812</span>
-              <span className={`${styles.dataset} ${styles.datasetOn}`}>✓ union-city · 214</span>
-              <span className={styles.dataset}>○ vancouver · 258</span>
+              {(overview.status === "ready" ? overview.data.sources : []).map((s) => (
+                <span key={s.key} className={`${styles.dataset} ${styles.datasetOn}`}>
+                  ✓ {s.key} · {s.count}
+                </span>
+              ))}
             </div>
-            <p className={styles.fieldHint}>GT scope: canonical + similar</p>
+            <p className={styles.fieldHint}>{eligible.toLocaleString()} eligible with current inputs</p>
           </div>
-
           <div className={styles.scopeSpacer} />
-
           <div className={styles.runCol}>
-            <Button kind="primary">▶&nbsp;&nbsp;Run evaluation</Button>
-            <span className={styles.runHint}>~3 min on 1,032 cases · lands in Results</span>
+            <Button kind="primary" disabled>
+              ▶&nbsp;&nbsp;Run evaluation
+            </Button>
+            <span className={styles.runHint}>execution wiring (POST /api/run) is the next step</span>
           </div>
         </div>
       </section>
