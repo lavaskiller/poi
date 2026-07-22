@@ -316,9 +316,83 @@ def format_report(report: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def _missing_pip_packages(report: Dict[str, Any]) -> List[str]:
+    out = []
+    for m in report.get("missing") or []:
+        key = m.get("key") or ""
+        if key.startswith("py:"):
+            out.append(key.split(":", 1)[1])
+    return out
+
+
+def ensure_runtime_deps(*, auto_pip: Optional[bool] = None) -> Dict[str, Any]:
+    """Check deps; optionally ``pip install -r requirements.txt`` for missing packages.
+
+    Auto-pip runs when any required *pip* package is missing, unless
+    ``POI_NO_AUTO_PIP=1``. Non-pip failures (Swift, Python version) still block.
+    """
     report = check_runtime_deps()
+    if report.get("ready") or report.get("skipped"):
+        return report
+
+    missing_pip = _missing_pip_packages(report)
+    if auto_pip is None:
+        auto_pip = not _truthy_env("POI_NO_AUTO_PIP")
+    if not missing_pip or not auto_pip:
+        return report
+
+    req = REQUIREMENTS_PATH
+    if not req.is_file():
+        return report
+
+    print(
+        f"Missing pip packages ({', '.join(missing_pip)}); "
+        f"running: {sys.executable} -m pip install -r {req}",
+        file=sys.stderr,
+    )
+    try:
+        import subprocess
+
+        proc = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-r", str(req)],
+            cwd=str(REPO_DIR),
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "pip failed").strip()
+            print(f"auto pip install failed:\n{err[:800]}", file=sys.stderr)
+            report = check_runtime_deps()
+            report["auto_pip"] = {
+                "attempted": True,
+                "ok": False,
+                "detail": err[:400],
+            }
+            return report
+    except Exception as e:
+        print(f"auto pip install error: {e}", file=sys.stderr)
+        report = check_runtime_deps()
+        report["auto_pip"] = {"attempted": True, "ok": False, "detail": str(e)}
+        return report
+
+    report = check_runtime_deps()
+    report["auto_pip"] = {
+        "attempted": True,
+        "ok": bool(report.get("ready")) or not _missing_pip_packages(report),
+        "detail": f"installed from {req.name}",
+    }
+    if report["auto_pip"]["ok"]:
+        print("auto pip install succeeded.", file=sys.stderr)
+    return report
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    # CLI: try auto-pip so `python3 tools/check_deps.py` heals Pillow etc.
+    report = ensure_runtime_deps(auto_pip=True)
     print(format_report(report))
+    if report.get("auto_pip"):
+        print(f"auto_pip: {report['auto_pip']}")
     return 0 if report.get("ready") else 1
 
 

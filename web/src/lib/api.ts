@@ -434,6 +434,7 @@ export interface DepsStatus {
   warnings?: { key: string; label: string; detail: string; fix?: string | null }[];
   install_commands?: string[];
   requirements_file?: string;
+  auto_pip?: { attempted: boolean; ok: boolean; detail?: string };
 }
 
 /** Local-vs-remote git freshness (server runs fetch + rev-list). */
@@ -460,6 +461,10 @@ export interface GitSyncStatus {
   remote_short?: string;
   behind?: number;
   ahead?: number;
+  /** Present on newer backends — same payload as /api/deps-status. */
+  deps?: DepsStatus;
+  features?: string[];
+  repo_dir?: string;
 }
 
 export const api = {

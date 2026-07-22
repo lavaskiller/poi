@@ -67,6 +67,12 @@ class CheckDepsTests(unittest.TestCase):
         if out["ready"]:
             self.assertEqual(out["missing"], [])
 
+    def test_ensure_skips_pip_when_ready(self):
+        with mock.patch.dict(os.environ, {"POI_SKIP_DEPS_CHECK": "1"}, clear=False):
+            out = self.mod.ensure_runtime_deps(auto_pip=True)
+        self.assertTrue(out["ready"])
+        self.assertNotIn("auto_pip", out)
+
 
 if __name__ == "__main__":
     unittest.main()

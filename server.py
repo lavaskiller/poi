@@ -21,9 +21,18 @@ from match_score import (
 )
 from run_algorithm import run_submission, list_runs, get_run, delete_run, RunError
 from gt_classify_common import read_csv as gc_read_csv, write_csv as gc_write_csv, backup_csv as gc_backup_csv
-from check_deps import check_runtime_deps
+from check_deps import check_runtime_deps, ensure_runtime_deps
 import run_algorithm as algorithm
 import match_score as match_score
+
+# Advertised to the SPA so a new UI can detect an old backend (missing routes).
+API_FEATURES = (
+    "deps-status",
+    "git-status",
+    "overview",
+    "case",
+    "mapkit-probe",
+)
 
 # Data root. Resolution order:
 #   1. POI_DATA_DIR — explicit override.
@@ -2525,6 +2534,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 "auth_required": bool(API_TOKEN),
                 "origin_check": ALLOWED_ORIGINS is not None,
                 "data_dir": DIRECTORY,
+                "repo_dir": REPO_DIR,
+                "features": list(API_FEATURES),
             })
             return
         if route == "/api/git-status":
@@ -2534,11 +2545,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             force = (q.get("refresh", [""])[0] or "").strip().lower() in (
                 "1", "true", "yes",
             )
-            self._send_json(git_sync_status(force_fetch=force))
+            payload = git_sync_status(force_fetch=force)
+            # Nested deps so a single call works even if /api/deps-status is
+            # forgotten in a partial deploy (still requires this server build).
+            try:
+                payload["deps"] = check_runtime_deps()
+            except Exception as e:
+                payload["deps"] = {
+                    "ok": False,
+                    "ready": False,
+                    "message": f"deps check failed: {e}",
+                }
+            payload["features"] = list(API_FEATURES)
+            payload["repo_dir"] = REPO_DIR
+            self._send_json(payload)
             return
         if route == "/api/deps-status":
             # Hard deps (Python packages, macOS Swift/MapKit scripts, …).
-            self._send_json(check_runtime_deps())
+            # Auto-pip for missing requirements.txt packages, then re-check.
+            self._send_json(ensure_runtime_deps(auto_pip=True))
             return
         # Block sensitive static paths before SimpleHTTP fallback.
         if not route.startswith("/api/"):
@@ -3114,11 +3139,12 @@ if __name__ == "__main__":
     os.chdir(REPO_DIR)
 
     # Refuse to listen when hard runtime deps are missing (Pillow, Swift on
-    # macOS, requirements.txt packages, …). Override with POI_SKIP_DEPS_CHECK=1.
-    _deps = check_runtime_deps()
+    # macOS, requirements.txt packages, …). Missing pip packages are installed
+    # automatically once; override with POI_SKIP_DEPS_CHECK=1 / POI_NO_AUTO_PIP=1.
+    from check_deps import format_report
+    _deps = ensure_runtime_deps(auto_pip=True)
     if not _deps.get("ready"):
         print("ERROR: runtime dependencies missing — server will not start.\n", file=sys.stderr)
-        from check_deps import format_report
         print(format_report(_deps), file=sys.stderr)
         print(
             "\nInstall Python deps with:\n"
@@ -3144,6 +3170,7 @@ if __name__ == "__main__":
         auth = "token-required" if API_TOKEN else "local-trust"
         print(
             f"serving {where} at http://{BIND_HOST}:{PORT}  "
-            f"[{auth}; origin_check={'on' if ALLOWED_ORIGINS is not None else 'off'}]"
+            f"[{auth}; origin_check={'on' if ALLOWED_ORIGINS is not None else 'off'}; "
+            f"features={','.join(API_FEATURES)}]"
         )
         httpd.serve_forever()
