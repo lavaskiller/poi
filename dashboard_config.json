@@ -7,7 +7,16 @@
   "sources": {
     "linkedspaces": { "label": "Real-user visits", "color": "blue", "owner": "real users", "source_type": "real-user-export", "default_confidence": "user_selected", "photo_dir": "linkedspaces-photos", "desc": "Real place visits from users (In Seo export, KS2-10)." },
     "union-city":   { "label": "Woohyuk personal blog", "color": "cyan", "owner": "Woohyuk", "source_type": "personal-blog", "default_confidence": "confirmed_user", "photo_dir": "union-city-trip", "desc": "Union City travel blog." },
-    "vancouver":    { "label": "In Seo personal blog", "color": "violet", "owner": "In Seo", "source_type": "personal-blog", "default_confidence": "confirmed_user", "photo_dir": "photos", "desc": "Vancouver travel blog." }
+    "vancouver":    { "label": "In Seo personal blog", "color": "violet", "owner": "In Seo", "source_type": "personal-blog", "default_confidence": "confirmed_user", "photo_dir": "photos", "desc": "Vancouver travel blog." },
+    "poi-dataset-20260708": {
+      "label": "POI dataset 2026-07-08",
+      "color": "gold",
+      "owner": "internal",
+      "source_type": "curated-eval",
+      "default_confidence": "confirmed_user",
+      "photo_dir": "poi-dataset-20260708-photos",
+      "desc": "100-row curated eval set (ingested 2026-07-08). Mixed NA travel photos; photos under poi-dataset-20260708-photos/."
+    }
   },
 
   "_signals_note": "Auto-fill signal registry. Drives the rerun step dropdown on tab ④ and /api/datasets signal coverage. step maps to STEP_REGISTRY in server.py. status 'not_implemented' greys out the UI and returns 501.",
