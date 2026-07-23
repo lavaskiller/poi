@@ -103,6 +103,12 @@
 .filtersSpacer {
   flex: 1 0 0;
 }
+.pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .sortNote {
   font-family: var(--font-mono);
   font-size: 11px;

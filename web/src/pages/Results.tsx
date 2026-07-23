@@ -19,6 +19,9 @@ import styles from "./Results.module.css";
 
 type FilterId = "all" | "wrong" | "abstain" | "error" | "related";
 
+/** Failure gallery page size — keep cards large; page with Prev/Next. */
+const GALLERY_PAGE_SIZE = 12;
+
 interface ResultsData {
   runs: Run[];
   selected: Run | null;
@@ -70,6 +73,12 @@ export default function Results() {
   }, [state]);
 
   const [filter, setFilter] = useState<FilterId>("all");
+  const [page, setPage] = useState(0);
+
+  // Filter / run change invalidates the current page window.
+  useEffect(() => {
+    setPage(0);
+  }, [filter, nameQ, versionQ]);
 
   const derived = useMemo(() => {
     if (state.status !== "ready") return null;
@@ -96,7 +105,12 @@ export default function Results() {
               )
             : byKind(filter);
 
-    const gallery = filtered.slice(0, 12).map((c) => ({
+    const pageCount = Math.max(1, Math.ceil(filtered.length / GALLERY_PAGE_SIZE));
+    const safePage = Math.min(page, pageCount - 1);
+    const start = safePage * GALLERY_PAGE_SIZE;
+    const end = Math.min(start + GALLERY_PAGE_SIZE, filtered.length);
+
+    const gallery = filtered.slice(start, end).map((c) => ({
       dataset: c.dataset,
       photo: c.photo,
       card: {
@@ -123,6 +137,10 @@ export default function Results() {
       failures,
       filtered,
       gallery,
+      pageCount,
+      safePage,
+      rangeStart: filtered.length === 0 ? 0 : start + 1,
+      rangeEnd: end,
       scored,
       matchrate,
       selected,
@@ -136,7 +154,7 @@ export default function Results() {
         ["related", "related_credit", "alias"].includes(c.match_kind),
       ).length,
     };
-  }, [state, filter]);
+  }, [state, filter, page]);
 
   if (state.status === "loading") {
     return <main className={styles.main}>Loading run results…</main>;
@@ -170,6 +188,10 @@ export default function Results() {
     failures,
     filtered,
     gallery,
+    pageCount,
+    safePage,
+    rangeStart,
+    rangeEnd,
     scored,
     wrongN,
     abstainN,
@@ -339,9 +361,34 @@ export default function Results() {
         >
           Export failures
         </button>
-        <span className={styles.sortNote}>
-          1–{Math.min(12, filtered.length)} of {filtered.length}
-        </span>
+        <div className={styles.pager}>
+          <button
+            type="button"
+            className={styles.filter}
+            onClick={() => setPage(Math.max(0, safePage - 1))}
+            disabled={safePage <= 0 || filtered.length === 0}
+            title="Previous 12 failures"
+            aria-label="Previous page of failures"
+          >
+            ← Prev
+          </button>
+          <span className={styles.sortNote} aria-live="polite">
+            {filtered.length === 0
+              ? `0 of 0`
+              : `${rangeStart}–${rangeEnd} of ${filtered.length}`}
+            {pageCount > 1 ? ` · p${safePage + 1}/${pageCount}` : ""}
+          </span>
+          <button
+            type="button"
+            className={styles.filter}
+            onClick={() => setPage(Math.min(pageCount - 1, safePage + 1))}
+            disabled={safePage >= pageCount - 1 || filtered.length === 0}
+            title="Next 12 failures"
+            aria-label="Next page of failures"
+          >
+            Next →
+          </button>
+        </div>
       </div>
 
       <div className={styles.gallery}>
