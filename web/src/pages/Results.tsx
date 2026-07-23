@@ -103,24 +103,22 @@ export default function Results() {
     setPage(0);
   }, [filter, nameQ, versionQ]);
 
-  const goToPage = (next: number) => {
-    setPage(next);
-    // Keep the new first cards in view — paging used to leave scroll mid-grid
-    // so it looked like Prev/Next did nothing to the photos.
-    requestAnimationFrame(() => {
-      const main = mainRef.current;
-      const gallery = galleryRef.current;
-      if (main && gallery) {
-        // offsetTop is not reliable across nested layout; map gallery → main scroll.
-        const mainRect = main.getBoundingClientRect();
-        const galleryRect = gallery.getBoundingClientRect();
-        const top = main.scrollTop + (galleryRect.top - mainRect.top) - 16;
-        main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-      } else {
-        gallery?.scrollIntoView({ block: "start", behavior: "smooth" });
-      }
-    });
-  };
+  // After the new page paints, bring the gallery top into the scrollport.
+  // (Doing this in the click handler races React commit and uses stale layout.)
+  const pageScrollSkip = useRef(true);
+  useEffect(() => {
+    if (pageScrollSkip.current) {
+      pageScrollSkip.current = false;
+      return;
+    }
+    const main = mainRef.current;
+    const gallery = galleryRef.current;
+    if (!main || !gallery) return;
+    const mainRect = main.getBoundingClientRect();
+    const galleryRect = gallery.getBoundingClientRect();
+    const top = main.scrollTop + (galleryRect.top - mainRect.top) - 16;
+    main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  }, [page, filter]);
 
   const derived = useMemo(() => {
     if (state.status !== "ready") return null;
@@ -428,7 +426,7 @@ export default function Results() {
           <button
             type="button"
             className={styles.filter}
-            onClick={() => goToPage(Math.max(0, safePage - 1))}
+            onClick={() => setPage(Math.max(0, safePage - 1))}
             disabled={safePage <= 0 || filtered.length === 0}
             title="Previous 12 failures"
             aria-label="Previous page of failures"
@@ -444,7 +442,7 @@ export default function Results() {
           <button
             type="button"
             className={styles.filter}
-            onClick={() => goToPage(Math.min(pageCount - 1, safePage + 1))}
+            onClick={() => setPage(Math.min(pageCount - 1, safePage + 1))}
             disabled={safePage >= pageCount - 1 || filtered.length === 0}
             title="Next 12 failures"
             aria-label="Next page of failures"
