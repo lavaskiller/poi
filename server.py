@@ -87,10 +87,9 @@ REPO_CONFIG_PATH = os.path.join(REPO_DIR, "dashboard_config.json")
 def config_read_path():
     """Current effective config; ingestion may create the data copy at runtime."""
     return DATA_CONFIG_PATH if os.path.exists(DATA_CONFIG_PATH) else REPO_CONFIG_PATH
-MATCH_CANDIDATE_PATHS = [
-    match_score.active_mapkit_candidate_file(DIRECTORY),
-    os.path.join(DIRECTORY, "generated", "kakao_local_candidates.jsonl"),
-]
+def match_candidate_paths():
+    """Resolve the active candidate snapshot at request/run time."""
+    return match_score.default_candidate_files(DIRECTORY)
 RUNS_DIR = os.path.join(DIRECTORY, "generated", "runs")
 
 # Onboarding seed bundle. Lives at the repo root and is gitignored (real user
@@ -708,7 +707,7 @@ def _case_mapkit_candidates(dataset, photo, row=None):
     """MapKit nearby list for a case — same artifact algorithms score against.
 
     Priority:
-      1. Active MapKit / Kakao candidate JSONL (MATCH_CANDIDATE_PATHS)
+      1. Active MapKit / Kakao candidate JSONL (match_candidate_paths())
       2. Legacy probe TSV fallback (``_load_original_mapkit_outputs``)
 
     Returns ``(candidates, meta)`` where meta has source / total / provider.
@@ -732,7 +731,7 @@ def _case_mapkit_candidates(dataset, photo, row=None):
 
     # 1) Versioned full-candidate snapshot (what predict() receives).
     try:
-        grouped = load_match_candidates(MATCH_CANDIDATE_PATHS)
+        grouped = load_match_candidates(match_candidate_paths())
     except Exception:
         grouped = {}
     qualified = (provider, f"{ds}/{photo_base}") if ds else None
@@ -873,7 +872,7 @@ def poi_case_explorer_data():
     config = match_score.load_config(config_read_path())
     cases = algorithm.build_cases(
         match_score.read_rows(CSV_PATH), config,
-        match_score.load_candidates([MATCH_CANDIDATE_PATHS[0]]),
+        match_score.load_candidates([match_candidate_paths()[0]]),
         "all", ["image", "ocr_text", "nearby_candidates"], 5,
     )
     by_name = {}
@@ -2235,7 +2234,7 @@ def build_matchrate(dataset_filter="all", mode="exact"):
         dataset=dataset_filter or "all",
         mode=mode or "exact",
         rows=read_match_rows(CSV_PATH),
-        candidates=load_match_candidates(MATCH_CANDIDATE_PATHS),
+        candidates=load_match_candidates(match_candidate_paths()),
         overrides_path=_gt_overrides_path(),
     )
 
@@ -3208,7 +3207,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 save_mode=(req.get("save_mode") or "auto").strip(),
                 csv_path=CSV_PATH,
                 config_path=config_read_path(),
-                candidate_paths=MATCH_CANDIDATE_PATHS,
+                candidate_paths=match_candidate_paths(),
                 runs_dir=RUNS_DIR,
                 candidate_limit=req.get("candidate_limit"),
             )

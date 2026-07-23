@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import os
+import hashlib
+import json
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
@@ -121,6 +124,60 @@ class EvaluationSetHashTests(unittest.TestCase):
         self.assertEqual(len(h1), 64)
         # Different order → different cohort fingerprint by design.
         self.assertNotEqual(h1, ra.evaluation_set_sha256(list(reversed(cases))))
+
+
+class ActiveCandidateSnapshotTests(unittest.TestCase):
+    def _write_snapshot(self, root, snapshot_id, candidate_name):
+        snapshot_dir = os.path.join(
+            root, "generated", "candidate-snapshots", snapshot_id
+        )
+        os.makedirs(snapshot_dir, exist_ok=True)
+        artifact = os.path.join(snapshot_dir, "mapkit_candidates.jsonl")
+        payload = json.dumps({
+            "provider": "mapkit",
+            "dataset": "dataset",
+            "photo": "0001.jpg",
+            "name": candidate_name,
+            "rank": 1,
+        }) + "\n"
+        with open(artifact, "w", encoding="utf-8") as f:
+            f.write(payload)
+        digest = hashlib.sha256(payload.encode()).hexdigest()
+        with open(os.path.join(snapshot_dir, "metadata.json"), "w", encoding="utf-8") as f:
+            json.dump({
+                "snapshot_id": snapshot_id,
+                "status": "complete",
+                "candidate_artifact": "mapkit_candidates.jsonl",
+                "candidate_artifact_sha256": digest,
+            }, f)
+        return artifact
+
+    def test_default_files_follow_pointer_switch_without_reimport(self):
+        with tempfile.TemporaryDirectory() as root:
+            artifact_a = self._write_snapshot(root, "snapshot-a", "Place A")
+            artifact_b = self._write_snapshot(root, "snapshot-b", "Place B")
+            generated = os.path.join(root, "generated")
+            pointer = os.path.join(generated, ms.ACTIVE_MAPKIT_SNAPSHOT_POINTER)
+
+            def activate(snapshot_id):
+                with open(pointer, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "snapshot_id": snapshot_id,
+                        "candidate_artifact": "mapkit_candidates.jsonl",
+                    }, f)
+
+            activate("snapshot-a")
+            self.assertEqual(ms.default_candidate_files(root)[0], artifact_a)
+
+            # The module remains imported; only the authoritative pointer moves.
+            activate("snapshot-b")
+            resolved = ms.default_candidate_files(root)
+            self.assertEqual(resolved[0], artifact_b)
+            candidates = ms.load_candidates([resolved[0]])
+            self.assertEqual(
+                candidates[("mapkit", "dataset/0001.jpg")][0]["name"],
+                "Place B",
+            )
 
 
 if __name__ == "__main__":

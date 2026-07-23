@@ -728,7 +728,7 @@ def _cli() -> int:
         name=args.name, script_text=script_text, lang="python", dataset=args.dataset,
         mode=args.mode, params=([p for p in args.params.split(",") if p] if args.params else None), save_mode="auto",
         csv_path=ms.CSV_PATH, config_path=ms.CONFIG_PATH,
-        candidate_paths=ms.DEFAULT_CANDIDATE_FILES, runs_dir=args.runs_dir,
+        candidate_paths=ms.default_candidate_files(), runs_dir=args.runs_dir,
         candidate_limit=args.candidate_limit,
     )
     print(json.dumps(res, ensure_ascii=False, indent=2))

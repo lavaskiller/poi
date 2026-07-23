@@ -94,10 +94,23 @@ def active_mapkit_candidate_file(data_root: Optional[str] = None) -> str:
     return artifact_path
 
 
-DEFAULT_CANDIDATE_FILES = [
-    active_mapkit_candidate_file(),
-    os.path.join(CANDIDATE_DIR, "kakao_local_candidates.jsonl"),
-]
+def default_candidate_files(data_root: Optional[str] = None) -> List[str]:
+    """Resolve candidate artifacts from the current active-snapshot pointer.
+
+    Snapshot selection can happen while the dashboard is alive. Resolving only
+    at module import would leave that process pinned to the previously active
+    artifact until it is restarted.
+    """
+    root = data_root or DATA_ROOT
+    return [
+        active_mapkit_candidate_file(root),
+        os.path.join(root, "generated", "kakao_local_candidates.jsonl"),
+    ]
+
+
+# Compatibility for external importers. Repository execution paths use the
+# function above so an active-snapshot change is observed at run time.
+DEFAULT_CANDIDATE_FILES = default_candidate_files()
 
 KR_NAMES = {"South Korea", "Korea", "Republic of Korea", "대한민국", "한국", "KR", "KOR"}
 
@@ -635,9 +648,10 @@ def convert_mapkit_tsv(tsv_path: str, out_path: str, allow_lossy_top3: bool = Fa
     return n
 
 
-def load_candidates(paths: Iterable[str] = DEFAULT_CANDIDATE_FILES) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+def load_candidates(paths: Optional[Iterable[str]] = None) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+    """Load candidates, resolving the active snapshot now when paths are omitted."""
     grouped: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
-    for path in paths:
+    for path in default_candidate_files() if paths is None else paths:
         if not os.path.exists(path):
             continue
         with open(path, encoding="utf-8") as f:
