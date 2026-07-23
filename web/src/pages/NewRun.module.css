@@ -97,7 +97,27 @@
   color: var(--text-tertiary);
 }
 
-/* clone previous run */
+/* clone previous run — nested inside 1 · Algorithm */
+.cloneBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md, 10px);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-default);
+}
+.cloneBlockHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+.cloneBlockTitle {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+}
 .cloneRow {
   display: flex;
   flex-wrap: wrap;
@@ -129,7 +149,8 @@
   gap: 10px;
   padding: 6px 10px;
   border-radius: var(--radius-pill);
-  background: var(--accent-subtle, var(--bg-subtle));
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
   color: var(--text-secondary);
   font-size: 12.5px;
 }
@@ -146,6 +167,23 @@
   font: inherit;
   color: var(--accent-default);
   text-decoration: underline;
+}
+.algoDivider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
+.algoDivider::before,
+.algoDivider::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--border-default);
 }
 .scopeNote {
   margin: 0;

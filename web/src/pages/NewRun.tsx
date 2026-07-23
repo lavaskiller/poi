@@ -503,81 +503,88 @@ export default function NewRun() {
         <p className={`sectionLabel ${styles.kicker}`}>Run → Score → Inspect</p>
         <h1 className={styles.h1}>New run</h1>
         <p className={styles.sub}>
-          Attach a prediction script, choose the inputs it receives, and score it against ground truth.
-          Or start from a previous run — script, signals, k, and dataset scope are editable.
+          Attach a prediction script (or continue from a previous run), choose the inputs it receives, and
+          score it against ground truth.
         </p>
       </div>
 
       <Stepper step={running ? 2 : scriptText ? 1 : 0} />
 
-      {/* Clone previous run */}
-      <section className={styles.card}>
-        <div className={styles.cardHead}>
-          <span className={`sectionLabel ${styles.stepTag}`}>Start from previous run</span>
-          <span className={styles.headHint}>
-            — loads script · params · candidate k · scope (all still editable)
-          </span>
-        </div>
-        <div className={styles.cloneRow}>
-          <label className={styles.cloneLabel}>
-            Previous run
-            <select
-              className={styles.cloneSelect}
-              value={cloneSelectValue}
-              disabled={cloneLoading || state.status !== "ready"}
-              onChange={(e) => onCloneSelect(e.target.value)}
-            >
-              <option value="">— Blank / baseline —</option>
-              {priorRunOptions.map((r) => {
-                const acc =
-                  typeof r.accuracy_pct === "number" ? `${r.accuracy_pct}%` : "—";
-                const k =
-                  r.candidate_limit != null ? `k=${r.candidate_limit}` : "k=∅";
-                const noScript = r.has_script === false;
-                return (
-                  <option
-                    key={`${r.name}-${r.version}`}
-                    value={runOptionValue(r.name, r.version)}
-                    disabled={noScript}
-                  >
-                    {r.name} · v{r.version} · {acc} · {k} · {r.scope || "all"}
-                    {noScript ? " · no script" : ""}
-                  </option>
-                );
-              })}
-            </select>
-          </label>
-          {cloneLoading && <span className={styles.headHint}>Loading run…</span>}
-          {cloneSource && !cloneLoading && (
-            <span className={styles.cloneBadge}>
-              Loaded from <strong>{cloneSource.name}</strong> · v{cloneSource.version}
-              <button
-                type="button"
-                className={styles.cloneClear}
-                onClick={() => resetToBaseline()}
-              >
-                Clear
-              </button>
-            </span>
-          )}
-        </div>
-        {state.status === "ready" && priorRunOptions.length === 0 && (
-          <p className={styles.headHint}>No prior runs yet — attach a script below to create the first one.</p>
-        )}
-        {state.status === "ready" && priorRunOptions.length > 0 && cloneableCount === 0 && (
-          <p className={styles.headHint}>
-            Prior runs exist but none store a predict() script (e.g. rescore-only). Attach a .py file to run.
-          </p>
-        )}
-        {scopeNote && <p className={styles.scopeNote}>⚠ {scopeNote}</p>}
-      </section>
-
-      {/* 1 · Algorithm */}
+      {/* 1 · Algorithm — includes optional clone-from-previous */}
       <section className={styles.card}>
         <div className={styles.cardHead}>
           <span className={`sectionLabel ${styles.stepTag}`}>1 · Algorithm</span>
           <span className={styles.headHint}>— one function: predict(case) → place name</span>
         </div>
+
+        <div className={styles.cloneBlock}>
+          <div className={styles.cloneBlockHead}>
+            <span className={styles.cloneBlockTitle}>Start from previous run</span>
+            <span className={styles.headHint}>
+              optional · loads script · params · candidate k · scope (all still editable)
+            </span>
+          </div>
+          <div className={styles.cloneRow}>
+            <label className={styles.cloneLabel}>
+              Previous run
+              <select
+                className={styles.cloneSelect}
+                value={cloneSelectValue}
+                disabled={cloneLoading || state.status !== "ready"}
+                onChange={(e) => onCloneSelect(e.target.value)}
+              >
+                <option value="">— Blank / baseline —</option>
+                {priorRunOptions.map((r) => {
+                  const acc =
+                    typeof r.accuracy_pct === "number" ? `${r.accuracy_pct}%` : "—";
+                  const k =
+                    r.candidate_limit != null ? `k=${r.candidate_limit}` : "k=∅";
+                  const noScript = r.has_script === false;
+                  return (
+                    <option
+                      key={`${r.name}-${r.version}`}
+                      value={runOptionValue(r.name, r.version)}
+                      disabled={noScript}
+                    >
+                      {r.name} · v{r.version} · {acc} · {k} · {r.scope || "all"}
+                      {noScript ? " · no script" : ""}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+            {cloneLoading && <span className={styles.headHint}>Loading run…</span>}
+            {cloneSource && !cloneLoading && (
+              <span className={styles.cloneBadge}>
+                Loaded from <strong>{cloneSource.name}</strong> · v{cloneSource.version}
+                <button
+                  type="button"
+                  className={styles.cloneClear}
+                  onClick={() => resetToBaseline()}
+                >
+                  Clear
+                </button>
+              </span>
+            )}
+          </div>
+          {state.status === "ready" && priorRunOptions.length === 0 && (
+            <p className={styles.headHint}>
+              No prior runs yet — drop a script below to create the first one.
+            </p>
+          )}
+          {state.status === "ready" && priorRunOptions.length > 0 && cloneableCount === 0 && (
+            <p className={styles.headHint}>
+              Prior runs exist but none store a predict() script (e.g. rescore-only). Attach a .py file
+              below.
+            </p>
+          )}
+          {scopeNote && <p className={styles.scopeNote}>⚠ {scopeNote}</p>}
+        </div>
+
+        <div className={styles.algoDivider}>
+          <span>or attach a new script</span>
+        </div>
+
         <div className={styles.algoRow}>
           <div
             className={styles.dropzone}
