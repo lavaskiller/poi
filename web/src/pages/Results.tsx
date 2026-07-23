@@ -111,7 +111,10 @@ export default function Results() {
       const main = mainRef.current;
       const gallery = galleryRef.current;
       if (main && gallery) {
-        const top = gallery.offsetTop - 12;
+        // offsetTop is not reliable across nested layout; map gallery → main scroll.
+        const mainRect = main.getBoundingClientRect();
+        const galleryRect = gallery.getBoundingClientRect();
+        const top = main.scrollTop + (galleryRect.top - mainRect.top) - 16;
         main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
       } else {
         gallery?.scrollIntoView({ block: "start", behavior: "smooth" });
