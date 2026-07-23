@@ -233,7 +233,18 @@
 }
 .flipsGallery {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   width: 100%;
+  align-items: stretch;
+}
+.flipsGallery > * {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+}
+.flipsGallery > * > * {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
 }

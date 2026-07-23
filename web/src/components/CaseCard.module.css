@@ -1,8 +1,14 @@
+/* Fixed geometry so every gallery tile is the same size regardless of
+   photo aspect ratio or prediction/GT string length. */
+
 .card {
   display: flex;
   align-items: stretch;
-  flex: 1 0 0;
+  width: 100%;
+  height: 100%;
   min-width: 0;
+  /* Photo (4:3 of ~full width) + fixed text block ≈ stable tile */
+  min-height: 340px;
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
@@ -17,70 +23,105 @@
 .inner {
   display: flex;
   flex-direction: column;
-  flex: 1 0 0;
+  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
 }
 .photo {
+  /* Fixed frame: always 4:3, never grows/shrinks with the image */
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  height: auto;
+  min-height: 0;
+  max-height: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Taller frame so landscape shots aren't a thin strip */
-  height: auto;
-  aspect-ratio: 4 / 3;
-  min-height: 180px;
-  max-height: 260px;
-  width: 100%;
   background: var(--bg-subtle);
   overflow: hidden;
 }
 .photoImg {
   width: 100%;
   height: 100%;
-  /* contain: full scene visible; cover cropped too aggressively on wide cards */
-  object-fit: contain;
+  /* Cover fills the frame so every photo tile looks the same size */
+  object-fit: cover;
+  object-position: center;
   display: block;
 }
 .filename {
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--text-tertiary);
+  padding: 8px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 .body {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   padding: 12px 14px 14px;
   width: 100%;
+  min-height: 132px;
+  box-sizing: border-box;
 }
 .title {
+  margin: 0;
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 1.3;
   color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  min-height: calc(1.3em * 2);
 }
 .filenameLine {
-  margin: -2px 0 2px;
+  margin: 0;
   font-family: var(--font-mono);
   font-size: 10.5px;
+  line-height: 1.2;
   color: var(--text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .kv {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 8px;
   width: 100%;
+  min-height: 1.35em;
 }
 .kvLabel {
   font-family: var(--font-mono);
   font-size: 10px;
+  line-height: 1.35;
   color: var(--text-tertiary);
   width: 76px;
   flex-shrink: 0;
+  padding-top: 1px;
 }
 .kvValue {
   font-size: 13px;
+  line-height: 1.35;
+  min-width: 0;
+  flex: 1 1 auto;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
 }
 .gtSrc {
   display: inline-flex;
@@ -94,4 +135,5 @@
   color: var(--text-secondary);
   white-space: nowrap;
   flex-shrink: 0;
+  align-self: flex-start;
 }

@@ -116,12 +116,13 @@
   white-space: nowrap;
 }
 
-/* gallery — 2 cols on typical desktop so each card (and photo) is larger */
+/* gallery — equal-width columns; cards stretch to equal height in each row */
 .gallery {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   width: 100%;
+  align-items: stretch;
 }
 @media (min-width: 1400px) {
   .gallery {
@@ -130,7 +131,11 @@
 }
 .cardLink {
   display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
   text-decoration: none;
+  color: inherit;
   border-radius: var(--radius-lg);
   transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
@@ -140,4 +145,10 @@
 .cardLink:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+/* CaseCard root fills the link so grid stretch makes equal tiles */
+.cardLink > * {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
 }

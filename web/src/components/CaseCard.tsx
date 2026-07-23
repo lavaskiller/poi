@@ -79,19 +79,29 @@ export default function CaseCard({
           )}
         </div>
         <div className={styles.body}>
-          <p className={styles.title}>{title}</p>
+          <p className={styles.title} title={title}>
+            {title}
+          </p>
           <p className={styles.filenameLine} title={filename}>
             {filename}
           </p>
           <div className={styles.kv}>
             <span className={styles.kvLabel}>{predictedLabel}</span>
-            <span className={styles.kvValue} style={{ color: TONE_COLOR[predictedTone] }}>
+            <span
+              className={styles.kvValue}
+              style={{ color: TONE_COLOR[predictedTone] }}
+              title={predicted}
+            >
               {predicted}
             </span>
           </div>
           <div className={styles.kv}>
             <span className={styles.kvLabel}>{groundTruthLabel}</span>
-            <span className={styles.kvValue} style={{ color: TONE_COLOR[groundTruthTone] }}>
+            <span
+              className={styles.kvValue}
+              style={{ color: TONE_COLOR[groundTruthTone] }}
+              title={groundTruth}
+            >
               {groundTruth}
             </span>
             {gtSrc && <span className={styles.gtSrc}>{gtSrc}</span>}
