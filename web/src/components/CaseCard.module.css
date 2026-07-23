@@ -29,7 +29,7 @@
   height: 100%;
 }
 .photo {
-  /* Fixed frame: always 4:3, never grows/shrinks with the image */
+  /* Fixed frame keeps tiles uniform; image is letterboxed inside (not cropped). */
   flex: 0 0 auto;
   width: 100%;
   aspect-ratio: 4 / 3;
@@ -39,14 +39,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-subtle);
+  background:
+    linear-gradient(0deg, rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.03)),
+    var(--bg-subtle);
   overflow: hidden;
 }
 .photoImg {
+  /* Full photo visible inside the fixed frame (letter/pillarbox, never cropped) */
   width: 100%;
   height: 100%;
-  /* Cover fills the frame so every photo tile looks the same size */
-  object-fit: cover;
+  object-fit: contain;
   object-position: center;
   display: block;
 }

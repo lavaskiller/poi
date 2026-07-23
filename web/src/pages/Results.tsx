@@ -163,7 +163,8 @@ export default function Results() {
       card: {
         band: c.prediction ? "warning" : "danger",
         filename: c.photo,
-        image: photoUrl(c.dataset, c.photo, { thumb: true, w: 360 }),
+        // Long-edge 720: sharp on retina cards (~350–500 CSS px) without full-res weight.
+        image: photoUrl(c.dataset, c.photo, { thumb: true, w: 720 }),
         imageLoading: "eager" as const,
         title: `#${start + i + 1} · ${c.dataset}${c.context?.category ? " · " + c.context.category : ""}${c.match_kind ? " · " + c.match_kind : ""}`,
         predicted: `✗ ${c.prediction || "— no prediction"}`,

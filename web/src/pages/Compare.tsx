@@ -230,7 +230,7 @@ export default function Compare() {
         card: {
           band: fixed ? "success" : "danger",
           filename: ca.photo,
-          image: photoUrl(ca.dataset, ca.photo, { thumb: true, w: 360 }),
+          image: photoUrl(ca.dataset, ca.photo, { thumb: true, w: 720 }),
           title: `${ca.dataset} — ${fixed ? "fixed ✓" : "broken ✗"}`,
           predictedLabel: `v${a.version} PICK`,
           predicted: `${ca.correct ? "✓ " : "✗ "}${ca.prediction || "—"}`,

@@ -1022,15 +1022,21 @@ def _thumb_cache_path(src_path, max_px):
     return os.path.join(cache_dir, f"{digest}_w{int(max_px)}.jpg")
 
 
-def poi_case_photo_thumb(src_path, max_px=360, quality=82):
+def poi_case_photo_thumb(src_path, max_px=360, quality=None):
     """Return a JPEG thumbnail path (cached), or None if generation fails.
 
     Mirrors tools/render_case_types.thumb_data_uri geometry: long edge ≤ max_px,
     EXIF-aware, LANCZOS. Falls back to None so the caller can serve the original.
+
+    Quality scales with size so gallery (720+) stays sharp without huge files.
     """
     if not src_path or not os.path.isfile(src_path):
         return None
-    max_px = max(64, min(int(max_px or 360), 1280))
+    max_px = max(64, min(int(max_px or 360), 1600))
+    if quality is None:
+        # Small list thumbs can be lean; larger gallery thumbs need more bitrate.
+        quality = 88 if max_px >= 640 else 84 if max_px >= 480 else 82
+    quality = max(60, min(int(quality), 95))
     cache = _thumb_cache_path(src_path, max_px)
     if os.path.isfile(cache) and os.path.getmtime(cache) >= os.path.getmtime(src_path):
         return cache
@@ -1044,7 +1050,8 @@ def poi_case_photo_thumb(src_path, max_px=360, quality=82):
             resample = getattr(Image, "Resampling", Image).LANCZOS
             im.thumbnail((max_px, max_px), resample)
             tmp = cache + ".tmp"
-            im.save(tmp, format="JPEG", quality=quality, optimize=True)
+            im.save(tmp, format="JPEG", quality=quality, optimize=True,
+                    progressive=True)
             os.replace(tmp, cache)
         return cache
     except Exception:
