@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import Button from "../components/Button";
 import {
@@ -207,7 +207,7 @@ function fixHintForIssue(issue: ValidationIssue): string | null {
     case "manifest_missing":
       return "Put manifest.csv directly under the dataset root folder (same level as photos/).";
     case "manifest_required_columns":
-      return "manifest.csv must include columns photo and gt_input_raw (UTF-8 CSV). Download the template for the exact header.";
+      return "manifest.csv must include columns photo and gt_input_raw (UTF-8 CSV). Use the sample ZIP for the exact header.";
     case "photo_empty":
     case "photo_missing":
       return "photo must be a path relative to the dataset root (e.g. photos/IMG_001.jpg) and that file must exist in the ZIP.";
@@ -222,21 +222,200 @@ function fixHintForIssue(issue: ValidationIssue): string | null {
   }
 }
 
-function DatasetGuide({ defaultOpen = false }: { defaultOpen?: boolean }) {
+const SAMPLE_MANIFEST_HEADER =
+  "photo,gt_input_raw,notes,capture_lat,capture_lon,timestamp";
+
+function buildRepackPrompt(issues: ValidationIssue[]): string {
+  const errorBlock =
+    issues.length === 0
+      ? "(no machine errors listed — fix structure to match the sample)"
+      : issues
+          .slice(0, 20)
+          .map((issue, i) => `${i + 1}. ${formatValidationIssue(issue)}`)
+          .join("\n");
+  return `You are helping me repackage a POI Eval dataset for upload.
+
+## Target ZIP layout (required)
+my-dataset.zip
+└── my-dataset/                 # one root folder; rename to my dataset id
+    ├── manifest.csv            # UTF-8 CSV
+    ├── README.md               # optional
+    └── photos/
+        ├── IMG_001.jpg
+        └── …
+
+## manifest.csv header (exact columns)
+${SAMPLE_MANIFEST_HEADER}
+
+## Column rules
+- photo: path relative to dataset root, e.g. photos/IMG_001.jpg (file must exist in ZIP)
+- gt_input_raw: ground-truth place name (required, not empty/unknown/n/a)
+- notes: optional free text
+- timestamp: ISO-8601 e.g. 2024-06-01T15:30:00 — OR omit if every photo has EXIF DateTime
+- capture_lat, capture_lon (or lat, lon): decimal degrees — OR omit if every photo has EXIF GPS
+- Allowed images: .jpg .jpeg .png .heic
+
+## Validation errors from the dashboard
+${errorBlock}
+
+## My raw materials
+(Paste below: folder tree, CSV export, or list of image filenames + place names + optional lat/lon/time.)
+
+## Your task
+1. Produce a correct folder tree matching the sample.
+2. Write a full manifest.csv with the header above and one row per photo.
+3. Tell me the exact shell command to zip: zip -r my-dataset.zip my-dataset
+4. List anything still missing (GPS/time) that I must fill from EXIF or by hand.
+`;
+}
+
+function FormatRepairPlan({
+  issues,
+  onDownloadSample,
+  sampleBusy,
+}: {
+  issues: ValidationIssue[];
+  onDownloadSample: () => void;
+  sampleBusy: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  const prompt = useMemo(() => buildRepackPrompt(issues), [issues]);
+
+  const copyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div className={styles.repair}>
+      <p className={styles.repairTitle}>Format mismatch — fix with the sample package</p>
+      <p className={styles.repairLead}>
+        Do not invent a new layout. Download the official sample, put <strong>your</strong> photos and GT into
+        that structure, then re-upload.
+      </p>
+      <ol className={styles.repairSteps}>
+        <li>
+          <strong>Download the sample ZIP</strong>
+          <span className={styles.repairStepDetail}>
+            Valid reference package (manifest header + example photos). Open it and keep the folder shape.
+          </span>
+          <div className={styles.repairActions}>
+            <Button kind="primary" loading={sampleBusy} onClick={onDownloadSample}>
+              {sampleBusy ? "Downloading…" : "Download sample dataset ZIP"}
+            </Button>
+          </div>
+        </li>
+        <li>
+          <strong>Unzip and rename the root folder</strong>
+          <span className={styles.repairStepDetail}>
+            e.g. <code>poi-dataset-template</code> → <code>my-dataset</code> (this name becomes the dataset id).
+          </span>
+        </li>
+        <li>
+          <strong>Replace photos with your originals</strong>
+          <span className={styles.repairStepDetail}>
+            Put files under <code>photos/</code>. Delete the example images. Keep extensions: .jpg .jpeg .png
+            .heic
+          </span>
+        </li>
+        <li>
+          <strong>Rewrite manifest.csv from the sample header</strong>
+          <span className={styles.repairStepDetail}>
+            Keep this exact header line: <code>{SAMPLE_MANIFEST_HEADER}</code>
+            <br />
+            One row per photo: <code>photos/…</code>, place name in <code>gt_input_raw</code>, plus lat/lon/time
+            unless EXIF already has them.
+          </span>
+        </li>
+        <li>
+          <strong>(Optional) Paste this prompt into an AI chat with your file list</strong>
+          <span className={styles.repairStepDetail}>
+            Use the sample as the format contract. Errors below are already embedded in the prompt.
+          </span>
+          <textarea className={styles.repairPrompt} readOnly value={prompt} rows={8} spellCheck={false} />
+          <div className={styles.repairActions}>
+            <Button kind="secondary" onClick={() => void copyPrompt()}>
+              {copied ? "Copied ✓" : "Copy prompt"}
+            </Button>
+          </div>
+        </li>
+        <li>
+          <strong>Zip the folder (not the loose files) and re-upload here</strong>
+          <span className={styles.repairStepDetail}>
+            <code>cd parent && zip -r my-dataset.zip my-dataset</code>
+            <br />
+            Then drop <code>my-dataset.zip</code> on this page. Validate runs again before write.
+          </span>
+        </li>
+      </ol>
+      {issues.length > 0 && (
+        <p className={styles.repairFoot}>
+          Addressing the listed errors first (row/photo paths, time, GPS) avoids a second failed upload.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function DatasetGuide({
+  defaultOpen = false,
+  onDownloadSample,
+  sampleBusy,
+}: {
+  defaultOpen?: boolean;
+  onDownloadSample: () => void;
+  sampleBusy: boolean;
+}) {
   return (
     <details className={styles.guide} open={defaultOpen || undefined}>
       <summary className={styles.guideSummary}>
         <span className={styles.guideSummaryTitle}>Dataset guide</span>
         <span className={styles.guideSummaryHint}>
-          format · after upload · scoreable GT · what to fix where
+          sample ZIP · format · after upload · scoreable GT · repair steps
         </span>
       </summary>
       <div className={styles.guideBody}>
         <section className={styles.guideSection}>
+          <h3 className={styles.guideH}>0. Start from the sample (recommended)</h3>
+          <p className={styles.guideP}>
+            If the format is wrong or you are building a package for the first time, download the sample and put
+            your real data into it — do not invent a new layout.
+          </p>
+          <div className={styles.repairActions}>
+            <Button kind="secondary" loading={sampleBusy} onClick={onDownloadSample}>
+              {sampleBusy ? "Downloading…" : "Download sample dataset ZIP"}
+            </Button>
+          </div>
+          <ol className={styles.repairSteps}>
+            <li>
+              <strong>Download</strong> the sample ZIP (button above).
+            </li>
+            <li>
+              <strong>Unzip</strong> and rename the root folder to your dataset id.
+            </li>
+            <li>
+              <strong>Replace</strong> <code>photos/</code> with your images; edit <code>manifest.csv</code> using
+              the same header.
+            </li>
+            <li>
+              <strong>Zip the folder</strong> (<code>zip -r name.zip name</code>) and drop it here.
+            </li>
+            <li>
+              On validation failure, use the numbered repair plan + copyable AI prompt in the error banner.
+            </li>
+          </ol>
+        </section>
+
+        <section className={styles.guideSection}>
           <h3 className={styles.guideH}>1. Package format (required)</h3>
           <p className={styles.guideP}>
             Upload is always a <strong>ZIP with exactly one root folder</strong> (the folder name becomes the
-            dataset id). Download the template if you are unsure.
+            dataset id). Match the sample package.
           </p>
           <pre className={styles.guideCode}>{`my-dataset.zip
 └── my-dataset/
@@ -753,6 +932,20 @@ export default function Datasets() {
   const [ingestMsg, setIngestMsg] = useState<string | null>(null);
   const [templateBusy, setTemplateBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const downloadSample = useCallback(() => {
+    setTemplateBusy(true);
+    setJobErr(null);
+    void api
+      .downloadTemplate("poi-dataset-sample.zip")
+      .then(() =>
+        setIngestMsg(
+          "Downloaded poi-dataset-sample.zip — unzip, put your photos + GT into that layout, re-zip the folder, upload here.",
+        ),
+      )
+      .catch((e) => setJobErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => setTemplateBusy(false));
+  }, []);
   /** Row overflow menu (⋯) — which dataset key is open */
   const [menuKey, setMenuKey] = useState<string | null>(null);
   /** Type-to-confirm remove modal target */
@@ -979,20 +1172,8 @@ export default function Datasets() {
               No datasets loaded yet. Read the guide, download the template, then drop a ZIP.
             </p>
           </div>
-          <Button
-            kind="secondary"
-            disabled={templateBusy}
-            onClick={() => {
-              setTemplateBusy(true);
-              setJobErr(null);
-              void api
-                .downloadTemplate()
-                .then(() => setIngestMsg("Downloaded poi-dataset-template.zip — fill it and re-upload."))
-                .catch((e) => setJobErr(e instanceof Error ? e.message : String(e)))
-                .finally(() => setTemplateBusy(false));
-            }}
-          >
-            {templateBusy ? "Downloading…" : "Download template"}
+          <Button kind="secondary" disabled={templateBusy} onClick={downloadSample}>
+            {templateBusy ? "Downloading…" : "Download sample ZIP"}
           </Button>
           <Button kind="primary" onClick={() => fileRef.current?.click()} loading={ingestBusy}>
             ＋&nbsp;&nbsp;Add dataset
@@ -1011,20 +1192,27 @@ export default function Datasets() {
               <p className={styles.ceilingTitle}>{jobErr ? `⚠ ${jobErr}` : `✓ ${ingestMsg}`}</p>
             )}
             {validationIssues.length > 0 && (
-              <ul className={styles.issueList}>
-                {validationIssues.slice(0, 12).map((issue, i) => (
-                  <li key={`e-${i}`}>
-                    {formatValidationIssue(issue)}
-                    {fixHintForIssue(issue) && (
-                      <div className={styles.issueFix}>→ {fixHintForIssue(issue)}</div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className={styles.issueList}>
+                  {validationIssues.slice(0, 12).map((issue, i) => (
+                    <li key={`e-${i}`}>
+                      {formatValidationIssue(issue)}
+                      {fixHintForIssue(issue) && (
+                        <div className={styles.issueFix}>→ {fixHintForIssue(issue)}</div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <FormatRepairPlan
+                  issues={validationIssues}
+                  onDownloadSample={downloadSample}
+                  sampleBusy={templateBusy}
+                />
+              </>
             )}
           </div>
         )}
-        <DatasetGuide defaultOpen />
+        <DatasetGuide defaultOpen onDownloadSample={downloadSample} sampleBusy={templateBusy} />
         <div className={styles.ingest}>
           <p className={styles.miniLabel}>Add a dataset</p>
           <div
@@ -1069,20 +1257,8 @@ export default function Datasets() {
             {datasets.length === 1 ? "" : "s"} · live from eval CSV · coverage collapsed by default
           </p>
         </div>
-        <Button
-          kind="secondary"
-          disabled={templateBusy}
-          onClick={() => {
-            setTemplateBusy(true);
-            setJobErr(null);
-            void api
-              .downloadTemplate()
-              .then(() => setIngestMsg("Downloaded poi-dataset-template.zip — fill it and re-upload."))
-              .catch((e) => setJobErr(e instanceof Error ? e.message : String(e)))
-              .finally(() => setTemplateBusy(false));
-          }}
-        >
-          {templateBusy ? "Downloading…" : "Download template"}
+        <Button kind="secondary" disabled={templateBusy} onClick={downloadSample}>
+          {templateBusy ? "Downloading…" : "Download sample ZIP"}
         </Button>
         <Button kind="primary" onClick={() => fileRef.current?.click()} loading={ingestBusy}>
           ＋&nbsp;&nbsp;Add dataset
@@ -1124,6 +1300,13 @@ export default function Datasets() {
               )}
             </ul>
           )}
+          {validationIssues.length > 0 && (
+            <FormatRepairPlan
+              issues={validationIssues}
+              onDownloadSample={downloadSample}
+              sampleBusy={templateBusy}
+            />
+          )}
           {validationWarnings.length > 0 && (
             <>
               <p className={styles.warningLabel}>
@@ -1150,7 +1333,11 @@ export default function Datasets() {
         </div>
       )}
 
-      <DatasetGuide defaultOpen={false} />
+      <DatasetGuide
+        defaultOpen={false}
+        onDownloadSample={downloadSample}
+        sampleBusy={templateBusy}
+      />
 
       <div className={styles.list}>
         {datasets.map((ds) => {

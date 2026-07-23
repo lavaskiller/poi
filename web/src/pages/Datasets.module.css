@@ -528,6 +528,88 @@
   color: var(--accent-default);
 }
 
+/* Numbered repair plan when ZIP format fails */
+.repair {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md, 10px);
+  border: 1px solid color-mix(in srgb, var(--accent-default) 35%, var(--border-default));
+  background: color-mix(in srgb, var(--accent-default) 6%, var(--bg-panel));
+}
+.repairTitle {
+  margin: 0;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.repairLead {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.repairSteps {
+  margin: 0;
+  padding-left: 1.35em;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.repairSteps > li {
+  padding-left: 4px;
+}
+.repairSteps > li > strong {
+  display: block;
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.repairStepDetail {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-secondary);
+}
+.repairStepDetail code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-subtle);
+}
+.repairActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.repairPrompt {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  resize: vertical;
+  min-height: 120px;
+}
+.repairFoot {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
 .modalOverlay {
   position: fixed;
   inset: 0;

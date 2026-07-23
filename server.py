@@ -2856,7 +2856,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.send_header("Content-Type", "application/zip")
                 self.send_header(
                     "Content-Disposition",
-                    'attachment; filename="poi-dataset-template.zip"',
+                    'attachment; filename="poi-dataset-sample.zip"',
                 )
                 self.send_header("Content-Length", str(len(payload)))
                 self.send_header("Cache-Control", "no-store")

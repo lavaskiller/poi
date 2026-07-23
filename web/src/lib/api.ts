@@ -749,7 +749,7 @@ export const api = {
   },
 
   /** Download the sample upload-package ZIP (manifest + placeholder photos). */
-  async downloadTemplate(filename = "poi-dataset-template.zip"): Promise<void> {
+  async downloadTemplate(filename = "poi-dataset-sample.zip"): Promise<void> {
     const res = await fetch("/api/dataset-template", {
       headers: authHeaders({ Accept: "application/zip" }),
     });
