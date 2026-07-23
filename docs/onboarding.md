@@ -29,12 +29,14 @@ under `tools/swift/` when running on Darwin.
 ### Install
 
 ```bash
-python3 -m pip install -r requirements.txt
-python3 tools/check_deps.py    # exit 0 required
+./tools/setup.sh              # Python requirements + checks + npm install
 # macOS without Xcode CLT:
 #   xcode-select --install
-npm --prefix web install
 ```
+
+For an API-only machine without Node/npm, use
+`./tools/setup.sh --backend-only`. In that mode missing `web/node_modules` is
+only a frontend warning and does not prevent backend use.
 
 ### Platform note — the Swift MapKit probe is macOS-only
 
@@ -165,18 +167,23 @@ If the bundle is missing, the onboarding screen says so and tells you the path
 ## 4. Run it
 
 ```bash
-python3 -m pip install -r requirements.txt
-python3 tools/check_deps.py
-
-# backend — serves /api on :8420 (exits if deps missing)
-python3 server.py
-
-# frontend — in a second terminal
-npm --prefix web install     # first time only
-npm --prefix web run dev     # Vite dev on :5173, proxies /api → :8420
+# One command installs both dependency sets and starts both processes from the
+# same checkout. Ctrl-C stops both.
+./tools/dev_up.sh
 ```
 
 Open http://localhost:5173.
+
+Other modes:
+
+```bash
+./tools/dev_up.sh --setup-only    # install/check everything, do not start
+./tools/dev_up.sh --backend-only  # API :8420 only; npm is not required
+./tools/dev_up.sh --skip-install  # reuse installed deps, but still validate
+```
+
+The manual two-terminal commands remain `python3 server.py` and
+`npm --prefix web run dev`; run both from this same checkout.
 
 ### Environment variables
 

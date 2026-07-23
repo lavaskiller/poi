@@ -29,13 +29,20 @@ processes cause API 404 / version skew — not a path-layout requirement.
 ```bash
 cd /wherever/you/cloned/poi      # any path is fine
 
-# one-shot backend (deps + free :8420 + server.py)
+# one shot: Python + npm setup, backend :8420, and frontend :5173
 chmod +x tools/dev_up.sh         # once
 ./tools/dev_up.sh
+```
 
-# frontend — second terminal, SAME directory
-npm --prefix web install         # first time
-npm --prefix web run dev         # :5173, proxies /api → :8420
+`dev_up.sh` runs `tools/setup.sh`, including `npm --prefix web install`, then
+starts both processes from this checkout. Press Ctrl-C once to stop both.
+Useful alternatives:
+
+```bash
+./tools/setup.sh                 # install/check Python + frontend, then exit
+./tools/dev_up.sh --setup-only   # same one-time setup through the launcher
+./tools/dev_up.sh --backend-only # API only; npm/node_modules are not required
+./tools/dev_up.sh --skip-install # fast restart using already-installed deps
 ```
 
 Manual equivalent:
@@ -44,6 +51,10 @@ Manual equivalent:
 python3 -m pip install -r requirements.txt
 python3 tools/check_deps.py
 python3 server.py
+
+# second terminal, when running manually
+npm --prefix web install
+npm --prefix web run dev
 ```
 
 **MapKit is not pip-installable.** Live nearby / EXIF / OCR probes on macOS use
