@@ -1,13 +1,15 @@
-import { useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import ProgressBar from "../components/ProgressBar";
-import { api, type Overview, type SchemaField } from "../lib/api";
+import { api, type Overview, type Run, type SchemaField } from "../lib/api";
 import { notifyDataChanged, useRefreshOnFocus } from "../lib/dataRefresh";
 import { useAsync } from "../lib/useAsync";
 import styles from "./NewRun.module.css";
 
 const STEPS = ["Algorithm", "Inputs", "Scope & run"];
+/** Preset k values in the UI; other values from a cloned run are still accepted. */
+const K_PRESETS = [1, 3, 5, 10, 20, 50];
 
 /** Backend PARAM_SIGNALS keys (tools/run_algorithm.py). */
 const SIGNAL_PARAMS: {
@@ -116,6 +118,12 @@ interface PageData {
   overview: Overview;
   /** highest version per safe run name */
   nextVersionByName: Record<string, number>;
+  runs: Run[];
+}
+
+interface CloneSource {
+  name: string;
+  version: number;
 }
 
 function slugifyRunName(raw: string): string {
@@ -129,9 +137,25 @@ function slugifyRunName(raw: string): string {
     .slice(0, 64) || "algorithm";
 }
 
+function runOptionValue(name: string, version: number): string {
+  return `${name}::${version}`;
+}
+
+function parseRunOption(value: string): { name: string; version: number } | null {
+  const i = value.lastIndexOf("::");
+  if (i <= 0) return null;
+  const name = value.slice(0, i);
+  const version = Number(value.slice(i + 2));
+  if (!name || !Number.isInteger(version) || version < 1) return null;
+  return { name, version };
+}
+
 export default function NewRun() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const fileRef = useRef<HTMLInputElement>(null);
+  /** Avoid re-applying the same ?from=&version= deep link after a soft reload. */
+  const appliedDeepLinkRef = useRef<string | null>(null);
 
   const state = useAsync<PageData>(async () => {
     const [overview, { runs }] = await Promise.all([
@@ -144,7 +168,7 @@ export default function NewRun() {
       const v = typeof r.version === "number" ? r.version : 0;
       nextVersionByName[key] = Math.max(nextVersionByName[key] ?? 0, v);
     }
-    return { overview, nextVersionByName };
+    return { overview, nextVersionByName, runs };
   }, []);
   useRefreshOnFocus(state.softReload);
 
@@ -158,10 +182,14 @@ export default function NewRun() {
   const [scopeAll, setScopeAll] = useState(true);
   const [scopeKeys, setScopeKeys] = useState<Set<string>>(new Set());
   const [running, setRunning] = useState(false);
+  const [cloneLoading, setCloneLoading] = useState(false);
+  const [cloneSource, setCloneSource] = useState<CloneSource | null>(null);
+  const [scopeNote, setScopeNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resultMsg, setResultMsg] = useState<string | null>(null);
 
   const overview = state.status === "ready" ? state.data.overview : null;
+  const priorRuns = state.status === "ready" ? state.data.runs : [];
   const total = overview?.total ?? 0;
   const sources = overview?.sources ?? [];
 
@@ -170,11 +198,15 @@ export default function NewRun() {
     () => sources.filter((s) => s.run_preflight?.runnable),
     [sources],
   );
+  const runnableKeyList = useMemo(
+    () => runnableSources.map((s) => s.key),
+    [runnableSources],
+  );
   const activeScope = useMemo(() => {
-    const runnableKeys = new Set(runnableSources.map((s) => s.key));
+    const runnableKeys = new Set(runnableKeyList);
     if (scopeAll) return runnableKeys;
     return new Set([...scopeKeys].filter((key) => runnableKeys.has(key)));
-  }, [scopeAll, scopeKeys, runnableSources]);
+  }, [scopeAll, scopeKeys, runnableKeyList]);
 
   const fields = useMemo(() => {
     const schema = overview?.schema;
@@ -184,6 +216,8 @@ export default function NewRun() {
       fill: fillFor(schema, fill, p.cols),
     }));
   }, [overview]);
+
+  const knownSignalKeys = useMemo(() => new Set(SIGNAL_PARAMS.map((p) => p.key)), []);
 
   const presets = useMemo(
     () => [
@@ -202,6 +236,147 @@ export default function NewRun() {
     else next.add(key);
     setSelected(next);
   };
+
+  /** Prior scored runs for the clone picker (newest first — list_runs already sorts). */
+  const priorRunOptions = useMemo(
+    () => priorRuns.filter((r) => r.name && typeof r.version === "number"),
+    [priorRuns],
+  );
+  const cloneableCount = useMemo(
+    () => priorRunOptions.filter((r) => r.has_script !== false).length,
+    [priorRunOptions],
+  );
+
+  const kOptions = useMemo(() => {
+    if (K_PRESETS.includes(candidateLimit)) return K_PRESETS;
+    return [...K_PRESETS, candidateLimit].sort((a, b) => a - b);
+  }, [candidateLimit]);
+
+  const resetToBaseline = useCallback(() => {
+    setScriptText(DEFAULT_SCRIPT);
+    setFileName("baseline_nearest.py");
+    setFileSize(new Blob([DEFAULT_SCRIPT]).size);
+    setRunName("baseline-nearest");
+    setSelected(null);
+    setCandidateLimit(20);
+    setScopeAll(true);
+    setScopeKeys(new Set());
+    setScopeNote(null);
+    setCloneSource(null);
+    setError(null);
+    appliedDeepLinkRef.current = null;
+    if (searchParams.has("from") || searchParams.has("version") || searchParams.has("name")) {
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  const applyScopeFromRun = useCallback(
+    (rawScope: string | undefined | null) => {
+      const raw = (rawScope || "all").trim();
+      if (!raw || raw === "all") {
+        setScopeAll(true);
+        setScopeKeys(new Set());
+        setScopeNote(null);
+        return;
+      }
+      const wanted = raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const runnable = new Set(runnableKeyList);
+      const available = wanted.filter((k) => runnable.has(k));
+      const missing = wanted.filter((k) => !runnable.has(k));
+      if (available.length === 0) {
+        // Original scope is gone — fall back to all runnable datasets.
+        setScopeAll(true);
+        setScopeKeys(new Set());
+        setScopeNote(
+          missing.length
+            ? `Original scope not runnable now (${missing.join(", ")}); defaulted to all runnable datasets.`
+            : null,
+        );
+        return;
+      }
+      if (available.length === runnableKeyList.length && missing.length === 0) {
+        setScopeAll(true);
+        setScopeKeys(new Set());
+      } else {
+        setScopeAll(false);
+        setScopeKeys(new Set(available));
+      }
+      setScopeNote(
+        missing.length
+          ? `Dropped non-runnable datasets from original scope: ${missing.join(", ")}`
+          : null,
+      );
+    },
+    [runnableKeyList],
+  );
+
+  const loadPreviousRun = useCallback(
+    async (name: string, version: number) => {
+      setCloneLoading(true);
+      setError(null);
+      setResultMsg(null);
+      try {
+        const { run } = await api.run(name, version);
+        const script = (run.script_text || "").trim();
+        if (!script) {
+          setError(
+            `Run ${name} v${version} has no stored script (rescore / cascade / legacy). Attach a .py file instead.`,
+          );
+          setCloneSource(null);
+          // Allow retrying the same deep link after the user picks another run or Clear.
+          appliedDeepLinkRef.current = null;
+          return;
+        }
+        setScriptText(script);
+        setFileName(`${slugifyRunName(name)}__v${version}.py`);
+        setFileSize(new Blob([script]).size);
+        setRunName(slugifyRunName(name));
+
+        const params = (run.params || []).filter((p) => knownSignalKeys.has(p));
+        if (params.length > 0) setSelected(new Set(params));
+        else setSelected(null);
+
+        const k = run.candidate_limit;
+        if (typeof k === "number" && Number.isFinite(k) && k >= 1) {
+          setCandidateLimit(Math.min(250, Math.floor(k)));
+        } else if (params.includes("nearby_candidates") || (run.params || []).includes("nearby_candidates")) {
+          // Nearby was on but k was null → keep a sensible default.
+          setCandidateLimit(20);
+        }
+
+        applyScopeFromRun(run.scope);
+        setCloneSource({ name: run.name || name, version });
+        setSearchParams(
+          { from: run.name || name, version: String(version) },
+          { replace: true },
+        );
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        setCloneSource(null);
+        appliedDeepLinkRef.current = null;
+      } finally {
+        setCloneLoading(false);
+      }
+    },
+    [applyScopeFromRun, knownSignalKeys, setSearchParams],
+  );
+
+  // Deep link: /new-run?from=name&version=N (also accepts name= for convenience)
+  useEffect(() => {
+    if (state.status !== "ready") return;
+    const from = (searchParams.get("from") || searchParams.get("name") || "").trim();
+    const versionRaw = (searchParams.get("version") || "").trim();
+    if (!from || !versionRaw) return;
+    const version = Number(versionRaw);
+    if (!Number.isInteger(version) || version < 1) return;
+    const key = runOptionValue(from, version);
+    if (appliedDeepLinkRef.current === key) return;
+    appliedDeepLinkRef.current = key;
+    void loadPreviousRun(from, version);
+  }, [state.status, searchParams, loadPreviousRun]);
 
   const selectedFields = fields.filter((f) => active.has(f.key));
   // Use runner preflight, not match-rate, so UI and /api/run use the same cohort.
@@ -269,7 +444,8 @@ export default function NewRun() {
     active.size > 0 &&
     activeScope.size > 0 &&
     eligible > 0 &&
-    !running;
+    !running &&
+    !cloneLoading;
 
   const onRun = async () => {
     if (!canRun) return;
@@ -306,6 +482,21 @@ export default function NewRun() {
     }
   };
 
+  const cloneSelectValue = cloneSource
+    ? runOptionValue(cloneSource.name, cloneSource.version)
+    : "";
+
+  const onCloneSelect = (value: string) => {
+    if (!value) {
+      resetToBaseline();
+      return;
+    }
+    const parsed = parseRunOption(value);
+    if (!parsed) return;
+    appliedDeepLinkRef.current = runOptionValue(parsed.name, parsed.version);
+    void loadPreviousRun(parsed.name, parsed.version);
+  };
+
   return (
     <main className={styles.main}>
       <div className={styles.titles}>
@@ -313,10 +504,73 @@ export default function NewRun() {
         <h1 className={styles.h1}>New run</h1>
         <p className={styles.sub}>
           Attach a prediction script, choose the inputs it receives, and score it against ground truth.
+          Or start from a previous run — script, signals, k, and dataset scope are editable.
         </p>
       </div>
 
       <Stepper step={running ? 2 : scriptText ? 1 : 0} />
+
+      {/* Clone previous run */}
+      <section className={styles.card}>
+        <div className={styles.cardHead}>
+          <span className={`sectionLabel ${styles.stepTag}`}>Start from previous run</span>
+          <span className={styles.headHint}>
+            — loads script · params · candidate k · scope (all still editable)
+          </span>
+        </div>
+        <div className={styles.cloneRow}>
+          <label className={styles.cloneLabel}>
+            Previous run
+            <select
+              className={styles.cloneSelect}
+              value={cloneSelectValue}
+              disabled={cloneLoading || state.status !== "ready"}
+              onChange={(e) => onCloneSelect(e.target.value)}
+            >
+              <option value="">— Blank / baseline —</option>
+              {priorRunOptions.map((r) => {
+                const acc =
+                  typeof r.accuracy_pct === "number" ? `${r.accuracy_pct}%` : "—";
+                const k =
+                  r.candidate_limit != null ? `k=${r.candidate_limit}` : "k=∅";
+                const noScript = r.has_script === false;
+                return (
+                  <option
+                    key={`${r.name}-${r.version}`}
+                    value={runOptionValue(r.name, r.version)}
+                    disabled={noScript}
+                  >
+                    {r.name} · v{r.version} · {acc} · {k} · {r.scope || "all"}
+                    {noScript ? " · no script" : ""}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+          {cloneLoading && <span className={styles.headHint}>Loading run…</span>}
+          {cloneSource && !cloneLoading && (
+            <span className={styles.cloneBadge}>
+              Loaded from <strong>{cloneSource.name}</strong> · v{cloneSource.version}
+              <button
+                type="button"
+                className={styles.cloneClear}
+                onClick={() => resetToBaseline()}
+              >
+                Clear
+              </button>
+            </span>
+          )}
+        </div>
+        {state.status === "ready" && priorRunOptions.length === 0 && (
+          <p className={styles.headHint}>No prior runs yet — attach a script below to create the first one.</p>
+        )}
+        {state.status === "ready" && priorRunOptions.length > 0 && cloneableCount === 0 && (
+          <p className={styles.headHint}>
+            Prior runs exist but none store a predict() script (e.g. rescore-only). Attach a .py file to run.
+          </p>
+        )}
+        {scopeNote && <p className={styles.scopeNote}>⚠ {scopeNote}</p>}
+      </section>
 
       {/* 1 · Algorithm */}
       <section className={styles.card}>
@@ -385,12 +639,7 @@ export default function NewRun() {
                 type="button"
                 className={styles.linkAccent}
                 style={{ background: "none", border: "none", cursor: "pointer", padding: 0, font: "inherit" }}
-                onClick={() => {
-                  setScriptText(DEFAULT_SCRIPT);
-                  setFileName("baseline_nearest.py");
-                  setFileSize(new Blob([DEFAULT_SCRIPT]).size);
-                  setRunName("baseline-nearest");
-                }}
+                onClick={() => resetToBaseline()}
               >
                 Reset to baseline
               </button>
@@ -577,7 +826,7 @@ export default function NewRun() {
                     maxWidth: 200,
                   }}
                 >
-                  {[1, 3, 5, 10, 20, 50].map((k) => (
+                  {kOptions.map((k) => (
                     <option key={k} value={k}>
                       k = {k}
                     </option>

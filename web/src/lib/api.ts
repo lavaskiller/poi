@@ -108,6 +108,9 @@ export interface Run {
   duration_ms?: number | null;
   params?: string[];
   candidate_limit?: number | null;
+  /** True when the run JSON still has predict() source (clone / re-run capable). */
+  has_script?: boolean;
+  script_sha256?: string | null;
   evaluation_set_sha256?: string | null;
   match_kind_counts?: Record<string, number>;
   abstained?: number;
@@ -142,6 +145,8 @@ export interface RunCase {
 export interface RunDetail extends Run {
   mode?: string;
   cases: RunCase[];
+  /** Full predict() source when stored (not returned by list_runs). */
+  script_text?: string;
 }
 
 export interface MatchRate {

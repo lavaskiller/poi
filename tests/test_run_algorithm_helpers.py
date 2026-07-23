@@ -63,8 +63,42 @@ class AtomicSaveTests(unittest.TestCase):
                 json.dump(rec, f)
             got = ra.get_run(d, "demo", 1)
             self.assertEqual(got["name"], "demo")
+            self.assertFalse(got.get("has_script"))
             with self.assertRaises(ra.RunError):
                 ra.get_run(d, "other", 1)
+
+    def test_list_runs_has_script(self):
+        with tempfile.TemporaryDirectory() as d:
+            with_script = {
+                "name": "with-script",
+                "safe_name": "with-script",
+                "version": 1,
+                "scope": "vancouver",
+                "params": ["nearby_candidates"],
+                "candidate_limit": 5,
+                "script_text": "def predict(case):\n    return ''\n",
+                "metrics": {"accuracy_pct": 40, "n_eligible": 2, "correct": 1},
+                "cases": [],
+            }
+            no_script = {
+                "name": "rescored",
+                "safe_name": "rescored",
+                "version": 1,
+                "scope": "all",
+                "params": ["nearby_candidates"],
+                "candidate_limit": 20,
+                "metrics": {"accuracy_pct": 50, "n_eligible": 2, "correct": 1},
+                "cases": [],
+            }
+            for rec in (with_script, no_script):
+                path = os.path.join(d, f"{rec['safe_name']}__v{rec['version']}.json")
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(rec, f)
+            listed = {r["name"]: r for r in ra.list_runs(d)}
+            self.assertTrue(listed["with-script"]["has_script"])
+            self.assertFalse(listed["rescored"]["has_script"])
+            self.assertEqual(listed["with-script"]["candidate_limit"], 5)
+            self.assertEqual(listed["with-script"]["scope"], "vancouver")
 
 
 class DatasetPreflightTests(unittest.TestCase):

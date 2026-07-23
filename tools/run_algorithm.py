@@ -635,6 +635,7 @@ def list_runs(runs_dir: str) -> List[Dict[str, Any]]:
             if not stored_evaluation_hash and r.get("cases") is not None
             else None
         )
+        has_script = bool(str(r.get("script_text") or "").strip())
         out.append({
             "run_id": f"{r.get('safe_name') or _safe_name(r.get('name') or '')}__v{r.get('version')}",
             "name": r.get("name"),
@@ -647,6 +648,8 @@ def list_runs(runs_dir: str) -> List[Dict[str, Any]]:
             # score_k mirrors candidate_limit when present (chart: exact == N only)
             "score_k": (r.get("metrics") or {}).get("score_k", r.get("candidate_limit")),
             "lang": r.get("lang"),
+            # True when script_text is stored — New Run can clone / re-run this record.
+            "has_script": has_script,
             "script_sha256": stored_hash or (
                 hashlib.sha256(str(r["script_text"]).encode("utf-8")).hexdigest()
                 if r.get("script_text")
@@ -719,6 +722,7 @@ def get_run(runs_dir: str, name: str, version: Any) -> Dict[str, Any]:
         run["evaluation_set_sha256_derived"] = True
     else:
         run["evaluation_set_sha256_derived"] = False
+    run["has_script"] = bool(str(run.get("script_text") or "").strip())
     return run
 
 
