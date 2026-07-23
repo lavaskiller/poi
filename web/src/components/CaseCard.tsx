@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import styles from "./CaseCard.module.css";
 
 export type CaseBand = "warning" | "danger" | "policy" | "success";
@@ -16,6 +16,11 @@ export interface CaseCardData {
   gtSrc?: string;
   predictedLabel?: string;
   groundTruthLabel?: string;
+  /**
+   * Gallery lives in an overflow scroll pane (not the window). Native
+   * loading="lazy" often never fires there — prefer eager for result cards.
+   */
+  imageLoading?: "eager" | "lazy";
 }
 
 const BAND_COLOR: Record<CaseBand, string> = {
@@ -44,8 +49,14 @@ export default function CaseCard({
   gtSrc,
   predictedLabel = "PREDICTED",
   groundTruthLabel = "GROUND TRUTH",
+  imageLoading = "eager",
 }: CaseCardData) {
   const [broken, setBroken] = useState(false);
+  // When the gallery pages, the same CaseCard instance can receive a new
+  // ``image``; clear a previous onError so the new photo is attempted.
+  useEffect(() => {
+    setBroken(false);
+  }, [image]);
   return (
     <div className={styles.card}>
       <div className={styles.band} style={{ background: BAND_COLOR[band] }} />
@@ -53,18 +64,25 @@ export default function CaseCard({
         <div className={styles.photo}>
           {image && !broken ? (
             <img
+              key={image}
               className={styles.photoImg}
               src={image}
               alt={filename}
-              loading="lazy"
+              loading={imageLoading}
+              decoding="async"
               onError={() => setBroken(true)}
             />
           ) : (
-            <span className={styles.filename}>{filename}</span>
+            <span className={styles.filename} title={filename}>
+              {filename}
+            </span>
           )}
         </div>
         <div className={styles.body}>
           <p className={styles.title}>{title}</p>
+          <p className={styles.filenameLine} title={filename}>
+            {filename}
+          </p>
           <div className={styles.kv}>
             <span className={styles.kvLabel}>{predictedLabel}</span>
             <span className={styles.kvValue} style={{ color: TONE_COLOR[predictedTone] }}>

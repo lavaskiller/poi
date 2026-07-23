@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import StatTile from "../components/StatTile";
@@ -95,11 +95,29 @@ export default function Results() {
 
   const [filter, setFilter] = useState<FilterId>("all");
   const [page, setPage] = useState(0);
+  const galleryRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
 
   // Filter / run change invalidates the current page window.
   useEffect(() => {
     setPage(0);
   }, [filter, nameQ, versionQ]);
+
+  const goToPage = (next: number) => {
+    setPage(next);
+    // Keep the new first cards in view — paging used to leave scroll mid-grid
+    // so it looked like Prev/Next did nothing to the photos.
+    requestAnimationFrame(() => {
+      const main = mainRef.current;
+      const gallery = galleryRef.current;
+      if (main && gallery) {
+        const top = gallery.offsetTop - 12;
+        main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      } else {
+        gallery?.scrollIntoView({ block: "start", behavior: "smooth" });
+      }
+    });
+  };
 
   const derived = useMemo(() => {
     if (state.status !== "ready") return null;
@@ -131,14 +149,18 @@ export default function Results() {
     const start = safePage * GALLERY_PAGE_SIZE;
     const end = Math.min(start + GALLERY_PAGE_SIZE, filtered.length);
 
-    const gallery = filtered.slice(start, end).map((c) => ({
+    const gallery = filtered.slice(start, end).map((c, i) => ({
       dataset: c.dataset,
       photo: c.photo,
+      // Unique even when the run JSON lists the same photo twice.
+      key: `${safePage}:${start + i}:${c.dataset}/${c.photo}`,
+      index: start + i + 1,
       card: {
         band: c.prediction ? "warning" : "danger",
         filename: c.photo,
         image: photoUrl(c.dataset, c.photo, { thumb: true, w: 360 }),
-        title: `${c.dataset}${c.context?.category ? " · " + c.context.category : ""}${c.match_kind ? " · " + c.match_kind : ""}`,
+        imageLoading: "eager" as const,
+        title: `#${start + i + 1} · ${c.dataset}${c.context?.category ? " · " + c.context.category : ""}${c.match_kind ? " · " + c.match_kind : ""}`,
         predicted: `✗ ${c.prediction || "— no prediction"}`,
         predictedTone: "danger" as const,
         groundTruth: `✓ ${c.gt}`,
@@ -269,7 +291,7 @@ export default function Results() {
   };
 
   return (
-    <main className={styles.main}>
+    <main className={styles.main} ref={mainRef}>
       <header className={styles.header}>
         <div className={styles.titles}>
           <p className={`sectionLabel ${styles.kicker}`}>Run result</p>
@@ -324,6 +346,23 @@ export default function Results() {
         </Link>
         <Link to="/retrieval" style={{ textDecoration: "none" }}>
           <Button kind="secondary">Retrieval ceiling</Button>
+        </Link>
+        <Link
+          to={`/new-run?from=${encodeURIComponent(selected.name)}&version=${selected.version}`}
+          style={{ textDecoration: "none" }}
+          title={
+            selected.has_script === false
+              ? "This run has no stored predict() script"
+              : "Prefill New run with this script, params, k, and scope"
+          }
+          aria-disabled={selected.has_script === false}
+          onClick={(e) => {
+            if (selected.has_script === false) e.preventDefault();
+          }}
+        >
+          <Button kind="secondary" disabled={selected.has_script === false}>
+            Re-run →
+          </Button>
         </Link>
       </header>
 
@@ -386,7 +425,7 @@ export default function Results() {
           <button
             type="button"
             className={styles.filter}
-            onClick={() => setPage(Math.max(0, safePage - 1))}
+            onClick={() => goToPage(Math.max(0, safePage - 1))}
             disabled={safePage <= 0 || filtered.length === 0}
             title="Previous 12 failures"
             aria-label="Previous page of failures"
@@ -402,7 +441,7 @@ export default function Results() {
           <button
             type="button"
             className={styles.filter}
-            onClick={() => setPage(Math.min(pageCount - 1, safePage + 1))}
+            onClick={() => goToPage(Math.min(pageCount - 1, safePage + 1))}
             disabled={safePage >= pageCount - 1 || filtered.length === 0}
             title="Next 12 failures"
             aria-label="Next page of failures"
@@ -412,10 +451,10 @@ export default function Results() {
         </div>
       </div>
 
-      <div className={styles.gallery}>
+      <div className={styles.gallery} ref={galleryRef} key={`gallery-p${safePage}-${filter}`}>
         {gallery.map((g) => (
           <Link
-            key={`${g.dataset}/${g.photo}`}
+            key={g.key}
             to={`/case?dataset=${encodeURIComponent(g.dataset)}&photo=${encodeURIComponent(g.photo)}&run_name=${encodeURIComponent(selected.name)}&version=${selected.version}`}
             className={styles.cardLink}
           >
