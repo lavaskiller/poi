@@ -11,9 +11,17 @@ export interface OverviewSource {
   /** Exact GT/provider eligibility policy used by the algorithm runner. */
   run_preflight?: {
     rows: number;
+    /** @deprecated alias of gt_eligible — kept for older UIs */
     eligible: number;
+    /** Canonical GT + MapKit provider + not non-POI */
+    gt_eligible?: number;
+    /** GT-eligible rows that have a full candidate-list artifact */
+    artifact_ready?: number;
+    /** artifact_ready minus lossy-summary-only rows (can pass build_cases) */
+    runnable_now?: number;
     exclusions: Record<string, number>;
     blockers: Record<string, number>;
+    /** True only when the whole dataset can run (no blockers on any GT-eligible row) */
     runnable: boolean;
   };
 }
@@ -51,6 +59,22 @@ export interface SeedPresets {
   presets: SeedPreset[];
 }
 
+export interface Readiness {
+  dataset_loaded: boolean;
+  gt_ready: boolean;
+  candidate_artifacts_ready: boolean;
+  runnable: boolean;
+  scored_runs_present: boolean;
+  counts: {
+    rows: number;
+    gt_eligible: number;
+    artifact_ready: number;
+    runnable_now: number;
+    scored_runs: number;
+    photos: number;
+  };
+}
+
 export interface Overview {
   data_state: string; // "ready" | "empty" | ...
   csv_present: boolean;
@@ -66,6 +90,7 @@ export interface Overview {
   fill?: Record<string, number>;
   fill_by_dataset?: Record<string, Record<string, number>>;
   total_by_dataset?: Record<string, number>;
+  readiness?: Readiness;
 }
 
 export interface Run {

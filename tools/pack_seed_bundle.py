@@ -6,28 +6,30 @@ Default layout (same shape the server expects under ``poi-data-seed/``)::
     poi-data-seed/
       eval_set_reconciled.csv
       dashboard_config.json
-      generated/runs/*.json
+      presets.json
+      generated/runs/          # 3 curated baselines (code + results)
+        baseline-nearest__v1.json   38%  distance rank-1
+        mapkit-baseline__v1.json    39%  Bloggo + OCR override
+        mapkit-baseline__v2.json    48% / 68% canonical  ensemble
+      generated/active-mapkit-candidate-snapshot.json
+      generated/candidate-snapshots/…
       photos/…
       linkedspaces-photos/…
       union-city-trip/…
       poi-dataset-20260708-photos/…
-      MANIFEST.json          # counts, missing photos, pack time
+      MANIFEST.json
 
-Only photos **referenced by the eval CSV** are copied (not the whole tree), so
-size tracks the seed cohort. Destination paths preserve each source's
-``photo_dir`` layout so ``/api/poi-case-photo`` resolves the same way as live
-``poi-data/``.
+Only photos **referenced by the eval CSV** are copied (not the whole tree).
 
 Usage:
-  # Refresh repo-local poi-data-seed/ from poi-data/
-  python3 tools/pack_seed_bundle.py
+  # Refresh repo-local poi-data-seed/ (curates 3 baselines, then packs)
+  python3 tools/pack_seed_bundle.py --clean
 
-  # Write a shareable ZIP (Drive / seed upload)
-  python3 tools/pack_seed_bundle.py --zip /tmp/poi-seed-with-photos.zip
+  # Write a shareable ZIP (Drive / onboarding upload)
+  python3 tools/pack_seed_bundle.py --clean --zip /tmp/poi-seed-with-photos.zip
 
-  # Custom source / dest
-  POI_DATA_DIR=/path/to/poi-data python3 tools/pack_seed_bundle.py \\
-      --out /path/to/poi-data-seed --runs-glob 'baseline-*__v*.json'
+  # Full historical runs instead of the 3 curated baselines
+  python3 tools/pack_seed_bundle.py --all-runs --clean
 """
 from __future__ import annotations
 
@@ -226,13 +228,54 @@ def _copy_mapkit_candidate_artifacts(data_root: Path, out_dir: Path) -> Tuple[Li
     return copied, nbytes
 
 
+# Default seed ships only the three curated named baselines (code + results).
+# Full history remains under poi-data/generated/runs/.
+DEFAULT_SEED_RUNS_GLOB = "baseline-nearest__v1.json"
+CURATED_BASELINE_NAMES = (
+    "baseline-nearest__v1.json",
+    "mapkit-baseline__v1.json",
+    "mapkit-baseline__v2.json",
+)
+
+
+def _resolve_runs_for_seed(
+    data_root: Path,
+    runs_glob: str,
+    *,
+    curated: bool,
+) -> Tuple[List[Path], str]:
+    """Return (run files to copy, description of source).
+
+    When ``curated`` is True (default), regenerate the three named seed baselines
+    into ``generated/seed-baselines/`` and pack only those. Pass
+    ``--all-runs`` / ``runs_glob='*.json'`` with curated=False for the full set.
+    """
+    if curated:
+        # Late import so pack stays usable without curate module in odd layouts.
+        sys.path.insert(0, str(_HERE))
+        import curate_seed_baselines as csb  # noqa: E402
+
+        runs_src = data_root / "generated" / "runs"
+        staged = data_root / "generated" / "seed-baselines"
+        csb.curate_all(runs_src, staged)
+        files = [staged / name for name in CURATED_BASELINE_NAMES if (staged / name).is_file()]
+        if len(files) != len(CURATED_BASELINE_NAMES):
+            missing = [n for n in CURATED_BASELINE_NAMES if not (staged / n).is_file()]
+            raise SystemExit(f"curated seed baselines incomplete, missing: {missing}")
+        return files, "curated:baseline-nearest@v1+mapkit-baseline@v1+v2"
+
+    runs_src = data_root / "generated" / "runs"
+    return _select_runs(runs_src, runs_glob), f"glob:{runs_glob}"
+
+
 def pack(
     data_root: Path,
     out_dir: Path,
     *,
-    runs_glob: str = "*.json",
+    runs_glob: str = DEFAULT_SEED_RUNS_GLOB,
     include_photos: bool = True,
     clean: bool = False,
+    curated_baselines: bool = True,
 ) -> dict:
     csv_src = data_root / "eval_set_reconciled.csv"
     if not csv_src.is_file():
@@ -257,10 +300,11 @@ def pack(
         shutil.copy2(relations_src, out_dir / relations_src.name)
         relations_copied = True
 
-    runs_src = data_root / "generated" / "runs"
     runs_dst = out_dir / "generated" / "runs"
     runs_dst.mkdir(parents=True, exist_ok=True)
-    run_files = _select_runs(runs_src, runs_glob)
+    run_files, runs_note = _resolve_runs_for_seed(
+        data_root, runs_glob, curated=curated_baselines
+    )
     for p in run_files:
         shutil.copy2(p, runs_dst / p.name)
 
@@ -283,12 +327,54 @@ def pack(
     with open(csv_src, encoding="utf-8") as f:
         n_rows = max(0, sum(1 for _ in f) - 1)
 
+    # Baseline legend for the seed (human-readable; UI may surface later).
+    baselines_meta = []
+    for p in run_files:
+        try:
+            with open(p, encoding="utf-8") as f:
+                rec = json.load(f)
+            m = rec.get("metrics") or {}
+            baselines_meta.append({
+                "file": p.name,
+                "name": rec.get("name"),
+                "version": rec.get("version"),
+                "label": rec.get("label") or "",
+                "accuracy_pct": m.get("accuracy_pct"),
+                "accuracy_canonical_pct": m.get("accuracy_canonical_pct"),
+                "correct": m.get("correct"),
+                "n_eligible": m.get("n_eligible"),
+                "has_script": bool(rec.get("script_text")),
+            })
+        except (OSError, ValueError, TypeError):
+            baselines_meta.append({"file": p.name})
+
+    presets = {
+        "presets": [
+            {
+                "id": "default",
+                "label": "Demo seed — 3 named baselines",
+                "desc": (
+                    "Eval set + photos + MapKit candidates + "
+                    "baseline-nearest v1 (38%), mapkit-baseline v1 (39%), "
+                    "mapkit-baseline v2 (48% / 68% canonical)."
+                ),
+                "path": ".",
+            }
+        ]
+    }
+    with open(out_dir / "presets.json", "w", encoding="utf-8") as f:
+        json.dump(presets, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
     manifest = {
         "packed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "source_data_root": str(data_root),
         "rows": n_rows,
         "runs": [p.name for p in run_files],
+        "runs_source": runs_note,
         "runs_glob": runs_glob,
+        "curated_baselines": curated_baselines,
+        "baselines": baselines_meta,
         "photos_included": include_photos,
         "photos_copied": len(photo_jobs),
         "photos_bytes": bytes_photos,
@@ -327,7 +413,16 @@ def main() -> int:
         help="output seed directory (default: repo poi-data-seed/)",
     )
     ap.add_argument("--zip", default=None, metavar="PATH", help="also write a ZIP at PATH")
-    ap.add_argument("--runs-glob", default="*.json", help="which run JSON files to include")
+    ap.add_argument(
+        "--runs-glob",
+        default=DEFAULT_SEED_RUNS_GLOB,
+        help="which run JSON files to include when --all-runs is set",
+    )
+    ap.add_argument(
+        "--all-runs",
+        action="store_true",
+        help="pack all matching --runs-glob runs instead of the 3 curated baselines",
+    )
     ap.add_argument("--no-photos", action="store_true", help="CSV + runs only (legacy minimal seed)")
     ap.add_argument("--clean", action="store_true", help="delete --out before packing")
     args = ap.parse_args()
@@ -339,9 +434,10 @@ def main() -> int:
     manifest = pack(
         data_root,
         out_dir,
-        runs_glob=args.runs_glob,
+        runs_glob="*.json" if args.all_runs else args.runs_glob,
         include_photos=not args.no_photos,
         clean=args.clean,
+        curated_baselines=not args.all_runs,
     )
     print(
         f"[pack] rows={manifest['rows']} runs={len(manifest['runs'])} "

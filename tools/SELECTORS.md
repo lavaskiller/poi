@@ -3,13 +3,27 @@
 Role-based names (preferred). Old exploratory names remain only in historical
 run JSON under `poi-data/generated/runs/`.
 
+## Seed baselines (default `pack_seed_bundle.py`)
+
+| Run | Role | Published metrics (166 eligible) | Code |
+|---|---|---|---|
+| `baseline-nearest` v1 | MapKit distance rank-1 | **38%** (63/166) | `examples/baseline_nearest.py` |
+| `mapkit-baseline` v1 | Bloggo weighted + unique OCR override | **39%** (64/166) | `examples/mapkit_ocr_override.py` (+ weighted/policy) |
+| `mapkit-baseline` v2 | OCR + cascade + free-text VLM ensemble | **48%** / **68%** canonical (80/166) | `examples/mapkit_baseline_v2.py` · offline `stitch_loop70_ensemble.py` |
+
+Rebuild: `python3 tools/pack_seed_bundle.py --clean` (curates these three automatically).
+
+## Full selector map
+
 | File | Role | Default run name |
 |---|---|---|
 | `examples/baseline_nearest.py` | Distance rank-1 | `baseline-nearest` |
 | `examples/mapkit_weighted.py` | Category-weighted distance (Bloggo) | (UI / weighted) |
+| `examples/mapkit_ocr_override.py` | Bloggo + unique OCR name override | `mapkit-baseline` v1 |
+| `examples/mapkit_baseline_v2.py` | Ensemble deterministic core (seed ref) | `mapkit-baseline` v2 |
 | `examples/selector_access_ocr.py` | Access-point demote + strong OCR | `selector-access-ocr` |
 | `examples/selector_list_fit.py` | OCR v2 + generic demote + structure refine (K=10–20) | `selector-list-fit` / `selector-list-fit-k20` |
-| `stitch_loop70_ensemble.py` | loop70 ensemble helper (OCR + cascade + free-text VLM) | `selector-loop70-pass` |
+| `stitch_loop70_ensemble.py` | loop70 ensemble helper (OCR + cascade + free-text VLM) | historical `selector-loop70` → seed `mapkit-baseline` v2 |
 | `run_selector_ocr_override.py` | Bloggo + unique OCR name override | `selector-ocr-override` |
 | `run_vlm_topk_rerank.py` | FastVLM Top-K image rerank | `vlm-topk-{style}-k{K}` |
 | `run_selector_photo_match.py` | access_ocr + photo–place VLM cascade | `selector-photo-match` |

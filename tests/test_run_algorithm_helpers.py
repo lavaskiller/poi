@@ -87,12 +87,18 @@ class DatasetPreflightTests(unittest.TestCase):
         cases = ra.build_cases(rows, {}, candidates, "sample", [])
         self.assertTrue(summary["runnable"])
         self.assertEqual(summary["eligible"], len(cases))
+        self.assertEqual(summary["gt_eligible"], 1)
+        self.assertEqual(summary["artifact_ready"], 1)
+        self.assertEqual(summary["runnable_now"], 1)
 
     def test_missing_artifact_blocks_preflight_and_runner(self):
         rows = [self._row()]
         summary = ra.dataset_eligibility_summary(rows, {}, "sample", {})
         self.assertFalse(summary["runnable"])
         self.assertEqual(summary["blockers"], {"missing_candidate_artifact": 1})
+        self.assertEqual(summary["gt_eligible"], 1)
+        self.assertEqual(summary["artifact_ready"], 0)
+        self.assertEqual(summary["runnable_now"], 0)
         with self.assertRaises(ra.RunError):
             ra.build_cases(rows, {}, {}, "sample", [])
 
@@ -104,6 +110,9 @@ class DatasetPreflightTests(unittest.TestCase):
         summary = ra.dataset_eligibility_summary(rows, {}, "sample", candidates)
         self.assertFalse(summary["runnable"])
         self.assertEqual(summary["blockers"], {"lossy_candidate_artifact": 1})
+        self.assertEqual(summary["gt_eligible"], 1)
+        self.assertEqual(summary["artifact_ready"], 1)
+        self.assertEqual(summary["runnable_now"], 0)
         with self.assertRaises(ra.RunError):
             ra.build_cases(rows, {}, candidates, "sample", [])
 

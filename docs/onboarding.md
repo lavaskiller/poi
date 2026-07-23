@@ -124,7 +124,10 @@ poi-data-seed/
   eval_set_reconciled.csv      initial evaluation set
   dashboard_config.json        matching config
   eval_label_relations.v1.jsonl  reviewed GT aliases / related credit (scoring)
-  generated/runs/*.json        pre-scored baseline runs
+  generated/runs/*.json        pre-scored baselines (default pack: 3 named)
+                                 baseline-nearest v1  38%  distance rank-1
+                                 mapkit-baseline v1   39%  Bloggo + OCR override
+                                 mapkit-baseline v2   48% / 68% canonical ensemble
   generated/active-mapkit-candidate-snapshot.json
   generated/candidate-snapshots/<id>/mapkit_candidates.jsonl
                                full nearby lists for Case / predict()

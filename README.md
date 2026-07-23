@@ -113,6 +113,6 @@ App.tsx               router + sidebar layout shell
 ## Status
 
 Pages are built to the Figma redesign. Current work: wiring the UI to the real
-backend and implementing onboarding (seed dataset + two baseline runs available
+backend and implementing onboarding (seed dataset + three named baseline runs available
 from a first-run dropdown). Empty / loading / error / destructive-confirm states
 from the design appendix are applied in-place per page.

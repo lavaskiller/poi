@@ -233,6 +233,47 @@ export default function Home() {
         </div>
       </section>
 
+      {overview.readiness && (
+        <section className={styles.block}>
+          <div className={styles.blockHead}>
+            <p className={`sectionLabel ${styles.blockLabel}`}>Setup readiness</p>
+            <span className={styles.link} style={{ cursor: "default" }}>
+              GT {overview.readiness.counts.gt_eligible} · art{" "}
+              {overview.readiness.counts.artifact_ready} · run{" "}
+              {overview.readiness.counts.runnable_now}
+            </span>
+          </div>
+          <div className={styles.tiles}>
+            {(
+              [
+                ["Dataset loaded", overview.readiness.dataset_loaded, `${overview.readiness.counts.rows} rows`],
+                ["GT ready", overview.readiness.gt_ready, `${overview.readiness.counts.gt_eligible} eligible`],
+                [
+                  "Candidate artifacts",
+                  overview.readiness.candidate_artifacts_ready,
+                  `${overview.readiness.counts.artifact_ready} ready`,
+                ],
+                [
+                  "Runnable",
+                  overview.readiness.runnable,
+                  overview.readiness.runnable
+                    ? `${overview.readiness.counts.runnable_now} cases`
+                    : "blocked — re-probe MapKit or re-seed",
+                ],
+              ] as const
+            ).map(([label, ok, note]) => (
+              <StatTile
+                key={label}
+                label={label}
+                value={ok ? "✓" : "—"}
+                note={note}
+                noteTone={ok ? "tertiary" : "warning"}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className={styles.block}>
         <div className={styles.blockHead}>
           <p className={`sectionLabel ${styles.blockLabel}`}>Data health</p>

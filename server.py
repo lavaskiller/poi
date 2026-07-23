@@ -1572,7 +1572,7 @@ def build_overview():
     # Mirror /api/run: reviewed GT overrides and the same candidate artifacts
     # must be included or UI preflight can disagree with the actual runner.
     eligibility_rows, _ = overlay_gt_mapkit_overrides(rows, path=_gt_overrides_path())
-    eligibility_candidates = load_match_candidates(MATCH_CANDIDATE_PATHS)
+    eligibility_candidates = load_match_candidates(match_candidate_paths())
     sources = []
     for i, (k, v) in enumerate(src_counts.most_common()):
         c = cfg["sources"].get(k)
@@ -1720,6 +1720,37 @@ def build_overview():
 
     pipeline = [step(p) for p in cfg["pipeline"]]
 
+    # First-run readiness checklist (Home / post-seed). Distinct from per-dataset
+    # run_preflight: this is install-level "can I explore / run at all?".
+    gt_eligible_total = sum(int((s.get("run_preflight") or {}).get("gt_eligible")
+                                or (s.get("run_preflight") or {}).get("eligible") or 0)
+                            for s in sources)
+    artifact_ready_total = sum(int((s.get("run_preflight") or {}).get("artifact_ready") or 0)
+                               for s in sources)
+    runnable_now_total = sum(int((s.get("run_preflight") or {}).get("runnable_now") or 0)
+                             for s in sources)
+    any_runnable = any(bool((s.get("run_preflight") or {}).get("runnable")) for s in sources)
+    n_runs = 0
+    try:
+        n_runs = sum(1 for fn in os.listdir(RUNS_DIR) if fn.endswith(".json"))
+    except OSError:
+        n_runs = 0
+    readiness = {
+        "dataset_loaded": bool(n),
+        "gt_ready": gt_eligible_total > 0,
+        "candidate_artifacts_ready": artifact_ready_total > 0 and any_runnable,
+        "runnable": any_runnable and runnable_now_total > 0,
+        "scored_runs_present": n_runs > 0,
+        "counts": {
+            "rows": n,
+            "gt_eligible": gt_eligible_total,
+            "artifact_ready": artifact_ready_total,
+            "runnable_now": runnable_now_total,
+            "scored_runs": n_runs,
+            "photos": fill.get("photo", 0),
+        },
+    }
+
     return {
         "generated_from": "eval_set_reconciled.csv + dashboard_config.json (live)",
         "data_state": "ready" if n else "empty",
@@ -1742,6 +1773,7 @@ def build_overview():
         "samples": samples,
         "pipeline": pipeline,
         "config_warnings": warnings,
+        "readiness": readiness,
     }
 
 
@@ -2739,6 +2771,49 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(disc)
             except Exception as e:
                 self.log_error("API request failed: %s", e)
+                self._send_api_error("internal_error", 500)
+            return
+        if route == "/api/seed/download":
+            # Stream a ZIP of the on-disk seed bundle for first-run / sharing.
+            try:
+                if not os.path.isdir(SEED_DIR):
+                    self._send_api_error(
+                        "not_found", 404,
+                        detail=f"seed bundle not found at {os.path.relpath(SEED_DIR, REPO_DIR)}/",
+                    )
+                    return
+                if not os.path.isfile(os.path.join(SEED_DIR, "eval_set_reconciled.csv")):
+                    self._send_api_error(
+                        "not_found", 404,
+                        detail="seed bundle is incomplete (missing eval_set_reconciled.csv)",
+                    )
+                    return
+                import io
+                import zipfile as _zipfile
+                buf = io.BytesIO()
+                with _zipfile.ZipFile(buf, "w", compression=_zipfile.ZIP_DEFLATED) as zf:
+                    for dirpath, _dirnames, filenames in os.walk(SEED_DIR):
+                        for fn in filenames:
+                            src = os.path.join(dirpath, fn)
+                            rel = os.path.relpath(src, SEED_DIR).replace("\\", "/")
+                            if rel.startswith(".") or "/." in rel:
+                                continue
+                            zf.write(src, arcname=rel)
+                payload = buf.getvalue()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header(
+                    "Content-Disposition",
+                    'attachment; filename="poi-data-seed.zip"',
+                )
+                self.send_header("Content-Length", str(len(payload)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(payload)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except Exception as e:
+                self.log_error("seed download failed: %s", e)
                 self._send_api_error("internal_error", 500)
             return
         if route == "/api/overview":

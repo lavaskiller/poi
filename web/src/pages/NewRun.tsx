@@ -203,17 +203,28 @@ export default function NewRun() {
 
   const selectedFields = fields.filter((f) => active.has(f.key));
   // Use runner preflight, not match-rate, so UI and /api/run use the same cohort.
-  const eligible = useMemo(() => {
-    return sources.reduce(
-      (sum, source) => sum + (activeScope.has(source.key) ? source.run_preflight?.eligible ?? 0 : 0),
-      0,
-    );
+  // Three distinct counts (QA: do not collapse into one "eligible"):
+  //   GT eligible · Artifact ready · Runnable now
+  const cohort = useMemo(() => {
+    let gt = 0;
+    let art = 0;
+    let run = 0;
+    for (const source of sources) {
+      if (!activeScope.has(source.key)) continue;
+      const p = source.run_preflight;
+      if (!p) continue;
+      gt += p.gt_eligible ?? p.eligible ?? 0;
+      art += p.artifact_ready ?? (p.runnable ? p.eligible ?? 0 : 0);
+      run += p.runnable_now ?? (p.runnable ? p.eligible ?? 0 : 0);
+    }
+    return { gt, art, run };
   }, [activeScope, sources]);
+  const eligible = cohort.run; // "Run evaluation" gates on runnable cases
 
   const binding = selectedFields.length
     ? selectedFields.reduce((a, b) => (a.fill <= b.fill ? a : b))
     : null;
-  const eligPct = total > 0 ? Math.round((eligible / total) * 100) : 0;
+  const eligPct = total > 0 ? Math.round((cohort.gt / total) * 100) : 0;
 
   const activePresetId = presets.find(
     (p) => p.members.length === active.size && p.members.every((f) => active.has(f.key)),
@@ -468,18 +479,36 @@ export default function NewRun() {
                 })}
               </div>
               <div className={styles.eligibility}>
-                <p className={styles.eligLabel}>Eligible cases (scored cohort)</p>
+                <p className={styles.eligLabel}>Run readiness (scoped datasets)</p>
+                <div className={styles.eligTriple}>
+                  <div className={styles.eligCell}>
+                    <span className={styles.eligCellLabel}>GT eligible</span>
+                    <span className={styles.eligCellValue}>{cohort.gt.toLocaleString()}</span>
+                  </div>
+                  <div className={styles.eligCell}>
+                    <span className={styles.eligCellLabel}>Artifact ready</span>
+                    <span className={styles.eligCellValue}>{cohort.art.toLocaleString()}</span>
+                  </div>
+                  <div className={styles.eligCell}>
+                    <span className={styles.eligCellLabel}>Runnable now</span>
+                    <span className={styles.eligCellValue}>{cohort.run.toLocaleString()}</span>
+                  </div>
+                </div>
                 <div className={styles.eligValueRow}>
-                  <span className={styles.eligValue}>{eligible.toLocaleString()}</span>
+                  <span className={styles.eligValue}>{cohort.run.toLocaleString()}</span>
                   <span className={styles.eligOf}>
-                    / {total.toLocaleString()} ({eligPct}%)
+                    runnable / {total.toLocaleString()} rows ({eligPct}% GT-eligible)
                   </span>
                 </div>
-                <ProgressBar value={total > 0 ? eligible / total : 0} width="100%" />
+                <ProgressBar value={total > 0 ? cohort.run / total : 0} width="100%" />
                 <p className={styles.eligNote}>
-                  Eligibility uses the runner&apos;s GT, provider, non-POI, and candidate-artifact
-                  checks. Input selection only controls what predict() sees
-                  {binding ? `; sparsest signal is ${binding.label} (${Math.round((binding.fill / Math.max(1, total)) * 100)}% fill)` : ""}.
+                  GT eligible = canonical MapKit GT. Artifact ready = full nearby list present.
+                  Runnable now = can pass the runner (no missing/lossy artifacts on the dataset).
+                  Input selection only controls what predict() sees
+                  {binding
+                    ? `; sparsest signal is ${binding.label} (${Math.round((binding.fill / Math.max(1, total)) * 100)}% fill)`
+                    : ""}
+                  .
                 </p>
               </div>
             </div>
@@ -500,7 +529,9 @@ export default function NewRun() {
                 const on = activeScope.has(s.key);
                 const preflight = s.run_preflight;
                 const runnable = preflight?.runnable === true;
-                const elig = preflight?.eligible;
+                const gt = preflight?.gt_eligible ?? preflight?.eligible;
+                const art = preflight?.artifact_ready;
+                const run = preflight?.runnable_now;
                 return (
                   <button
                     key={s.key}
@@ -513,7 +544,9 @@ export default function NewRun() {
                     <span>
                       {on ? "✓ " : ""}
                       {s.key} · {s.count}
-                      {elig != null ? ` · elig ${elig}` : ""}
+                      {gt != null ? ` · GT ${gt}` : ""}
+                      {art != null ? ` · art ${art}` : ""}
+                      {run != null ? ` · run ${run}` : ""}
                     </span>
                     {!runnable && <span className={styles.datasetReason}>{preflightReason(s)}</span>}
                   </button>
@@ -521,7 +554,8 @@ export default function NewRun() {
               })}
             </div>
             <p className={styles.fieldHint}>
-              {eligible.toLocaleString()} eligible with current scope · mode exact
+              {cohort.run.toLocaleString()} runnable · {cohort.gt.toLocaleString()} GT-eligible · mode
+              exact
             </p>
             {active.has("nearby_candidates") && (
               <label className={styles.fieldHint} style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 10 }}>

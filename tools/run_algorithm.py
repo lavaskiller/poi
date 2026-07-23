@@ -154,6 +154,12 @@ def dataset_eligibility_summary(rows: List[Dict[str, str]], cfg: Dict[str, Any],
 
     Row exclusions use the exact runner policy. When candidates are supplied we
     also report artifact conditions that make ``build_cases`` fail.
+
+    Counts (UI labels):
+      * ``eligible`` / ``gt_eligible`` — canonical GT, MapKit provider, not non-POI
+      * ``artifact_ready`` — GT-eligible rows that have a full candidate artifact
+      * ``runnable_now`` — artifact-ready rows that are not lossy-summary-only
+      * ``runnable`` — bool: at least one case can pass ``build_cases``
     """
     exclusions: Counter = Counter()
     blockers: Counter = Counter()
@@ -175,12 +181,28 @@ def dataset_eligibility_summary(rows: List[Dict[str, str]], cfg: Dict[str, Any],
             elif any(c.get("lossy_top3_summary") for c in
                      _candidate_names(candidates, provider, photo, row, dataset)):
                 blockers["lossy_candidate_artifact"] += 1
+    missing = int(blockers.get("missing_candidate_artifact") or 0)
+    lossy = int(blockers.get("lossy_candidate_artifact") or 0)
+    # When candidates were not supplied we cannot distinguish artifact readiness.
+    if candidates is None:
+        artifact_ready = eligible
+        runnable_now = eligible
+        runnable = eligible > 0
+    else:
+        artifact_ready = max(0, eligible - missing)
+        runnable_now = max(0, artifact_ready - lossy)
+        # build_cases fails on the first blocked eligible row, so the dataset is
+        # only runnable when every GT-eligible row has a full (non-lossy) artifact.
+        runnable = eligible > 0 and not blockers
     return {
         "rows": total,
         "eligible": eligible,
+        "gt_eligible": eligible,
+        "artifact_ready": artifact_ready,
+        "runnable_now": runnable_now,
         "exclusions": dict(exclusions),
         "blockers": dict(blockers),
-        "runnable": eligible > 0 and not blockers,
+        "runnable": runnable,
     }
 
 
