@@ -235,46 +235,92 @@ export default function Home() {
         </div>
       </section>
 
-      {overview.readiness && (
-        <section className={styles.block}>
-          <div className={styles.blockHead}>
-            <p className={`sectionLabel ${styles.blockLabel}`}>Setup readiness</p>
-            <span className={styles.link} style={{ cursor: "default" }}>
-              GT {overview.readiness.counts.gt_eligible} · art{" "}
-              {overview.readiness.counts.artifact_ready} · run{" "}
-              {overview.readiness.counts.runnable_now}
-            </span>
-          </div>
-          <div className={styles.tiles}>
-            {(
-              [
-                ["Dataset loaded", overview.readiness.dataset_loaded, `${overview.readiness.counts.rows} rows`],
-                ["GT ready", overview.readiness.gt_ready, `${overview.readiness.counts.gt_eligible} eligible`],
-                [
-                  "Candidate artifacts",
-                  overview.readiness.candidate_artifacts_ready,
-                  `${overview.readiness.counts.artifact_ready} ready`,
-                ],
-                [
-                  "Runnable",
-                  overview.readiness.runnable,
-                  overview.readiness.runnable
-                    ? `${overview.readiness.counts.runnable_now} cases`
-                    : "blocked — re-probe MapKit or re-seed",
-                ],
-              ] as const
-            ).map(([label, ok, note]) => (
-              <StatTile
-                key={label}
-                label={label}
-                value={ok ? "✓" : "—"}
-                note={note}
-                noteTone={ok ? "tertiary" : "warning"}
-              />
-            ))}
-          </div>
-        </section>
-      )}
+      {overview.readiness && (() => {
+        const r = overview.readiness;
+        const { rows, gt_eligible, artifact_ready, runnable_now } = r.counts;
+        const missingGt = Math.max(0, rows - gt_eligible);
+        const missingArt = Math.max(0, gt_eligible - artifact_ready);
+        const notRunnable = Math.max(0, artifact_ready - runnable_now);
+        // Big number = what matters; note = status + gap (not a lone ✓).
+        const tiles: {
+          label: string;
+          value: string;
+          valueTone?: "primary" | "success" | "warning" | "danger";
+          note: string;
+          noteTone?: "tertiary" | "warning" | "success";
+        }[] = [
+          {
+            label: "Dataset",
+            value: rows.toLocaleString(),
+            valueTone: r.dataset_loaded ? "primary" : "warning",
+            note: r.dataset_loaded
+              ? `rows loaded${nDatasets ? ` · ${nDatasets} dataset${nDatasets === 1 ? "" : "s"}` : ""}`
+              : "no eval CSV — seed or ingest first",
+            noteTone: r.dataset_loaded ? "tertiary" : "warning",
+          },
+          {
+            label: "GT eligible",
+            value: gt_eligible.toLocaleString(),
+            valueTone: r.gt_ready ? (missingGt > 0 ? "warning" : "success") : "danger",
+            note: !r.gt_ready
+              ? "no canonical MapKit GT yet"
+              : missingGt > 0
+                ? `${missingGt.toLocaleString()} of ${rows.toLocaleString()} rows not yet eligible`
+                : `all ${rows.toLocaleString()} rows have scoreable GT`,
+            noteTone: !r.gt_ready || missingGt > 0 ? "warning" : "tertiary",
+          },
+          {
+            label: "MapKit artifacts",
+            value: artifact_ready.toLocaleString(),
+            valueTone: r.candidate_artifacts_ready
+              ? missingArt > 0
+                ? "warning"
+                : "success"
+              : "danger",
+            note: !r.candidate_artifacts_ready
+              ? "nearby candidate lists missing — collect or re-seed"
+              : missingArt > 0
+                ? `${missingArt.toLocaleString()} GT-eligible cases still need candidates`
+                : "candidate lists ready for GT-eligible cases",
+            noteTone: !r.candidate_artifacts_ready || missingArt > 0 ? "warning" : "tertiary",
+          },
+          {
+            label: "Runnable now",
+            value: runnable_now.toLocaleString(),
+            valueTone: r.runnable ? (notRunnable > 0 || missingArt > 0 ? "warning" : "success") : "danger",
+            note: !r.runnable
+              ? "blocked — re-probe MapKit, fix GT, or re-seed"
+              : notRunnable > 0
+                ? `${runnable_now.toLocaleString()} can run · ${notRunnable.toLocaleString()} artifact-ready still blocked`
+                : missingArt > 0
+                  ? `${runnable_now.toLocaleString()} of ${gt_eligible.toLocaleString()} GT-eligible can run`
+                  : `${runnable_now.toLocaleString()} cases ready for New run`,
+            noteTone: !r.runnable || notRunnable > 0 || missingArt > 0 ? "warning" : "tertiary",
+          },
+        ];
+        return (
+          <section className={styles.block}>
+            <div className={styles.blockHead}>
+              <p className={`sectionLabel ${styles.blockLabel}`}>Setup readiness</p>
+              <Link className={styles.link} to="/new-run">
+                {r.runnable ? "New run →" : "Fix blockers →"}
+              </Link>
+            </div>
+            <div className={styles.tiles}>
+              {tiles.map((t) => (
+                <StatTile
+                  key={t.label}
+                  label={t.label}
+                  value={t.value}
+                  valueTone={t.valueTone}
+                  note={t.note}
+                  noteTone={t.noteTone}
+                />
+              ))}
+            </div>
+          </section>
+        );
+      })()}
 
       <section className={styles.block}>
         <div className={styles.blockHead}>
