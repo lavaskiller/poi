@@ -74,8 +74,8 @@ also exists for the upstream mirror.
 ## 3. Get the data (this is the step that trips people up)
 
 Real datasets and run snapshots are **not in git** — they are user data shared
-privately (Google Drive), never committed. `.gitignore` excludes `poi-data/`,
-`poi-data-seed/`, and `docs/reports/`.
+privately (Google Drive), never committed. `.gitignore` excludes `poi-data/` and
+`poi-data-seed/`.
 
 The backend resolves its **data root** (`DIRECTORY`) in this order:
 
@@ -225,5 +225,5 @@ web/                      React 18 + Vite + TypeScript frontend
 dashboard_config.json     tracked config template (boot fallback)
 poi-data/                 live data root — gitignored, shared privately
 poi-data-seed/            minimal seed bundle for first-run bootstrap — gitignored
-docs/                     redesign brief, quality audit, this guide
+docs/                     this guide (onboarding only)
 ```

@@ -377,8 +377,8 @@ def normalized_equal(a: str, b: str) -> bool:
 def load_label_relations(path: Optional[str] = None) -> Dict[Tuple[str, str, str], Dict[str, Any]]:
     """Load reviewed GT alias/relation sidecar keyed by (dataset, photo, provider).
 
-    See docs/reports/semantic-evaluation-policy-proposal-ko.md. Canonical GT in
-    the CSV is never overwritten; aliases only expand accepted predictions.
+    Canonical GT in the CSV is never overwritten; aliases only expand accepted
+    predictions (strict / alias / related layers).
     """
     path = path or DEFAULT_LABEL_RELATIONS_PATH
     out: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
