@@ -366,6 +366,8 @@ export interface ReconcileQueue {
   done: number;
   remaining: number;
   no_candidate: number;
+  selected_dataset?: string | null;
+  datasets: Array<{ name: string; total: number; done: number; remaining: number }>;
   cases: ReconcileCase[];
 }
 
@@ -521,7 +523,10 @@ export const api = {
   },
 
   /** GT↔MapKit reconciliation queue — NON_MAPKIT cases with candidate lists. */
-  reconcileQueue: () => getJSON<ReconcileQueue>("/api/gt/reconcile"),
+  reconcileQueue: (dataset?: string | null) => {
+    const query = dataset == null ? "" : `?dataset=${encodeURIComponent(dataset)}`;
+    return getJSON<ReconcileQueue>(`/api/gt/reconcile${query}`);
+  },
 
   /** Persist a match: a candidate picked from the list, a manually typed place
    *  (manual=true, for no-candidate cases), or "" for not-in-MapKit. */

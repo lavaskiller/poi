@@ -51,6 +51,30 @@
   font-size: 12px;
   color: var(--text-tertiary);
 }
+.datasetFilter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.datasetSelect {
+  min-width: 260px;
+  max-width: 440px;
+  padding: 8px 32px 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font: inherit;
+}
+.datasetSelect:focus {
+  outline: none;
+  border-color: var(--accent-default);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
 
 /* progress */
 .progressRow {

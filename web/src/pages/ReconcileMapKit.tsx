@@ -7,7 +7,8 @@ import styles from "./ReconcileMapKit.module.css";
 const TOP_N = 5;
 
 export default function ReconcileMapKit() {
-  const queue = useAsync(() => api.reconcileQueue(), []);
+  const [dataset, setDataset] = useState<string | null>(null);
+  const queue = useAsync(() => api.reconcileQueue(dataset), [dataset]);
   const [idx, setIdx] = useState(0);
   const [savedCount, setSavedCount] = useState(0);
   const [choice, setChoice] = useState<string | null>(null);
@@ -21,6 +22,18 @@ export default function ReconcileMapKit() {
   const [probing, setProbing] = useState(false);
   const [probeMsg, setProbeMsg] = useState<string | null>(null);
 
+  const selectDataset = (next: string | null) => {
+    setDataset(next);
+    setIdx(0);
+    setSavedCount(0);
+    setChoice(null);
+    setShowAll(false);
+    setCoord(null);
+    setProbeCands(null);
+    setProbeMsg(null);
+    setError(null);
+  };
+
   if (queue.status === "loading") return <main className={styles.center}>Loading reconciliation queue…</main>;
   if (queue.status === "error")
     return <main className={styles.center}>Couldn’t load queue — {queue.error.message}</main>;
@@ -32,7 +45,7 @@ export default function ReconcileMapKit() {
   if (cases.length === 0 || idx >= cases.length) {
     return (
       <main className={styles.main}>
-        <Header total={data.total_non_mapkit} done={doneBase + savedCount} remaining={Math.max(0, data.remaining - savedCount)} />
+        <Header total={data.total_non_mapkit} done={doneBase + savedCount} remaining={Math.max(0, data.remaining - savedCount)} datasets={data.datasets} selectedDataset={dataset} onDatasetChange={selectDataset} />
         <div className={styles.empty}>
           <span className={styles.emptyIcon}>✓</span>
           <p className={styles.emptyTitle}>Nothing left in this batch</p>
@@ -113,7 +126,7 @@ export default function ReconcileMapKit() {
 
   return (
     <main className={styles.main}>
-      <Header total={data.total_non_mapkit} done={doneBase + savedCount} remaining={Math.max(0, data.remaining - savedCount)} />
+      <Header total={data.total_non_mapkit} done={doneBase + savedCount} remaining={Math.max(0, data.remaining - savedCount)} datasets={data.datasets} selectedDataset={dataset} onDatasetChange={selectDataset} />
 
       <div className={styles.progressRow}>
         <div className={styles.progressTrack}>
@@ -231,7 +244,21 @@ export default function ReconcileMapKit() {
   );
 }
 
-function Header({ total, done, remaining }: { total: number; done: number; remaining: number }) {
+function Header({
+  total,
+  done,
+  remaining,
+  datasets,
+  selectedDataset,
+  onDatasetChange,
+}: {
+  total: number;
+  done: number;
+  remaining: number;
+  datasets: Array<{ name: string; total: number; done: number; remaining: number }>;
+  selectedDataset: string | null;
+  onDatasetChange: (dataset: string | null) => void;
+}) {
   return (
     <header className={styles.header}>
       <p className={`sectionLabel ${styles.kicker}`}>Data · GT ↔ MapKit reconciliation</p>
@@ -244,6 +271,24 @@ function Header({ total, done, remaining }: { total: number; done: number; remai
           {done} done · {remaining} remaining
         </span>
       </p>
+      <label className={styles.datasetFilter}>
+        <span>Dataset to reconcile</span>
+        <select
+          className={styles.datasetSelect}
+          value={selectedDataset == null ? "all" : `dataset:${datasets.findIndex((item) => item.name === selectedDataset)}`}
+          onChange={(event) => {
+            const index = Number(event.target.value.slice("dataset:".length));
+            onDatasetChange(event.target.value === "all" ? null : datasets[index]?.name ?? null);
+          }}
+        >
+          <option value="all">All datasets ({datasets.reduce((sum, item) => sum + item.remaining, 0)} remaining)</option>
+          {datasets.map((item, index) => (
+            <option key={`${index}:${item.name}`} value={`dataset:${index}`}>
+              {item.name || "(unnamed)"} ({item.remaining} remaining / {item.total} total)
+            </option>
+          ))}
+        </select>
+      </label>
     </header>
   );
 }
