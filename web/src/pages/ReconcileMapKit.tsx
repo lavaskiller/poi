@@ -1,10 +1,45 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import MapPicker from "../components/MapPicker";
-import { api, type ReconcileCandidate, type ReconcileCase } from "../lib/api";
+import {
+  api,
+  type ReconcileCandidate,
+  type ReconcileCase,
+  type ReconcileDatasetProgress,
+} from "../lib/api";
 import { useAsync } from "../lib/useAsync";
 import styles from "./ReconcileMapKit.module.css";
 
 const TOP_N = 5;
+
+function progressFor(
+  datasets: ReconcileDatasetProgress[],
+  selectedDataset: string | null,
+): { total: number; done: number; remaining: number } {
+  if (selectedDataset == null) {
+    return {
+      total: datasets.reduce((sum, item) => sum + item.total, 0),
+      done: datasets.reduce((sum, item) => sum + item.done, 0),
+      remaining: datasets.reduce((sum, item) => sum + item.remaining, 0),
+    };
+  }
+  const match = datasets.find((item) => item.name === selectedDataset);
+  return match
+    ? { total: match.total, done: match.done, remaining: match.remaining }
+    : { total: 0, done: 0, remaining: 0 };
+}
+
+/** Optimistically bump one dataset's done/remaining by ±1. */
+function bumpDataset(
+  datasets: ReconcileDatasetProgress[],
+  name: string,
+  delta: number,
+): ReconcileDatasetProgress[] {
+  return datasets.map((item) => {
+    if (item.name !== name) return item;
+    const done = Math.max(0, Math.min(item.total, item.done + delta));
+    return { ...item, done, remaining: Math.max(0, item.total - done) };
+  });
+}
 
 export default function ReconcileMapKit() {
   const [dataset, setDataset] = useState<string | null>(null);
@@ -17,14 +52,24 @@ export default function ReconcileMapKit() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Live dropdown / header progress — kept in sync on save/undo without
+  // reloading the whole case batch (which would jump the user around).
+  const [liveDatasets, setLiveDatasets] = useState<ReconcileDatasetProgress[] | null>(null);
+
   // query point (selectable) + live re-query results
   const [coord, setCoord] = useState<{ lat: number; lon: number } | null>(null);
   const [probeCands, setProbeCands] = useState<ReconcileCandidate[] | null>(null);
   const [probing, setProbing] = useState(false);
   const [probeMsg, setProbeMsg] = useState<string | null>(null);
 
-  const selectDataset = (next: string | null) => {
-    setDataset(next);
+  // When the queue (re)loads, adopt server progress as the new baseline.
+  useEffect(() => {
+    if (queue.status === "ready") {
+      setLiveDatasets(queue.data.datasets);
+    }
+  }, [queue.status, queue.data]);
+
+  const resetSession = () => {
     setIdx(0);
     setSavedCount(0);
     setHistory([]);
@@ -34,6 +79,17 @@ export default function ReconcileMapKit() {
     setProbeCands(null);
     setProbeMsg(null);
     setError(null);
+    setLiveDatasets(null);
+  };
+
+  const selectDataset = (next: string | null) => {
+    setDataset(next);
+    resetSession();
+  };
+
+  const reloadQueue = () => {
+    resetSession();
+    queue.reload();
   };
 
   if (queue.status === "loading") return <main className={styles.center}>Loading reconciliation queue…</main>;
@@ -42,7 +98,16 @@ export default function ReconcileMapKit() {
 
   const data = queue.data;
   const cases = data.cases;
-  const doneBase = data.done;
+  const datasets = liveDatasets ?? data.datasets;
+  const { total, done, remaining } = progressFor(datasets, dataset);
+
+  const bumpLive = (name: string, delta: number) => {
+    setLiveDatasets((prev) => bumpDataset(prev ?? data.datasets, name, delta));
+  };
+
+  const adoptServerProgress = (next: ReconcileDatasetProgress[] | undefined) => {
+    if (next && next.length > 0) setLiveDatasets(next);
+  };
 
   const goBack = async () => {
     const previous = history[history.length - 1];
@@ -52,8 +117,18 @@ export default function ReconcileMapKit() {
     try {
       if (previous.saved) {
         const previousCase = cases[previous.index];
-        await api.reconcileUndo({ dataset: previousCase.dataset, photo: previousCase.photo });
+        // Optimistic reverse so the dropdown updates immediately.
+        bumpLive(previousCase.dataset, -1);
         setSavedCount((count) => Math.max(0, count - 1));
+        try {
+          const res = await api.reconcileUndo({ dataset: previousCase.dataset, photo: previousCase.photo });
+          adoptServerProgress(res.datasets);
+        } catch (e) {
+          // Roll optimistic bump back if undo failed.
+          bumpLive(previousCase.dataset, +1);
+          setSavedCount((count) => count + 1);
+          throw e;
+        }
       }
       setHistory((items) => items.slice(0, -1));
       setIdx(previous.index);
@@ -72,14 +147,22 @@ export default function ReconcileMapKit() {
   if (cases.length === 0 || idx >= cases.length) {
     return (
       <main className={styles.main}>
-        <Header total={data.total_non_mapkit} done={doneBase + savedCount} remaining={Math.max(0, data.remaining - savedCount)} datasets={data.datasets} selectedDataset={dataset} onDatasetChange={selectDataset} />
+        <Header
+          total={total}
+          done={done}
+          remaining={remaining}
+          datasets={datasets}
+          selectedDataset={dataset}
+          onDatasetChange={selectDataset}
+        />
         <div className={styles.empty}>
           <span className={styles.emptyIcon}>✓</span>
           <p className={styles.emptyTitle}>Nothing left in this batch</p>
           <p className={styles.emptyDesc}>
-            {savedCount > 0 ? `${savedCount} matches saved. ` : ""}Reload to pull the next batch.
+            {savedCount > 0 ? `${savedCount} matches saved. ` : ""}
+            {remaining > 0 ? "Reload to pull the next batch." : "All remaining cases in this filter are done."}
           </p>
-          <button type="button" className={styles.reloadBtn} onClick={queue.reload}>
+          <button type="button" className={styles.reloadBtn} onClick={reloadQueue}>
             Reload queue
           </button>
           <button type="button" className={styles.secondary} disabled={busy || history.length === 0} onClick={goBack}>
@@ -111,11 +194,21 @@ export default function ReconcileMapKit() {
   async function save(chosen: string) {
     setBusy(true);
     setError(null);
+    // Optimistic: dropdown + header update before the network round-trip.
+    bumpLive(current.dataset, +1);
+    setSavedCount((n) => n + 1);
     try {
-      await api.reconcileSave({ dataset: current.dataset, photo: current.photo, gt: current.gt, chosen });
-      setSavedCount((n) => n + 1);
+      const res = await api.reconcileSave({
+        dataset: current.dataset,
+        photo: current.photo,
+        gt: current.gt,
+        chosen,
+      });
+      adoptServerProgress(res.datasets);
       advance(true);
     } catch (e) {
+      bumpLive(current.dataset, -1);
+      setSavedCount((n) => Math.max(0, n - 1));
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
@@ -158,11 +251,18 @@ export default function ReconcileMapKit() {
 
   return (
     <main className={styles.main}>
-      <Header total={data.total_non_mapkit} done={doneBase + savedCount} remaining={Math.max(0, data.remaining - savedCount)} datasets={data.datasets} selectedDataset={dataset} onDatasetChange={selectDataset} />
+      <Header
+        total={total}
+        done={done}
+        remaining={remaining}
+        datasets={datasets}
+        selectedDataset={dataset}
+        onDatasetChange={selectDataset}
+      />
 
       <div className={styles.progressRow}>
         <div className={styles.progressTrack}>
-          <div className={styles.progressFill} style={{ width: `${((doneBase + savedCount) / Math.max(1, data.total_non_mapkit)) * 100}%` }} />
+          <div className={styles.progressFill} style={{ width: `${(done / Math.max(1, total)) * 100}%` }} />
         </div>
         <span className={styles.progressText}>
           {idx + 1} of {cases.length} in this batch
@@ -290,7 +390,7 @@ function Header({
   total: number;
   done: number;
   remaining: number;
-  datasets: Array<{ name: string; total: number; done: number; remaining: number }>;
+  datasets: ReconcileDatasetProgress[];
   selectedDataset: string | null;
   onDatasetChange: (dataset: string | null) => void;
 }) {
@@ -308,7 +408,12 @@ function Header({
       </p>
       <label className={styles.datasetFilter}>
         <span>Dataset to reconcile</span>
+        {/*
+          key includes remaining totals so closed <select> labels re-render in
+          browsers that otherwise cache the selected option's display text.
+        */}
         <select
+          key={datasets.map((item) => `${item.name}:${item.remaining}:${item.done}`).join("|")}
           className={styles.datasetSelect}
           value={selectedDataset == null ? "all" : `dataset:${datasets.findIndex((item) => item.name === selectedDataset)}`}
           onChange={(event) => {

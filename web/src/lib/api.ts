@@ -394,13 +394,29 @@ export interface ProbeResult {
   candidates: ReconcileCandidate[];
   message?: string;
 }
+export interface ReconcileDatasetProgress {
+  name: string;
+  total: number;
+  done: number;
+  remaining: number;
+}
+
+/** Progress snapshot returned by queue load and save/undo mutations. */
+export interface ReconcileProgress {
+  ok: boolean;
+  done: number;
+  remaining: number;
+  total_non_mapkit: number;
+  datasets: ReconcileDatasetProgress[];
+}
+
 export interface ReconcileQueue {
   total_non_mapkit: number;
   done: number;
   remaining: number;
   no_candidate: number;
   selected_dataset?: string | null;
-  datasets: Array<{ name: string; total: number; done: number; remaining: number }>;
+  datasets: ReconcileDatasetProgress[];
   cases: ReconcileCase[];
 }
 
@@ -569,7 +585,7 @@ export const api = {
     gt: string;
     chosen: string;
     manual?: boolean;
-  }): Promise<{ ok: boolean; done: number; remaining: number }> {
+  }): Promise<ReconcileProgress> {
     const res = await fetch("/api/gt/reconcile", {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
@@ -579,24 +595,47 @@ export const api = {
       ok?: boolean;
       done?: number;
       remaining?: number;
+      total_non_mapkit?: number;
+      datasets?: ReconcileDatasetProgress[];
       message?: string;
     };
     if (!res.ok || data.ok === false)
       throw new Error(data.message || `/api/gt/reconcile → HTTP ${res.status}`);
-    return { ok: true, done: data.done ?? 0, remaining: data.remaining ?? 0 };
+    return {
+      ok: true,
+      done: data.done ?? 0,
+      remaining: data.remaining ?? 0,
+      total_non_mapkit: data.total_non_mapkit ?? 0,
+      datasets: data.datasets ?? [],
+    };
   },
 
   /** Remove a saved reconciliation so the case returns to the queue. */
-  async reconcileUndo(c: { dataset: string; photo: string }): Promise<{ ok: boolean }> {
+  async reconcileUndo(c: { dataset: string; photo: string }): Promise<ReconcileProgress & { removed?: boolean }> {
     const res = await fetch("/api/gt/reconcile", {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ ...c, action: "undo" }),
     });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      removed?: boolean;
+      done?: number;
+      remaining?: number;
+      total_non_mapkit?: number;
+      datasets?: ReconcileDatasetProgress[];
+      message?: string;
+    };
     if (!res.ok || data.ok === false)
       throw new Error(data.message || `/api/gt/reconcile undo → HTTP ${res.status}`);
-    return { ok: true };
+    return {
+      ok: true,
+      removed: data.removed,
+      done: data.done ?? 0,
+      remaining: data.remaining ?? 0,
+      total_non_mapkit: data.total_non_mapkit ?? 0,
+      datasets: data.datasets ?? [],
+    };
   },
 
   /** Onboarding seed presets discovered on disk (disk-bundle path; UI uses upload). */

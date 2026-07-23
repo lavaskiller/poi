@@ -3049,9 +3049,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if (payload or {}).get("action") == "undo":
             try:
                 removed = gt_reconcile_undo(dataset, photo)
-                q = gt_reconcile_queue(limit=1, dataset=dataset)
-                self._send_json({"ok": True, "removed": removed,
-                                 "done": q["done"], "remaining": q["remaining"]}, code=200)
+                # Full progress (all datasets) so the UI can refresh dropdown
+                # counts without reloading the whole case queue.
+                q = gt_reconcile_queue(limit=1)
+                self._send_json({
+                    "ok": True,
+                    "removed": removed,
+                    "done": q["done"],
+                    "remaining": q["remaining"],
+                    "total_non_mapkit": q["total_non_mapkit"],
+                    "datasets": q["datasets"],
+                }, code=200)
             except Exception as e:
                 self._send_json({"ok": False, "message": str(e)}, code=500)
             return
@@ -3083,8 +3091,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                                 "chosen_none": "" if chosen else "1",
                                 "manual": "1" if manual else "",
                                 "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+            # Always return all-dataset progress so the reconcile dropdown
+            # can update remaining/done live without a full queue reload.
             q = gt_reconcile_queue(limit=1)
-            self._send_json({"ok": True, "done": q["done"], "remaining": q["remaining"]}, code=200)
+            self._send_json({
+                "ok": True,
+                "done": q["done"],
+                "remaining": q["remaining"],
+                "total_non_mapkit": q["total_non_mapkit"],
+                "datasets": q["datasets"],
+            }, code=200)
         except Exception as e:
             self._send_json({"ok": False, "message": str(e)}, code=500)
 
