@@ -397,6 +397,137 @@
 }
 
 /* type-to-confirm remove modal */
+/* ── Dataset guide (format / timing / scoreable GT) ── */
+.guide {
+  width: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+.guideSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+  padding: 14px 18px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.guideSummary::-webkit-details-marker {
+  display: none;
+}
+.guideSummaryTitle {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.guideSummaryTitle::before {
+  content: "▸ ";
+  color: var(--accent-default);
+  font-weight: 700;
+}
+.guide[open] .guideSummaryTitle::before {
+  content: "▾ ";
+}
+.guideSummaryHint {
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+}
+.guideBody {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 4px 18px 20px;
+  border-top: 1px solid var(--border-subtle, var(--border-default));
+}
+.guideSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.guideH {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.guideP {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.guideP code,
+.guideTable code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-subtle);
+}
+.guideCode {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  overflow-x: auto;
+  white-space: pre;
+}
+.guideList {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.guideList ul {
+  margin: 6px 0 0;
+  padding-left: 1.1em;
+}
+.guideTableWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+.guideTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.guideTable th,
+.guideTable td {
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle, var(--border-default));
+  color: var(--text-secondary);
+}
+.guideTable th {
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-tertiary);
+  background: var(--bg-subtle);
+}
+.guideTable td:first-child {
+  color: var(--text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.issueFix {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--accent-default);
+}
+
 .modalOverlay {
   position: fixed;
   inset: 0;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import Button from "../components/Button";
 import {
   api,
@@ -198,6 +199,283 @@ function formatValidationIssue(issue: ValidationIssue): string {
   return bits.join(" · ");
 }
 
+/** Concrete “what to fix” copy for common upload validation codes. */
+function fixHintForIssue(issue: ValidationIssue): string | null {
+  switch (issue.code) {
+    case "invalid_root_count":
+      return "ZIP the single dataset folder itself (my-dataset.zip → my-dataset/manifest.csv), not loose files or nested double folders.";
+    case "manifest_missing":
+      return "Put manifest.csv directly under the dataset root folder (same level as photos/).";
+    case "manifest_required_columns":
+      return "manifest.csv must include columns photo and gt_input_raw (UTF-8 CSV). Download the template for the exact header.";
+    case "photo_empty":
+    case "photo_missing":
+      return "photo must be a path relative to the dataset root (e.g. photos/IMG_001.jpg) and that file must exist in the ZIP.";
+    case "timestamp_required":
+      return "Add manifest timestamp (ISO-8601, e.g. 2024-06-01T15:30:00) or ensure the image has EXIF DateTime.";
+    case "gps_required":
+      return "Add capture_lat/capture_lon (or lat/lon) on the row, or ensure the image has EXIF GPS.";
+    case "unsafe_path":
+      return "Remove absolute paths and .. segments from the ZIP.";
+    default:
+      return null;
+  }
+}
+
+function DatasetGuide({ defaultOpen = false }: { defaultOpen?: boolean }) {
+  return (
+    <details className={styles.guide} open={defaultOpen || undefined}>
+      <summary className={styles.guideSummary}>
+        <span className={styles.guideSummaryTitle}>Dataset guide</span>
+        <span className={styles.guideSummaryHint}>
+          format · after upload · scoreable GT · what to fix where
+        </span>
+      </summary>
+      <div className={styles.guideBody}>
+        <section className={styles.guideSection}>
+          <h3 className={styles.guideH}>1. Package format (required)</h3>
+          <p className={styles.guideP}>
+            Upload is always a <strong>ZIP with exactly one root folder</strong> (the folder name becomes the
+            dataset id). Download the template if you are unsure.
+          </p>
+          <pre className={styles.guideCode}>{`my-dataset.zip
+└── my-dataset/
+    ├── manifest.csv      ← required
+    ├── README.md         ← optional
+    └── photos/
+        ├── IMG_001.jpg
+        └── …`}</pre>
+          <div className={styles.guideTableWrap}>
+            <table className={styles.guideTable}>
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Required?</th>
+                  <th>Correct form</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <code>photo</code>
+                  </td>
+                  <td>Yes</td>
+                  <td>
+                    Path from dataset root, e.g. <code>photos/IMG_001.jpg</code>. File must exist in the ZIP.
+                    Ext: .jpg .jpeg .png .heic
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>gt_input_raw</code>
+                  </td>
+                  <td>Yes</td>
+                  <td>
+                    Human ground-truth place name (what the photo is of). Not empty / unknown / n/a.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>timestamp</code>
+                  </td>
+                  <td>Yes*</td>
+                  <td>
+                    ISO-8601 e.g. <code>2024-06-01T15:30:00</code>. *Skip only if the photo has EXIF DateTime.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>capture_lat</code> / <code>capture_lon</code>
+                  </td>
+                  <td>Yes*</td>
+                  <td>
+                    Decimal degrees. Aliases <code>lat</code>/<code>lon</code> OK. *Skip only if EXIF GPS exists.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <code>notes</code>
+                  </td>
+                  <td>No</td>
+                  <td>Free text memo</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className={styles.guideP}>
+            <strong>Common format mistakes:</strong> zipping files without a root folder; double nesting (
+            <code>zip/outer/inner/…</code>); photo path without <code>photos/</code>; Excel CSV saved as non-UTF-8;
+            missing time+GPS on both CSV and EXIF.
+          </p>
+        </section>
+
+        <section className={styles.guideSection}>
+          <h3 className={styles.guideH}>2. After you add a dataset — what runs &amp; how long</h3>
+          <p className={styles.guideP}>
+            Upload is not “instant ready for scoring.” The server validates, ingests rows/photos, then runs an
+            enrichment pipeline. Times are approximate on a typical Mac (MapKit is the bottleneck).
+          </p>
+          <div className={styles.guideTableWrap}>
+            <table className={styles.guideTable}>
+              <thead>
+                <tr>
+                  <th>Stage</th>
+                  <th>What it does</th>
+                  <th>Rough time</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Validate</td>
+                  <td>ZIP shape, columns, photos, time/GPS</td>
+                  <td>seconds</td>
+                </tr>
+                <tr>
+                  <td>Ingest</td>
+                  <td>Append CSV rows + copy photos</td>
+                  <td>~seconds–1 min</td>
+                </tr>
+                <tr>
+                  <td>EXIF → Geocode</td>
+                  <td>Fill/normalize time, GPS, country</td>
+                  <td>~seconds–few min</td>
+                </tr>
+                <tr>
+                  <td>OCR</td>
+                  <td>On-device text from photo (optional signal)</td>
+                  <td>~0.5–2 s / image</td>
+                </tr>
+                <tr>
+                  <td>MapKit nearby</td>
+                  <td>Fetch nearby place candidates at the capture point</td>
+                  <td>
+                    <strong>~15–40 s / row</strong> (network + Swift)
+                  </td>
+                </tr>
+                <tr>
+                  <td>GT MapKit</td>
+                  <td>Match your <code>gt_input_raw</code> to a MapKit name near the photo</td>
+                  <td>seconds after nearby exists</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className={styles.guideP}>
+            <strong>Rule of thumb:</strong> ~50 rows ≈ 15–30+ minutes wall time if MapKit nearby runs for every
+            empty row; ~150 rows can take well over an hour on first enrich. Watch the job panel below — do not
+            re-upload while a job is running.
+          </p>
+        </section>
+
+        <section className={styles.guideSection}>
+          <h3 className={styles.guideH}>3. “GT exists but not scoreable” — what that means</h3>
+          <p className={styles.guideP}>
+            Having a name in <code>gt_input_raw</code> is <em>not</em> the same as being ready for MapKit evaluation.
+          </p>
+          <ul className={styles.guideList}>
+            <li>
+              <strong>Your GT (gt_input_raw)</strong> — free text you wrote (e.g. “Capilano Suspension Bridge”).
+            </li>
+            <li>
+              <strong>Scoreable / canonical MapKit GT</strong> — the system resolved that text to a{" "}
+              <em>MapKit place name</em> near the photo (within the app search radius). Only then can algorithms
+              be scored: prediction must match a name that can appear in MapKit candidates.
+            </li>
+            <li>
+              <strong>Not scoreable (common labels)</strong>
+              <ul>
+                <li>
+                  <code>NON_MAPKIT</code> / Not in MapKit — no matching MapKit place found near the pin. Row stays
+                  in the CSV but is excluded from headline accuracy until reconciled or excluded.
+                </li>
+                <li>
+                  <code>SIM_MAPKIT</code> — only a similar name; not strict-eligible for exact match metrics.
+                </li>
+                <li>
+                  <strong>Korea holdout</strong> — needs Kakao provider (set <code>KAKAO_REST_API_KEY</code>), not
+                  MapKit.
+                </li>
+                <li>
+                  <strong>Missing nearby candidates</strong> — MapKit list not collected yet; GT classify cannot
+                  succeed reliably. SCOREABLE meter stays low even if GT text is perfect.
+                </li>
+              </ul>
+            </li>
+          </ul>
+          <p className={styles.guideP}>
+            Home “GT eligible” / SCOREABLE meters count <strong>canonical MapKit matches</strong>, not raw{" "}
+            <code>gt_input_raw</code> fill rate.
+          </p>
+        </section>
+
+        <section className={styles.guideSection}>
+          <h3 className={styles.guideH}>4. Where to fix what</h3>
+          <div className={styles.guideTableWrap}>
+            <table className={styles.guideTable}>
+              <thead>
+                <tr>
+                  <th>Symptom</th>
+                  <th>Where to work</th>
+                  <th>What to do</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Upload rejected / validation errors</td>
+                  <td>This page · template ZIP</td>
+                  <td>
+                    Fix ZIP/manifest using the table above; re-download template; fix the listed row/photo.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Job still running / stuck enriching</td>
+                  <td>Jobs panel · <Link to="/jobs">Jobs</Link></td>
+                  <td>Wait for MapKit nearby; one job at a time. Do not start another ingest.</td>
+                </tr>
+                <tr>
+                  <td>SCOREABLE low, many NON_MAPKIT</td>
+                  <td>
+                    <Link to="/reconcile">Reconcile GT</Link>
+                  </td>
+                  <td>
+                    Manually pick MapKit candidates (or “Not in MapKit”) for unresolved ground truth. That raises
+                    scoreable count without re-uploading.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Nearby / OCR empty after ingest</td>
+                  <td>This page · Rerun step</td>
+                  <td>
+                    Select the dataset → Rerun <strong>MapKit nearby</strong> then <strong>GT MapKit</strong>{" "}
+                    (only_empty). Nearby must finish before GT classify helps.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Wrong photos / wrong GT text in CSV</td>
+                  <td>Source ZIP · re-ingest or remove</td>
+                  <td>
+                    Correct the package and upload again, or remove the dataset (⋯ menu) and re-add. Do not only
+                    “Rerun GT” if the raw GT string is wrong.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Ready to measure algorithms</td>
+                  <td>
+                    <Link to="/new-run">New run</Link>
+                  </td>
+                  <td>
+                    Need runnable cases (canonical GT + candidate artifacts). Check Home readiness numbers first.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </details>
+  );
+}
+
 /** Pull a short failure reason from a finished job (ingest RESULT or top-level error). */
 function jobFailureReason(j: Job): string | null {
   if (j.status === "running" || j.status === "done" || j.status === "ok") return null;
@@ -280,7 +558,9 @@ function CoveragePanel({
     {
       label: "Scoreable GT",
       value: `${canonical.toLocaleString()}`,
-      note: `${Math.round((100 * canonical) / Math.max(1, total))}% of rows · MapKit canonical`,
+      note:
+        `${Math.round((100 * canonical) / Math.max(1, total))}% of rows · MapKit-matched name` +
+        (notFound > 0 ? ` · ${notFound} still NON_MAPKIT` : ""),
       tone: toneFor(Math.round((100 * canonical) / Math.max(1, total))),
     },
     {
@@ -695,9 +975,83 @@ export default function Datasets() {
           <div className={styles.titles}>
             <p className={`sectionLabel ${styles.kicker}`}>Data</p>
             <h1 className={styles.h1}>Datasets</h1>
-            <p className={styles.sub}>No datasets loaded yet. Drop a ZIP below to ingest.</p>
+            <p className={styles.sub}>
+              No datasets loaded yet. Read the guide, download the template, then drop a ZIP.
+            </p>
           </div>
+          <Button
+            kind="secondary"
+            disabled={templateBusy}
+            onClick={() => {
+              setTemplateBusy(true);
+              setJobErr(null);
+              void api
+                .downloadTemplate()
+                .then(() => setIngestMsg("Downloaded poi-dataset-template.zip — fill it and re-upload."))
+                .catch((e) => setJobErr(e instanceof Error ? e.message : String(e)))
+                .finally(() => setTemplateBusy(false));
+            }}
+          >
+            {templateBusy ? "Downloading…" : "Download template"}
+          </Button>
+          <Button kind="primary" onClick={() => fileRef.current?.click()} loading={ingestBusy}>
+            ＋&nbsp;&nbsp;Add dataset
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".zip,application/zip"
+            hidden
+            onChange={(e) => void onIngestFiles(e.target.files)}
+          />
         </header>
+        {(jobErr || ingestMsg || validationIssues.length > 0) && (
+          <div className={styles.ceiling}>
+            {(jobErr || ingestMsg) && (
+              <p className={styles.ceilingTitle}>{jobErr ? `⚠ ${jobErr}` : `✓ ${ingestMsg}`}</p>
+            )}
+            {validationIssues.length > 0 && (
+              <ul className={styles.issueList}>
+                {validationIssues.slice(0, 12).map((issue, i) => (
+                  <li key={`e-${i}`}>
+                    {formatValidationIssue(issue)}
+                    {fixHintForIssue(issue) && (
+                      <div className={styles.issueFix}>→ {fixHintForIssue(issue)}</div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        <DatasetGuide defaultOpen />
+        <div className={styles.ingest}>
+          <p className={styles.miniLabel}>Add a dataset</p>
+          <div
+            className={styles.dropzone}
+            role="button"
+            tabIndex={0}
+            onClick={() => !ingestBusy && fileRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") fileRef.current?.click();
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!ingestBusy) void onIngestFiles(e.dataTransfer.files);
+            }}
+          >
+            <span className={styles.dropIcon}>⬆</span>
+            <span className={styles.dropTitle}>{ingestBusy ? "Uploading…" : "Drop a dataset ZIP"}</span>
+            <span className={styles.dropSub}>
+              one root folder · manifest.csv · photos · time+GPS · then auto enrich (MapKit is slow)
+            </span>
+          </div>
+        </div>
       </main>
     );
   }
@@ -757,6 +1111,9 @@ export default function Datasets() {
               {validationIssues.slice(0, 12).map((issue, i) => (
                 <li key={`err-${i}-${issue.code ?? ""}-${issue.row ?? ""}`}>
                   {formatValidationIssue(issue)}
+                  {fixHintForIssue(issue) && (
+                    <div className={styles.issueFix}>→ {fixHintForIssue(issue)}</div>
+                  )}
                 </li>
               ))}
               {validationIssues.length > 12 && (
@@ -774,7 +1131,12 @@ export default function Datasets() {
               </p>
               <ul className={styles.issueList}>
                 {validationWarnings.slice(0, 6).map((issue, i) => (
-                  <li key={`warn-${i}-${issue.code ?? ""}`}>{formatValidationIssue(issue)}</li>
+                  <li key={`warn-${i}-${issue.code ?? ""}`}>
+                    {formatValidationIssue(issue)}
+                    {fixHintForIssue(issue) && (
+                      <div className={styles.issueFix}>→ {fixHintForIssue(issue)}</div>
+                    )}
+                  </li>
                 ))}
                 {validationWarnings.length > 6 && (
                   <li className={styles.issueMore}>
@@ -787,6 +1149,8 @@ export default function Datasets() {
           )}
         </div>
       )}
+
+      <DatasetGuide defaultOpen={false} />
 
       <div className={styles.list}>
         {datasets.map((ds) => {
@@ -1007,14 +1371,15 @@ export default function Datasets() {
               {ingestBusy ? "Uploading…" : "Drop a dataset ZIP"}
             </span>
             <span className={styles.dropSub}>
-              capture time + GPS required · validated before write · auto geocode after ingest
+              template ZIP · time+GPS · then EXIF→geocode→OCR→MapKit nearby→GT (~15–40s/row for MapKit)
             </span>
           </div>
           <div className={styles.steps}>
             {[
-              "Validate structure, photos, capture time & GPS",
-              "Ingest rows + photos (local content ids)",
-              "Auto: EXIF → geocode → OCR ∥ MapKit nearby → GT MapKit (≤250m names)",
+              "Validate ZIP + manifest (photo, gt_input_raw, time/GPS)",
+              "Ingest rows + photos into eval CSV",
+              "Auto enrich: EXIF → geocode → OCR → MapKit nearby → GT MapKit match",
+              "If SCOREABLE stays low: open guide §3–4 · Reconcile GT or rerun MapKit nearby",
             ].map((s, i) => (
               <div key={s} className={styles.stepRow}>
                 <span className={styles.stepNum}>{i + 1}.</span>
