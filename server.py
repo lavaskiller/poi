@@ -1570,18 +1570,26 @@ def build_overview():
 
     # ---- sources (structure from data, labels from config; unknown -> flagged) ----
     src_counts = Counter((r.get("dataset") or "").strip() for r in rows)
+    # Mirror /api/run: reviewed GT overrides and the same candidate artifacts
+    # must be included or UI preflight can disagree with the actual runner.
+    eligibility_rows, _ = overlay_gt_mapkit_overrides(rows, path=_gt_overrides_path())
+    eligibility_candidates = load_match_candidates(MATCH_CANDIDATE_PATHS)
     sources = []
     for i, (k, v) in enumerate(src_counts.most_common()):
         c = cfg["sources"].get(k)
         if c is None:
             warnings.append(f"source '{k}' — missing from config (add under dashboard_config.json > sources)")
+        preflight = algorithm.dataset_eligibility_summary(
+            eligibility_rows, cfg, k, eligibility_candidates
+        )
         sources.append({"key": k, "count": v,
                         "label": (c or {}).get("label", ""),
                         "color": (c or {}).get("color", cfg["palette"][i % len(cfg["palette"])]),
                         "owner": (c or {}).get("owner", ""),
                         "source_type": (c or {}).get("source_type", ""),
                         "desc": (c or {}).get("desc", ""),
-                        "known": c is not None})
+                        "known": c is not None,
+                        "run_preflight": preflight})
 
     # ---- confidence: roll raw gt_confidence up into canonical tiers (config-driven) ----
     raw_counts = Counter((r.get("gt_confidence") or "").strip() for r in rows)

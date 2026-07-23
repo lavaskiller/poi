@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../components/Button";
 import ProgressBar from "../components/ProgressBar";
-import { api, type MatchRate, type Overview, type SchemaField } from "../lib/api";
+import { api, type Overview, type SchemaField } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
 import styles from "./NewRun.module.css";
 
@@ -87,10 +87,32 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const PREFLIGHT_REASON_LABELS: Record<string, string> = {
+  no_rows: "No rows in this dataset",
+  unresolved_country: "Country/provider is unresolved",
+  korea_pending_kakao: "Korea rows are pending Kakao evaluation",
+  non_poi: "All rows are marked non-POI",
+  no_gt: "Canonical ground truth is not ready",
+  non_mapkit: "No canonical MapKit ground truth",
+  sim_mapkit: "Ground truth still needs review",
+  missing_candidate_artifact: "Nearby candidate artifacts are missing",
+  lossy_candidate_artifact: "Only lossy candidate summaries are available",
+};
+
+function preflightReason(source: Overview["sources"][number]): string {
+  const p = source.run_preflight;
+  if (!p) return "Run readiness has not been computed";
+  if (p.rows === 0) return PREFLIGHT_REASON_LABELS.no_rows;
+  // Blockers explain why otherwise eligible rows cannot run. Prefer them over
+  // ordinary row exclusions even when an exclusion has a larger count.
+  const reasons = Object.keys(p.blockers).length > 0 ? p.blockers : p.exclusions;
+  const [reason, count] = Object.entries(reasons).sort((a, b) => b[1] - a[1])[0] ?? [];
+  if (!reason) return "No runnable evaluation cases";
+  return `${PREFLIGHT_REASON_LABELS[reason] ?? reason.replace(/_/g, " ")} (${count})`;
+}
+
 interface PageData {
   overview: Overview;
-  matchrate: MatchRate;
-  byDataset: Record<string, MatchRate>;
   /** highest version per safe run name */
   nextVersionByName: Record<string, number>;
 }
@@ -111,28 +133,17 @@ export default function NewRun() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const state = useAsync<PageData>(async () => {
-    const [overview, matchrate, { runs }] = await Promise.all([
+    const [overview, { runs }] = await Promise.all([
       api.overview(),
-      api.matchrate(),
       api.runs(),
     ]);
-    const byDataset: Record<string, MatchRate> = {};
-    await Promise.all(
-      (overview.sources || []).map(async (s) => {
-        try {
-          byDataset[s.key] = await api.matchrate(s.key);
-        } catch {
-          /* optional */
-        }
-      }),
-    );
     const nextVersionByName: Record<string, number> = {};
     for (const r of runs) {
       const key = slugifyRunName(r.name);
       const v = typeof r.version === "number" ? r.version : 0;
       nextVersionByName[key] = Math.max(nextVersionByName[key] ?? 0, v);
     }
-    return { overview, matchrate, byDataset, nextVersionByName };
+    return { overview, nextVersionByName };
   }, []);
 
   const [scriptText, setScriptText] = useState(DEFAULT_SCRIPT);
@@ -149,17 +160,19 @@ export default function NewRun() {
   const [resultMsg, setResultMsg] = useState<string | null>(null);
 
   const overview = state.status === "ready" ? state.data.overview : null;
-  const matchrate = state.status === "ready" ? state.data.matchrate : null;
-  const byDataset = state.status === "ready" ? state.data.byDataset : {};
   const total = overview?.total ?? 0;
   const sources = overview?.sources ?? [];
 
-  // default scope keys once sources load
+  // "All" means all datasets that runner preflight can actually execute.
+  const runnableSources = useMemo(
+    () => sources.filter((s) => s.run_preflight?.runnable),
+    [sources],
+  );
   const activeScope = useMemo(() => {
-    if (scopeAll) return new Set(sources.map((s) => s.key));
-    if (scopeKeys.size) return scopeKeys;
-    return new Set(sources.map((s) => s.key));
-  }, [scopeAll, scopeKeys, sources]);
+    const runnableKeys = new Set(runnableSources.map((s) => s.key));
+    if (scopeAll) return runnableKeys;
+    return new Set([...scopeKeys].filter((key) => runnableKeys.has(key)));
+  }, [scopeAll, scopeKeys, runnableSources]);
 
   const fields = useMemo(() => {
     const schema = overview?.schema;
@@ -189,20 +202,13 @@ export default function NewRun() {
   };
 
   const selectedFields = fields.filter((f) => active.has(f.key));
-  // Real eligibility is GT/provider based (matchrate), not min(fill).
-  // Input fill only describes signal availability for predict(case).
+  // Use runner preflight, not match-rate, so UI and /api/run use the same cohort.
   const eligible = useMemo(() => {
-    if (!matchrate) return 0;
-    if (scopeAll || activeScope.size === sources.length) {
-      return matchrate.n ?? matchrate.eligible ?? 0;
-    }
-    let sum = 0;
-    for (const key of activeScope) {
-      const m = byDataset[key];
-      sum += m?.n ?? m?.eligible ?? 0;
-    }
-    return sum;
-  }, [matchrate, scopeAll, activeScope, sources.length, byDataset]);
+    return sources.reduce(
+      (sum, source) => sum + (activeScope.has(source.key) ? source.run_preflight?.eligible ?? 0 : 0),
+      0,
+    );
+  }, [activeScope, sources]);
 
   const binding = selectedFields.length
     ? selectedFields.reduce((a, b) => (a.fill <= b.fill ? a : b))
@@ -228,13 +234,15 @@ export default function NewRun() {
     (state.status === "ready" ? state.data.nextVersionByName[stableName] ?? 0 : 0) + 1;
 
   const toggleDataset = (key: string) => {
+    const source = sources.find((item) => item.key === key);
+    if (!source?.run_preflight?.runnable) return;
     setScopeAll(false);
     setScopeKeys((prev) => {
-      const base = prev.size ? new Set(prev) : new Set(sources.map((s) => s.key));
+      const runnableKeys = runnableSources.map((item) => item.key);
+      const base = scopeAll ? new Set(runnableKeys) : new Set(prev);
       if (base.has(key)) base.delete(key);
       else base.add(key);
-      if (base.size === 0) return new Set(sources.map((s) => s.key));
-      if (base.size === sources.length) {
+      if (base.size === runnableKeys.length) {
         setScopeAll(true);
         return new Set();
       }
@@ -247,6 +255,7 @@ export default function NewRun() {
     !!runName.trim() &&
     active.size > 0 &&
     activeScope.size > 0 &&
+    eligible > 0 &&
     !running;
 
   const onRun = async () => {
@@ -255,10 +264,8 @@ export default function NewRun() {
     setError(null);
     setResultMsg(null);
     try {
-      const scope =
-        scopeAll || activeScope.size === sources.length
-          ? "all"
-          : [...activeScope].join(",");
+      // Send explicit runnable keys: backend "all" may include blocked datasets.
+      const scope = [...activeScope].join(",");
       const usesNearby = active.has("nearby_candidates");
       const res = await api.submitRun({
         name: stableName,
@@ -470,8 +477,8 @@ export default function NewRun() {
                 </div>
                 <ProgressBar value={total > 0 ? eligible / total : 0} width="100%" />
                 <p className={styles.eligNote}>
-                  Eligibility is GT-canonical · MapKit provider · non-POI excluded — same rules as
-                  match-rate. Input selection only controls what predict() sees
+                  Eligibility uses the runner&apos;s GT, provider, non-POI, and candidate-artifact
+                  checks. Input selection only controls what predict() sees
                   {binding ? `; sparsest signal is ${binding.label} (${Math.round((binding.fill / Math.max(1, total)) * 100)}% fill)` : ""}.
                 </p>
               </div>
@@ -491,18 +498,24 @@ export default function NewRun() {
             <div className={styles.datasetRow}>
               {sources.map((s) => {
                 const on = activeScope.has(s.key);
-                const elig = byDataset[s.key]?.n ?? byDataset[s.key]?.eligible;
+                const preflight = s.run_preflight;
+                const runnable = preflight?.runnable === true;
+                const elig = preflight?.eligible;
                 return (
                   <button
                     key={s.key}
                     type="button"
-                    className={`${styles.dataset} ${on ? styles.datasetOn : ""}`}
+                    className={`${styles.dataset} ${on ? styles.datasetOn : ""} ${!runnable ? styles.datasetDisabled : ""}`}
                     onClick={() => toggleDataset(s.key)}
-                    style={{ cursor: "pointer" }}
+                    disabled={!runnable}
+                    title={!runnable ? preflightReason(s) : undefined}
                   >
-                    {on ? "✓ " : ""}
-                    {s.key} · {s.count}
-                    {elig != null ? ` · elig ${elig}` : ""}
+                    <span>
+                      {on ? "✓ " : ""}
+                      {s.key} · {s.count}
+                      {elig != null ? ` · elig ${elig}` : ""}
+                    </span>
+                    {!runnable && <span className={styles.datasetReason}>{preflightReason(s)}</span>}
                   </button>
                 );
               })}

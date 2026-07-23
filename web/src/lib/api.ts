@@ -8,6 +8,14 @@ export interface OverviewSource {
   known?: boolean;
   source_type?: string;
   desc?: string;
+  /** Exact GT/provider eligibility policy used by the algorithm runner. */
+  run_preflight?: {
+    rows: number;
+    eligible: number;
+    exclusions: Record<string, number>;
+    blockers: Record<string, number>;
+    runnable: boolean;
+  };
 }
 
 export interface OverviewCountry {

@@ -67,5 +67,61 @@ class AtomicSaveTests(unittest.TestCase):
                 ra.get_run(d, "other", 1)
 
 
+class DatasetPreflightTests(unittest.TestCase):
+    @staticmethod
+    def _row(photo="a.jpg", **overrides):
+        row = {
+            "dataset": "sample",
+            "photo": photo,
+            "country": "Canada",
+            "gt_mapkit": "Canonical Place",
+            "gt_confidence": "confirmed_user",
+        }
+        row.update(overrides)
+        return row
+
+    def test_summary_and_build_cases_agree_for_runnable_dataset(self):
+        rows = [self._row()]
+        candidates = {("mapkit", "sample/a.jpg"): []}
+        summary = ra.dataset_eligibility_summary(rows, {}, "sample", candidates)
+        cases = ra.build_cases(rows, {}, candidates, "sample", [])
+        self.assertTrue(summary["runnable"])
+        self.assertEqual(summary["eligible"], len(cases))
+
+    def test_missing_artifact_blocks_preflight_and_runner(self):
+        rows = [self._row()]
+        summary = ra.dataset_eligibility_summary(rows, {}, "sample", {})
+        self.assertFalse(summary["runnable"])
+        self.assertEqual(summary["blockers"], {"missing_candidate_artifact": 1})
+        with self.assertRaises(ra.RunError):
+            ra.build_cases(rows, {}, {}, "sample", [])
+
+    def test_lossy_artifact_blocks_preflight_and_runner(self):
+        rows = [self._row()]
+        candidates = {("mapkit", "sample/a.jpg"): [
+            {"name": "Candidate", "lossy_top3_summary": True},
+        ]}
+        summary = ra.dataset_eligibility_summary(rows, {}, "sample", candidates)
+        self.assertFalse(summary["runnable"])
+        self.assertEqual(summary["blockers"], {"lossy_candidate_artifact": 1})
+        with self.assertRaises(ra.RunError):
+            ra.build_cases(rows, {}, candidates, "sample", [])
+
+    def test_exclusion_reasons_use_runner_policy(self):
+        rows = [
+            self._row("missing-gt.jpg", gt_mapkit=""),
+            self._row("korea.jpg", country="South Korea", gt_kakao="Kakao Place"),
+            self._row("non-poi.jpg", gt_confidence="non_poi"),
+        ]
+        summary = ra.dataset_eligibility_summary(rows, {}, "sample", {})
+        self.assertEqual(summary["eligible"], 0)
+        self.assertEqual(summary["exclusions"], {
+            "no_gt": 1,
+            "korea_pending_kakao": 1,
+            "non_poi": 1,
+        })
+        self.assertEqual(ra.build_cases(rows, {}, {}, "sample", []), [])
+
+
 if __name__ == "__main__":
     unittest.main()

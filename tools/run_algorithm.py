@@ -29,6 +29,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from typing import Any, Dict, List, Optional
 
 import match_score as ms
@@ -130,6 +131,59 @@ def _has_candidate_artifact(candidates, provider: str, photo: str, dataset: str 
             or (provider, photo) in candidates)
 
 
+def row_ineligibility(row: Dict[str, str], cfg: Dict[str, Any]) -> Optional[str]:
+    """Return the runner exclusion reason, or None when the row is eligible."""
+    provider = ms.provider_for_row(row, cfg)
+    _gt, gt_status = ms.gt_resolution(row, provider)
+    tier = ms.confidence_tier(row, cfg)
+    if provider == ms.PROVIDER_UNRESOLVED:
+        return "unresolved_country"
+    if provider == ms.PROVIDER_KAKAO:
+        return "korea_pending_kakao"
+    if tier == "non_poi":
+        return "non_poi"
+    if gt_status != "canonical":
+        return gt_status or "no_gt"
+    return None
+
+
+def dataset_eligibility_summary(rows: List[Dict[str, str]], cfg: Dict[str, Any],
+                                dataset: str,
+                                candidates: Optional[Dict[Any, Any]] = None) -> Dict[str, Any]:
+    """Summarize whether one dataset can pass ``build_cases`` preflight.
+
+    Row exclusions use the exact runner policy. When candidates are supplied we
+    also report artifact conditions that make ``build_cases`` fail.
+    """
+    exclusions: Counter = Counter()
+    blockers: Counter = Counter()
+    total = eligible = 0
+    for row in rows:
+        if (row.get("dataset") or "").strip() != dataset:
+            continue
+        total += 1
+        reason = row_ineligibility(row, cfg)
+        if reason:
+            exclusions[reason] += 1
+            continue
+        eligible += 1
+        if candidates is not None:
+            provider = ms.provider_for_row(row, cfg)
+            photo = (row.get("photo") or "").strip()
+            if not _has_candidate_artifact(candidates, provider, photo, dataset):
+                blockers["missing_candidate_artifact"] += 1
+            elif any(c.get("lossy_top3_summary") for c in
+                     _candidate_names(candidates, provider, photo, row, dataset)):
+                blockers["lossy_candidate_artifact"] += 1
+    return {
+        "rows": total,
+        "eligible": eligible,
+        "exclusions": dict(exclusions),
+        "blockers": dict(blockers),
+        "runnable": eligible > 0 and not blockers,
+    }
+
+
 def build_cases(rows, cfg, candidates, dataset: str, params: Optional[List[str]],
                 candidate_limit: Optional[int] = None,
                 require_candidate_artifact: bool = True) -> List[Dict[str, Any]]:
@@ -150,16 +204,10 @@ def build_cases(rows, cfg, candidates, dataset: str, params: Optional[List[str]]
         ds = (row.get("dataset") or "").strip()
         if "all" not in selected_datasets and ds not in selected_datasets:
             continue
-        provider = ms.provider_for_row(row, cfg)
-        gt, gt_status = ms.gt_resolution(row, provider)
-        tier = ms.confidence_tier(row, cfg)
-        # Eligibility exactly mirrors match_score.evaluate: provider sentinels
-        # and missing provider-canonical GT are holdouts, never answer labels.
-        # unresolved country must never enter the MapKit scoring cohort.
-        if (provider in (ms.PROVIDER_KAKAO, ms.PROVIDER_UNRESOLVED)
-                or tier == "non_poi"
-                or gt_status != "canonical"):
+        if row_ineligibility(row, cfg):
             continue
+        provider = ms.provider_for_row(row, cfg)
+        gt, _gt_status = ms.gt_resolution(row, provider)
         photo = (row.get("photo") or "").strip()
 
         nearby_candidates = _candidate_names(candidates, provider, photo, row, ds)
