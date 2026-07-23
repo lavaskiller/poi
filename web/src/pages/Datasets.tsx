@@ -9,6 +9,7 @@ import {
   type SignalInfo,
   type ValidationIssue,
 } from "../lib/api";
+import { notifyDataChanged, useRefreshOnFocus } from "../lib/dataRefresh";
 import { useAsync } from "../lib/useAsync";
 import styles from "./Datasets.module.css";
 
@@ -485,6 +486,12 @@ export default function Datasets() {
     [openKey],
   );
 
+  // Reconcile / other-tab edits change SCOREABLE + matchrate without a job.
+  useRefreshOnFocus(() => {
+    data.softReload();
+    if (openKey) matchrate.softReload();
+  });
+
   const refreshJobs = useCallback(async () => {
     try {
       const res = await api.jobs();
@@ -514,6 +521,7 @@ export default function Datasets() {
   useEffect(() => {
     if (prevActiveJob.current && !activeJobId) {
       reloadDatasets();
+      notifyDataChanged("job");
     }
     prevActiveJob.current = activeJobId;
   }, [activeJobId, reloadDatasets]);

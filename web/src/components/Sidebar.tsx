@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { api } from "../lib/api";
+import { useRefreshOnFocus } from "../lib/dataRefresh";
 import { useAsync } from "../lib/useAsync";
 import styles from "./Sidebar.module.css";
 
@@ -32,6 +33,8 @@ function NavItem({ to, label, end }: { to: string; label: string; end?: boolean 
 
 export default function Sidebar() {
   const overview = useAsync(() => api.overview(), []);
+  // Long-lived chrome: refresh dataset count after reconcile / ingest / delete.
+  useRefreshOnFocus(overview.softReload);
   const n =
     overview.status === "ready"
       ? overview.data.sources?.length ?? overview.data.datasets?.length ?? 0

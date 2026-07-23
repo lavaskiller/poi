@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import Button from "../components/Button";
 import StatTile from "../components/StatTile";
 import { api, bestRun, relTime, type Overview, type Run } from "../lib/api";
+import { useRefreshOnFocus } from "../lib/dataRefresh";
 import { useAsync } from "../lib/useAsync";
 import styles from "./Home.module.css";
 
@@ -19,6 +20,7 @@ export default function Home() {
     const [overview, runs] = await Promise.all([api.overview(), api.runs()]);
     return { overview, runs: runs.runs };
   }, []);
+  useRefreshOnFocus(state.softReload);
 
   if (state.status === "loading") {
     return (

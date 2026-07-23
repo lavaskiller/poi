@@ -8,6 +8,7 @@ import {
   type OverviewSource,
   type Run,
 } from "../lib/api";
+import { notifyDataChanged, useRefreshOnFocus } from "../lib/dataRefresh";
 import { useAsync } from "../lib/useAsync";
 import styles from "./RetrievalDiagnostics.module.css";
 
@@ -236,6 +237,7 @@ export default function RetrievalDiagnostics() {
     );
     return { sources, matchrate, byDataset, runs };
   }, [dataset]);
+  useRefreshOnFocus(state.softReload);
 
   const filterOptions = useMemo(() => {
     if (state.status !== "ready") return [{ key: "all", label: "All datasets", count: 0 }];
@@ -336,6 +338,7 @@ export default function RetrievalDiagnostics() {
         done.push(`k=${k}→v${res.version} (${res.metrics?.accuracy_pct ?? "—"}%)`);
       }
       setSweepMsg(`Saved baseline-nearest: ${done.join(" · ")}`);
+      notifyDataChanged("run");
       state.reload();
     } catch (e) {
       setSweepErr(e instanceof Error ? e.message : String(e));

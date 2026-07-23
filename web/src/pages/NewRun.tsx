@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import Button from "../components/Button";
 import ProgressBar from "../components/ProgressBar";
 import { api, type Overview, type SchemaField } from "../lib/api";
+import { notifyDataChanged, useRefreshOnFocus } from "../lib/dataRefresh";
 import { useAsync } from "../lib/useAsync";
 import styles from "./NewRun.module.css";
 
@@ -145,6 +146,7 @@ export default function NewRun() {
     }
     return { overview, nextVersionByName };
   }, []);
+  useRefreshOnFocus(state.softReload);
 
   const [scriptText, setScriptText] = useState(DEFAULT_SCRIPT);
   const [fileName, setFileName] = useState("baseline_nearest.py");
@@ -295,6 +297,7 @@ export default function NewRun() {
           (acc != null ? ` · ${acc}% strict` : "") +
           ` · ${res.n_cases ?? res.metrics?.n_eligible ?? "?"} cases`,
       );
+      notifyDataChanged("run");
       navigate(`/results?name=${encodeURIComponent(res.name)}&version=${res.version}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

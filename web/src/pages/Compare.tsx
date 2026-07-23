@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import CaseCard, { type CaseCardData } from "../components/CaseCard";
 import { api, bestRun, formatDuration, photoUrl, relTime, type Run, type RunDetail } from "../lib/api";
+import { useRefreshOnFocus } from "../lib/dataRefresh";
 import { useAsync } from "../lib/useAsync";
 import styles from "./Compare.module.css";
 
@@ -47,6 +48,7 @@ interface CompareData {
 export default function Compare() {
   const [searchParams] = useSearchParams();
   const list = useAsync(() => api.runs().then((r) => r.runs), []);
+  useRefreshOnFocus(list.softReload);
   const runs = list.status === "ready" ? list.data : [];
   const [pickA, setPickA] = useState<string>("");
   const [pickB, setPickB] = useState<string>("");

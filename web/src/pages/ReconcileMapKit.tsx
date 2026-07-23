@@ -6,6 +6,7 @@ import {
   type ReconcileCase,
   type ReconcileDatasetProgress,
 } from "../lib/api";
+import { notifyDataChanged } from "../lib/dataRefresh";
 import { useAsync } from "../lib/useAsync";
 import styles from "./ReconcileMapKit.module.css";
 
@@ -123,6 +124,7 @@ export default function ReconcileMapKit() {
         try {
           const res = await api.reconcileUndo({ dataset: previousCase.dataset, photo: previousCase.photo });
           adoptServerProgress(res.datasets);
+          notifyDataChanged("reconcile");
         } catch (e) {
           // Roll optimistic bump back if undo failed.
           bumpLive(previousCase.dataset, +1);
@@ -205,6 +207,7 @@ export default function ReconcileMapKit() {
         chosen,
       });
       adoptServerProgress(res.datasets);
+      notifyDataChanged("reconcile");
       advance(true);
     } catch (e) {
       bumpLive(current.dataset, -1);

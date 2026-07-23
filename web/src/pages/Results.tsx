@@ -14,6 +14,7 @@ import {
   type Run,
   type RunDetail,
 } from "../lib/api";
+import { useRefreshOnFocus } from "../lib/dataRefresh";
 import { useAsync } from "../lib/useAsync";
 import styles from "./Results.module.css";
 
@@ -27,6 +28,25 @@ interface ResultsData {
   selected: Run | null;
   detail: RunDetail | null;
   matchrate: MatchRate;
+}
+
+function runsSignature(runs: Run[]): string {
+  return runs
+    .filter((run) => typeof run.accuracy_pct === "number")
+    .map((run) => `${run.name}:${run.version}:${run.created_at || ""}`)
+    .sort()
+    .join("|");
+}
+
+/** Reconcile overrides change ceiling stats without new runs. */
+function matchrateSignature(m: MatchRate): string {
+  return [
+    m.n ?? m.eligible ?? "",
+    m.rank1 ?? "",
+    m.miss ?? m.search_failure ?? "",
+    m.overrides_applied ?? "",
+    m.excluded_non_mapkit ?? m.counts?.excluded_non_mapkit ?? "",
+  ].join(":");
 }
 
 export default function Results() {
@@ -46,31 +66,32 @@ export default function Results() {
     const { run } = await api.run(selected.name, selected.version);
     return { runs, selected, detail: run, matchrate };
   }, [nameQ, versionQ]);
+  useRefreshOnFocus(state.softReload);
+
+  const runSig =
+    state.status === "ready" ? runsSignature(state.data.runs) : "";
+  const mrSig =
+    state.status === "ready" ? matchrateSignature(state.data.matchrate) : "";
 
   // A run can finish while Results is already open (for example in another
-  // tab). Poll only the inexpensive run index, then reload details when its
-  // scored-run signature changes.
+  // tab). Poll run index + matchrate ceiling; soft-reload when either changes
+  // so reconcile overrides update the provider-ceiling tiles without a flash.
   useEffect(() => {
     if (state.status !== "ready") return;
-    const signature = state.data.runs
-      .filter((run) => typeof run.accuracy_pct === "number")
-      .map((run) => `${run.name}:${run.version}:${run.created_at || ""}`)
-      .sort()
-      .join("|");
+    const softReload = state.softReload;
     const timer = window.setInterval(() => {
-      void api.runs().then(({ runs }) => {
-        const nextSignature = runs
-          .filter((run) => typeof run.accuracy_pct === "number")
-          .map((run) => `${run.name}:${run.version}:${run.created_at || ""}`)
-          .sort()
-          .join("|");
-        if (nextSignature !== signature) state.reload();
-      }).catch(() => {
-        // Keep valid displayed data on a transient background polling failure.
-      });
+      void Promise.all([api.runs(), api.matchrate()])
+        .then(([{ runs }, matchrate]) => {
+          const nextRuns = runsSignature(runs);
+          const nextMr = matchrateSignature(matchrate);
+          if (nextRuns !== runSig || nextMr !== mrSig) softReload();
+        })
+        .catch(() => {
+          // Keep valid displayed data on a transient background polling failure.
+        });
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [state]);
+  }, [state.status, runSig, mrSig, state.softReload]);
 
   const [filter, setFilter] = useState<FilterId>("all");
   const [page, setPage] = useState(0);
