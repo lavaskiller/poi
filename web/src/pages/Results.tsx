@@ -103,8 +103,8 @@ export default function Results() {
     setPage(0);
   }, [filter, nameQ, versionQ]);
 
-  // After the new page paints, bring the gallery top into the scrollport.
-  // (Doing this in the click handler races React commit and uses stale layout.)
+  // After the new page paints, snap the scrollport so the first cards are
+  // visible. Native lazy-load + mid-grid scroll made Prev/Next look broken.
   const pageScrollSkip = useRef(true);
   useEffect(() => {
     if (pageScrollSkip.current) {
@@ -114,10 +114,14 @@ export default function Results() {
     const main = mainRef.current;
     const gallery = galleryRef.current;
     if (!main || !gallery) return;
-    const mainRect = main.getBoundingClientRect();
-    const galleryRect = gallery.getBoundingClientRect();
-    const top = main.scrollTop + (galleryRect.top - mainRect.top) - 16;
-    main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    // Walk offsetParents so we get gallery Y inside the scrolling main pane.
+    let y = 0;
+    let el: HTMLElement | null = gallery;
+    while (el && el !== main) {
+      y += el.offsetTop;
+      el = el.offsetParent as HTMLElement | null;
+    }
+    main.scrollTo({ top: Math.max(0, y - 8), behavior: "auto" });
   }, [page, filter]);
 
   const derived = useMemo(() => {
