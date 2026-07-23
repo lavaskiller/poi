@@ -69,6 +69,28 @@ class ReconcileQueueDatasetTests(unittest.TestCase):
         reserved = self.queue("__all__")
         self.assertEqual([case["photo"] for case in reserved["cases"]], ["reserved.jpg"])
 
+    def test_undo_removes_all_overrides_for_only_the_requested_case(self):
+        override_path = os.path.join(self.tmp.name, "overrides.tsv")
+        fields = ["dataset", "photo", "gt", "chosen", "chosen_none", "manual", "ts"]
+        with open(override_path, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
+            writer.writeheader()
+            writer.writerows([
+                {"dataset": "alpha", "photo": "a1.jpg", "chosen": "Old"},
+                {"dataset": "beta", "photo": "b1.jpg", "chosen": "Keep"},
+                {"dataset": "alpha", "photo": "a1.jpg", "chosen": "New"},
+            ])
+        with mock.patch.object(server, "_gt_overrides_path", return_value=override_path):
+            self.assertTrue(server.gt_reconcile_undo("alpha", "a1.jpg"))
+            overrides = server._load_gt_overrides()
+            with mock.patch.object(server, "CSV_PATH", self.csv_path), \
+                 mock.patch.object(server, "_load_original_mapkit_outputs", return_value={}):
+                queue = server.gt_reconcile_queue(dataset="alpha")
+        self.assertNotIn(("alpha", "a1.jpg"), overrides)
+        self.assertEqual(overrides[("beta", "b1.jpg")]["chosen"], "Keep")
+        self.assertEqual((queue["done"], queue["remaining"]), (0, 2))
+        self.assertEqual([case["photo"] for case in queue["cases"]], ["a1.jpg", "a2.jpg"])
+
 
 if __name__ == "__main__":
     unittest.main()

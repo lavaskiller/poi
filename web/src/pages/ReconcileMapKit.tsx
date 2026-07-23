@@ -11,6 +11,7 @@ export default function ReconcileMapKit() {
   const queue = useAsync(() => api.reconcileQueue(dataset), [dataset]);
   const [idx, setIdx] = useState(0);
   const [savedCount, setSavedCount] = useState(0);
+  const [history, setHistory] = useState<Array<{ index: number; saved: boolean }>>([]);
   const [choice, setChoice] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -26,6 +27,7 @@ export default function ReconcileMapKit() {
     setDataset(next);
     setIdx(0);
     setSavedCount(0);
+    setHistory([]);
     setChoice(null);
     setShowAll(false);
     setCoord(null);
@@ -42,6 +44,31 @@ export default function ReconcileMapKit() {
   const cases = data.cases;
   const doneBase = data.done;
 
+  const goBack = async () => {
+    const previous = history[history.length - 1];
+    if (!previous) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (previous.saved) {
+        const previousCase = cases[previous.index];
+        await api.reconcileUndo({ dataset: previousCase.dataset, photo: previousCase.photo });
+        setSavedCount((count) => Math.max(0, count - 1));
+      }
+      setHistory((items) => items.slice(0, -1));
+      setIdx(previous.index);
+      setChoice(null);
+      setShowAll(false);
+      setCoord(null);
+      setProbeCands(null);
+      setProbeMsg(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (cases.length === 0 || idx >= cases.length) {
     return (
       <main className={styles.main}>
@@ -55,6 +82,10 @@ export default function ReconcileMapKit() {
           <button type="button" className={styles.reloadBtn} onClick={queue.reload}>
             Reload queue
           </button>
+          <button type="button" className={styles.secondary} disabled={busy || history.length === 0} onClick={goBack}>
+            ← Back to previous case
+          </button>
+          {error && <p className={styles.error}>{error}</p>}
         </div>
       </main>
     );
@@ -67,7 +98,8 @@ export default function ReconcileMapKit() {
   const point = coord ?? (hasCoord ? { lat: caseLat, lon: caseLon } : null);
   const moved = hasCoord && point != null && (point.lat !== caseLat || point.lon !== caseLon);
 
-  const advance = () => {
+  const advance = (saved = false) => {
+    setHistory((items) => [...items, { index: idx, saved }]);
     setChoice(null);
     setShowAll(false);
     setCoord(null);
@@ -82,7 +114,7 @@ export default function ReconcileMapKit() {
     try {
       await api.reconcileSave({ dataset: current.dataset, photo: current.photo, gt: current.gt, chosen });
       setSavedCount((n) => n + 1);
-      advance();
+      advance(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -234,8 +266,11 @@ export default function ReconcileMapKit() {
             <button type="button" className={styles.ghost} disabled={busy} onClick={() => save("")}>
               Not in MapKit
             </button>
-            <button type="button" className={styles.ghost} disabled={busy} onClick={advance}>
+            <button type="button" className={styles.ghost} disabled={busy} onClick={() => advance(false)}>
               Skip
+            </button>
+            <button type="button" className={styles.secondary} disabled={busy || history.length === 0} onClick={goBack}>
+              ← Back
             </button>
           </div>
         </div>

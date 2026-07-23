@@ -553,6 +553,19 @@ export const api = {
     return { ok: true, done: data.done ?? 0, remaining: data.remaining ?? 0 };
   },
 
+  /** Remove a saved reconciliation so the case returns to the queue. */
+  async reconcileUndo(c: { dataset: string; photo: string }): Promise<{ ok: boolean }> {
+    const res = await fetch("/api/gt/reconcile", {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ ...c, action: "undo" }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+    if (!res.ok || data.ok === false)
+      throw new Error(data.message || `/api/gt/reconcile undo → HTTP ${res.status}`);
+    return { ok: true };
+  },
+
   /** Onboarding seed presets discovered on disk (disk-bundle path; UI uses upload). */
   async seedPresets(): Promise<SeedPresets> {
     return getJSON<SeedPresets>("/api/seed/presets");

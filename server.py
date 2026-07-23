@@ -489,6 +489,47 @@ def _load_gt_overrides():
     return load_gt_mapkit_overrides(_gt_overrides_path())
 
 
+def gt_reconcile_undo(dataset, photo):
+    """Remove every saved override for one case, making it reconcilable again."""
+    dataset = str(dataset or "")
+    photo = str(photo or "")
+    if not photo:
+        raise ValueError("photo required")
+    path = _gt_overrides_path()
+    if not os.path.isfile(path):
+        return False
+
+    from file_ops import file_lock
+    fields = ["dataset", "photo", "gt", "chosen", "chosen_none", "manual", "ts"]
+    with file_lock(path):
+        if not os.path.isfile(path):
+            return False
+        with open(path, encoding="utf-8", newline="") as source:
+            reader = csv.DictReader(source, delimiter="\t")
+            source_fields = reader.fieldnames or fields
+            rows = list(reader)
+        kept = [row for row in rows if not (
+            (row.get("dataset") or "") == dataset and (row.get("photo") or "") == photo
+        )]
+        if len(kept) == len(rows):
+            return False
+        tmp_path = path + ".undo-tmp"
+        try:
+            with open(tmp_path, "w", encoding="utf-8", newline="") as target:
+                writer = csv.DictWriter(
+                    target, fieldnames=source_fields, delimiter="\t", lineterminator="\n"
+                )
+                writer.writeheader()
+                writer.writerows(kept)
+                target.flush()
+                os.fsync(target.fileno())
+            os.replace(tmp_path, path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+    return True
+
+
 def gt_reconcile_queue(limit=300, dataset=None):
     """Cases whose GT could not be matched to any MapKit name (gt_mapkit == NON_MAPKIT)
     and are not yet manually reconciled — with their MapKit candidate list to pick from.
@@ -2922,6 +2963,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         manual = bool((payload or {}).get("manual"))
         if not photo:
             self._send_json({"ok": False, "message": "photo required"}, code=400)
+            return
+        if (payload or {}).get("action") == "undo":
+            try:
+                removed = gt_reconcile_undo(dataset, photo)
+                q = gt_reconcile_queue(limit=1, dataset=dataset)
+                self._send_json({"ok": True, "removed": removed,
+                                 "done": q["done"], "remaining": q["remaining"]}, code=200)
+            except Exception as e:
+                self._send_json({"ok": False, "message": str(e)}, code=500)
             return
         path = _gt_overrides_path()
         try:
