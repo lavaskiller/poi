@@ -190,6 +190,20 @@ def main() -> int:
         _candidates_path(), cand_updates, source=os.path.basename(out_tsv))
     print(f"[mapkit_nearby] wrote candidate cache {_candidates_path()} (+{n_cand_lines} lines)")
 
+    # GT classification reads the nearby cache above, while algorithm runs
+    # require the full candidate artifact. Keep both outputs in sync.
+    run_candidates_path = os.path.join(dd, "generated", "mapkit_candidates.jsonl")
+    n_run_lines = rc.ms.upsert_mapkit_candidates_from_tsv(out_tsv, run_candidates_path)
+    print(f"[mapkit_nearby] upserted run candidates {run_candidates_path} (+{n_run_lines} lines)")
+    active_pointer = os.path.join(dd, "generated", rc.ms.ACTIVE_MAPKIT_SNAPSHOT_POINTER)
+    if os.path.isfile(active_pointer):
+        print(
+            "[mapkit_nearby] WARNING: an active immutable MapKit snapshot is selected; "
+            "runs will use it instead of the updated legacy JSONL. Rebaseline or "
+            "remove the pointer intentionally before testing these candidates.",
+            file=sys.stderr,
+        )
+
     n = len(targets)
     # Commit only our app_* cells onto the newest CSV under the shared lock.
     with rc.common.csv_write_lock(rc.ms.CSV_PATH):
@@ -228,6 +242,8 @@ def main() -> int:
         "filled": filled,
         "candidates_path": _candidates_path(),
         "candidate_lines_written": n_cand_lines,
+        "run_candidates_path": run_candidates_path,
+        "run_candidate_lines_upserted": n_run_lines,
         "backup": backup,
     })
     return 0

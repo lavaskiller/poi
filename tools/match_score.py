@@ -570,83 +570,127 @@ def names_within_gt_radius(
     return names
 
 
-def convert_mapkit_tsv(tsv_path: str, out_path: str, allow_lossy_top3: bool = False) -> int:
-    """Convert the current MapKit TSV probe output to candidate JSONL.
+def parse_mapkit_tsv_records(tsv_path: str, allow_lossy_top3: bool = False) -> List[Dict[str, Any]]:
+    """Parse a MapKit probe TSV into candidate records.
 
-    Current probe output carries the *full* candidate list in
-    ``wide_candidates_json``. Legacy probes only persisted ``top3_wide`` -- a
-    three-name display summary that discards every candidate MapKit actually
-    returned (``wide_n`` is routinely 20-50). Silently converting such a TSV
-    yields a candidate artifact capped at three per photo, which then presents
-    as an unfixable "the model can't return a stable top-5" failure downstream.
-
-    A top3-only TSV is therefore rejected by default: the dropped candidates are
-    gone at collection time and no selector can recover them. Pass
-    ``allow_lossy_top3=True`` only for historical auditing of an old probe; each
-    record from that path is stamped ``"lossy_top3_summary": True`` so it can
-    never be mistaken for a complete candidate list.
+    A successful probe with no nearby places gets an explicit empty sentinel,
+    so the runner can distinguish "probed, none" from a missing artifact.
     """
-    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
-    n = 0
-    lossy_photos = 0
-    with open(tsv_path, encoding="utf-8", errors="replace", newline="") as f:
-        reader = csv.DictReader(f, delimiter="\t")
-        has_full_column = bool(reader.fieldnames) and "wide_candidates_json" in reader.fieldnames
+    rows: List[Dict[str, str]] = []
+    with open(tsv_path, "r", encoding="utf-8-sig", newline="") as f:
+        sample = f.read(4096)
+        f.seek(0)
+        # Probe TSV contains JSON with many commas, which can fool Sniffer.
+        # The header is authoritative and all current probe output is tab-separated.
+        first_line = sample.splitlines()[0] if sample else ""
+        delimiter = "\t" if "\t" in first_line else ","
+        reader = csv.DictReader(f, delimiter=delimiter)
+        has_full_column = bool(reader.fieldnames) and (
+            "wide_candidates_json" in reader.fieldnames or "candidates_json" in reader.fieldnames
+        )
         if not has_full_column and not allow_lossy_top3:
             raise ValueError(
-                f"{os.path.basename(tsv_path)} has no 'wide_candidates_json' column: it is a "
-                "legacy top3-only probe whose full candidate list was never persisted. "
-                "Converting it would cap candidates at 3 per photo and silently drop the "
-                "ground truth for cases where MapKit ranked it 4+. Re-probe with the current "
-                "full-candidate probe, or pass allow_lossy_top3=True to convert it for "
-                "auditing only (records are marked lossy and must not back a scored run)."
+                f"{os.path.basename(tsv_path)} has no full candidate JSON column. "
+                "It is a legacy top3-only probe; re-probe with the current tool, or "
+                "pass allow_lossy_top3=True for non-scoring historical audit only."
             )
-        rows = list(reader)
-    with open(out_path, "w", encoding="utf-8") as out:
-        for row in rows:
-            photo = (row.get("photo") or "").strip()
-            if not photo:
-                continue
-            rich_candidates = []
-            raw_candidates = (row.get("wide_candidates_json") or "").strip()
-            if raw_candidates:
-                try:
-                    parsed = json.loads(raw_candidates)
-                    if isinstance(parsed, list):
-                        rich_candidates = [c for c in parsed if isinstance(c, dict)]
-                except json.JSONDecodeError:
-                    rich_candidates = []
-            is_lossy = not rich_candidates
-            source_candidates = rich_candidates or parse_top_candidates(row.get("top3_wide") or "")
-            if is_lossy and source_candidates:
-                lossy_photos += 1
-            for fallback_rank, cand in enumerate(source_candidates, start=1):
-                rec = {
-                    "photo": photo,
-                    "provider": "mapkit",
-                    "provider_place_id": cand.get("provider_place_id"),
-                    "name": cand.get("name") or "",
-                    "lat": cand.get("lat"),
-                    "lon": cand.get("lon"),
-                    "address": cand.get("address") or "",
-                    "category": cand.get("category") or "",
-                    "rank": cand.get("rank") or fallback_rank,
-                    "distance_m": cand.get("distance_m"),
-                    "source": os.path.basename(tsv_path),
-                }
-                if is_lossy:
-                    rec["lossy_top3_summary"] = True
-                out.write(json.dumps(rec, ensure_ascii=False) + "\n")
-                n += 1
-    if lossy_photos and allow_lossy_top3:
-        import sys as _sys
-        print(
-            f"WARNING: {lossy_photos} photo(s) converted from top3-only summary "
-            "(candidates capped at 3, marked lossy_top3_summary). Do not score a run on this artifact.",
-            file=_sys.stderr,
-        )
+        rows.extend(dict(row) for row in reader)
+
+    records: List[Dict[str, Any]] = []
+    for row in rows:
+        photo = (row.get("photo") or row.get("file") or row.get("filename") or "").strip()
+        if not photo:
+            continue
+        raw_json = row.get("wide_candidates_json") or row.get("candidates_json") or ""
+        candidates: List[Dict[str, Any]] = []
+        if has_full_column:
+            try:
+                parsed = json.loads(raw_json)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"invalid candidate JSON for photo {photo!r} in {os.path.basename(tsv_path)}"
+                ) from exc
+            if not isinstance(parsed, list) or any(not isinstance(c, dict) for c in parsed):
+                raise ValueError(
+                    f"candidate JSON for photo {photo!r} in {os.path.basename(tsv_path)} "
+                    "must be an array of objects"
+                )
+            candidates = parsed
+        if not candidates and allow_lossy_top3:
+            top3 = row.get("top3_wide") or row.get("top3") or ""
+            for i, part in enumerate(top3.split(" | "), start=1):
+                part = part.strip()
+                if not part:
+                    continue
+                name, dist = part, None
+                if "@" in part:
+                    name, raw_dist = part.rsplit("@", 1)
+                    try:
+                        dist = float(raw_dist.rstrip("m"))
+                    except ValueError:
+                        pass
+                candidates.append({"name": name.strip(), "distance_m": dist, "rank": i,
+                                   "lossy_top3_summary": True})
+        if not candidates:
+            records.append({"photo": photo, "provider": "mapkit",
+                            "candidate_artifact_status": "empty",
+                            "source": os.path.basename(tsv_path)})
+            continue
+        for i, cand in enumerate(candidates, start=1):
+            rec = {
+                "photo": photo,
+                "provider": "mapkit",
+                "provider_place_id": cand.get("provider_place_id"),
+                "name": cand.get("name") or "",
+                "lat": cand.get("lat"),
+                "lon": cand.get("lon"),
+                "address": cand.get("address") or "",
+                "category": cand.get("category") or "",
+                "rank": cand.get("rank") or i,
+                "distance_m": cand.get("distance_m"),
+                "source": os.path.basename(tsv_path),
+            }
+            if cand.get("lossy_top3_summary"):
+                rec["lossy_top3_summary"] = True
+            records.append(rec)
+    return records
+
+
+def _write_candidate_records(out_path: str, records: Iterable[Dict[str, Any]]) -> int:
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    tmp_path = out_path + ".tmp"
+    n = 0
+    with open(tmp_path, "w", encoding="utf-8") as out:
+        for rec in records:
+            out.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            n += 1
+    os.replace(tmp_path, out_path)
     return n
 
+
+def convert_mapkit_tsv(tsv_path: str, out_path: str, allow_lossy_top3: bool = False) -> int:
+    """Replace ``out_path`` with records parsed from one probe TSV."""
+    return _write_candidate_records(out_path, parse_mapkit_tsv_records(tsv_path, allow_lossy_top3))
+
+
+def upsert_mapkit_candidates_from_tsv(tsv_path: str, out_path: Optional[str] = None,
+                                      allow_lossy_top3: bool = False) -> int:
+    """Merge a probe TSV into the legacy run artifact by photo key."""
+    target = out_path or os.path.join(CANDIDATE_DIR, "mapkit_candidates.jsonl")
+    updates = parse_mapkit_tsv_records(tsv_path, allow_lossy_top3)
+    updated_photos = {str(rec.get("photo") or "") for rec in updates}
+    kept: List[Dict[str, Any]] = []
+    if os.path.isfile(target):
+        with open(target, encoding="utf-8") as existing:
+            for line in existing:
+                try:
+                    rec = json.loads(line)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if isinstance(rec, dict) and str(rec.get("photo") or "") not in updated_photos:
+                    kept.append(rec)
+    _write_candidate_records(target, [*kept, *updates])
+    return len(updates)
 
 def load_candidates(paths: Optional[Iterable[str]] = None) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
     """Load candidates, resolving the active snapshot now when paths are omitted."""

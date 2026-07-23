@@ -42,6 +42,22 @@ fi
 cd "$ROOT"
 echo "POI Eval — repo root: $ROOT"
 
+# GUI launchers and other non-interactive shells commonly omit NVM's selected
+# Node directory from PATH. Recover an installed NVM runtime before setup.sh
+# checks npm; do not require sourcing a user's interactive shell rc.
+if ! command -v npm >/dev/null 2>&1; then
+  NVM_ROOT="${NVM_DIR:-$HOME/.nvm}"
+  for NODE_BIN in "$NVM_ROOT"/versions/node/*/bin; do
+    if [[ -x "$NODE_BIN/node" && -x "$NODE_BIN/npm" ]]; then
+      export PATH="$NODE_BIN:$PATH"
+      break
+    fi
+  done
+  if command -v npm >/dev/null 2>&1; then
+    echo "→ found Node via NVM: $(command -v node)"
+  fi
+fi
+
 if [[ ! -f "$ROOT/server.py" ]]; then
   echo "ERROR: server.py not found under $ROOT" >&2
   exit 1

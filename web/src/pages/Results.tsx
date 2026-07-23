@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import StatTile from "../components/StatTile";
@@ -21,8 +21,8 @@ type FilterId = "all" | "wrong" | "abstain" | "error" | "related";
 
 interface ResultsData {
   runs: Run[];
-  selected: Run;
-  detail: RunDetail;
+  selected: Run | null;
+  detail: RunDetail | null;
   matchrate: MatchRate;
 }
 
@@ -39,16 +39,42 @@ export default function Results() {
         runs.find((r) => r.name === nameQ && r.version === Number(versionQ)) ?? null;
     }
     if (!selected) selected = bestRun(runs);
-    if (!selected) throw new Error("no scored runs yet");
+    if (!selected) return { runs, selected: null, detail: null, matchrate };
     const { run } = await api.run(selected.name, selected.version);
     return { runs, selected, detail: run, matchrate };
   }, [nameQ, versionQ]);
+
+  // A run can finish while Results is already open (for example in another
+  // tab). Poll only the inexpensive run index, then reload details when its
+  // scored-run signature changes.
+  useEffect(() => {
+    if (state.status !== "ready") return;
+    const signature = state.data.runs
+      .filter((run) => typeof run.accuracy_pct === "number")
+      .map((run) => `${run.name}:${run.version}:${run.created_at || ""}`)
+      .sort()
+      .join("|");
+    const timer = window.setInterval(() => {
+      void api.runs().then(({ runs }) => {
+        const nextSignature = runs
+          .filter((run) => typeof run.accuracy_pct === "number")
+          .map((run) => `${run.name}:${run.version}:${run.created_at || ""}`)
+          .sort()
+          .join("|");
+        if (nextSignature !== signature) state.reload();
+      }).catch(() => {
+        // Keep valid displayed data on a transient background polling failure.
+      });
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [state]);
 
   const [filter, setFilter] = useState<FilterId>("all");
 
   const derived = useMemo(() => {
     if (state.status !== "ready") return null;
     const { detail, matchrate, selected, runs } = state.data;
+    if (!detail || !selected) return null;
     const cases = detail.cases ?? [];
     const eligible = cases.length || selected.n_eligible || 0;
     const correct =
@@ -117,6 +143,20 @@ export default function Results() {
   }
   if (state.status === "error") {
     return <main className={styles.main}>Couldn’t load results — {state.error.message}</main>;
+  }
+  if (!state.data.selected || !state.data.detail) {
+    return (
+      <main className={styles.main}>
+        <p className={`sectionLabel ${styles.kicker}`}>Run results</p>
+        <h1 className={styles.h1}>No scored runs yet</h1>
+        <p className={styles.sub}>
+          Create your first runnable evaluation. This page will update automatically when it finishes.
+        </p>
+        <Link to="/new-run" style={{ textDecoration: "none" }}>
+          <Button>Create a run</Button>
+        </Link>
+      </main>
+    );
   }
   if (!derived) return null;
 
