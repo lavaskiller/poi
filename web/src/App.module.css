@@ -104,3 +104,31 @@
   font-size: 13px;
   cursor: pointer;
 }
+.retry:disabled,
+.primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.primary {
+  padding: 8px 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent-default, #2563eb);
+  background: var(--accent-default, #2563eb);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+}
+.actionError {
+  font-size: 13px;
+  color: var(--danger-fg, #b91c1c);
+  max-width: 440px;
+  line-height: 1.4;
+}

@@ -161,6 +161,7 @@ docs/onboarding.md
 | `POI_API_TOKEN` | empty | If set, mutating API needs `X-POI-Token` |
 | `POI_SKIP_DEPS_CHECK` | empty | `1` skips boot dep gate (not recommended) |
 | `POI_SKIP_GIT_SYNC_CHECK` | empty | `1` skips “behind origin” UI block |
+| `POI_DISABLE_GIT_PULL` | empty | `1` disables the UI **Update** button API (`POST /api/git-pull`) |
 
 UI boot: `/api/deps-status` then `/api/git-status`. Hard dep failures block the app; FastVLM gaps are **warnings** (live v2 still fails at run time until provisioned or `POI_VLM_MODE=off`).
 

@@ -156,5 +156,116 @@ class GitSyncStatusTests(unittest.TestCase):
         self.assertEqual(n1, n2)  # second call served from cache
 
 
+class GitPullUpdateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = _load_server_module()
+
+    def setUp(self):
+        self.srv._GIT_STATUS_CACHE["ts"] = 0.0
+        self.srv._GIT_STATUS_CACHE["payload"] = None
+
+    def test_disabled_via_env(self):
+        with mock.patch.dict(os.environ, {"POI_DISABLE_GIT_PULL": "1"}, clear=False):
+            out = self.srv.git_pull_update()
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["error_code"], "disabled")
+
+    def test_refuses_dirty_tree(self):
+        def fake_git(*args, timeout=10):
+            cmd = list(args)
+            if cmd[:1] == ["status"] and "--porcelain" in cmd:
+                return _cp(" M server.py\n")
+            return _cp(returncode=1, stderr="unexpected")
+
+        with mock.patch.dict(
+            os.environ, {"POI_DISABLE_GIT_PULL": "", "POI_SKIP_GIT_SYNC_CHECK": ""}, clear=False
+        ):
+            with mock.patch.object(self.srv, "_git_run", side_effect=fake_git):
+                with mock.patch.object(self.srv.os.path, "isdir", return_value=True):
+                    out = self.srv.git_pull_update()
+
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["error_code"], "dirty")
+        self.assertIn("uncommitted", out["message"].lower())
+
+    def test_pulls_when_behind_clean(self):
+        def fake_git(*args, timeout=10):
+            cmd = list(args)
+            pulled = getattr(fake_git, "pulled", False)
+            if cmd[:1] == ["status"] and "--porcelain" in cmd:
+                return _cp("")
+            if cmd[:2] == ["rev-parse", "--abbrev-ref"] and cmd[2] == "HEAD":
+                return _cp("main\n")
+            if cmd[:2] == ["rev-parse", "--abbrev-ref"] and cmd[2] == "@{u}":
+                return _cp("origin/main\n")
+            if cmd[:1] == ["fetch"]:
+                return _cp()
+            if cmd[:2] == ["rev-list", "--count"] and cmd[2].startswith("HEAD.."):
+                return _cp("0\n" if pulled else "2\n")
+            if cmd[:2] == ["rev-list", "--count"] and cmd[2].startswith("origin/"):
+                return _cp("0\n")
+            if cmd[:2] == ["rev-parse", "--short"]:
+                return _cp("newsha\n" if pulled else "oldsha\n")
+            if cmd[:1] == ["pull"] and "--ff-only" in cmd:
+                fake_git.pulled = True  # type: ignore[attr-defined]
+                return _cp("Updating old..new\n")
+            # git_sync_status after invalidate
+            if cmd[:2] == ["rev-parse", "HEAD"]:
+                return _cp("newsha\n" if pulled else "oldsha\n")
+            if cmd[:2] == ["rev-parse", "origin/main"]:
+                return _cp("newsha\n")
+            if cmd[:2] == ["rev-list", "--count"]:
+                return _cp("0\n")
+            return _cp(returncode=1, stderr="unexpected " + " ".join(cmd))
+
+        fake_git.pulled = False  # type: ignore[attr-defined]
+
+        with mock.patch.dict(
+            os.environ, {"POI_DISABLE_GIT_PULL": "", "POI_SKIP_GIT_SYNC_CHECK": ""}, clear=False
+        ):
+            with mock.patch.object(self.srv, "_git_run", side_effect=fake_git):
+                with mock.patch.object(self.srv.os.path, "isdir", return_value=True):
+                    out = self.srv.git_pull_update(restart=True)
+
+        self.assertTrue(out["ok"], out)
+        self.assertTrue(out["pulled"])
+        self.assertTrue(out["restart_required"])
+        self.assertEqual(out["behind_before"], 2)
+
+    def test_already_current_no_restart(self):
+        def fake_git(*args, timeout=10):
+            cmd = list(args)
+            if cmd[:1] == ["status"] and "--porcelain" in cmd:
+                return _cp("")
+            if cmd[:2] == ["rev-parse", "--abbrev-ref"] and cmd[2] == "HEAD":
+                return _cp("main\n")
+            if cmd[:2] == ["rev-parse", "--abbrev-ref"] and cmd[2] == "@{u}":
+                return _cp("origin/main\n")
+            if cmd[:1] == ["fetch"]:
+                return _cp()
+            if cmd[:2] == ["rev-list", "--count"]:
+                return _cp("0\n")
+            if cmd[:2] == ["rev-parse", "HEAD"]:
+                return _cp("abc\n")
+            if cmd[:2] == ["rev-parse", "--short"]:
+                return _cp("abc\n")
+            if cmd[:2] == ["rev-parse", "origin/main"]:
+                return _cp("abc\n")
+            return _cp(returncode=1, stderr="unexpected " + " ".join(cmd))
+
+        with mock.patch.dict(
+            os.environ, {"POI_DISABLE_GIT_PULL": "", "POI_SKIP_GIT_SYNC_CHECK": ""}, clear=False
+        ):
+            with mock.patch.object(self.srv, "_git_run", side_effect=fake_git):
+                with mock.patch.object(self.srv.os.path, "isdir", return_value=True):
+                    out = self.srv.git_pull_update()
+
+        self.assertTrue(out["ok"], out)
+        self.assertFalse(out.get("pulled"))
+        self.assertTrue(out.get("already_current"))
+        self.assertFalse(out["restart_required"])
+
+
 if __name__ == "__main__":
     unittest.main()

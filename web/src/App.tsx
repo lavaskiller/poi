@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Routes, Route, Outlet } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
 import Home from "./pages/Home";
@@ -137,6 +138,25 @@ function DepsMissingScreen({
   );
 }
 
+async function waitForBackend(timeoutMs = 45000): Promise<boolean> {
+  const start = Date.now();
+  // Give the re-exec a moment to die before the first probe.
+  await new Promise((r) => setTimeout(r, 600));
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch("/api/health", {
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (res.ok) return true;
+    } catch {
+      // server still restarting
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
+}
+
 function UpdateRequiredScreen({
   git,
   onRetry,
@@ -144,9 +164,71 @@ function UpdateRequiredScreen({
   git: GitSyncStatus;
   onRetry: () => void;
 }) {
+  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<"idle" | "pulling" | "restarting">("idle");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionDetail, setActionDetail] = useState<string | null>(null);
+
   const cmds = git.commands?.length
     ? git.commands
     : ["git pull --ff-only", "# then restart: python3 server.py"];
+
+  const supportsPull =
+    Array.isArray(git.features) && git.features.includes("git-pull");
+
+  async function finishAfterRestart(detail: string) {
+    setActionDetail(detail);
+    setPhase("restarting");
+    const up = await waitForBackend();
+    if (!up) {
+      setActionError(
+        "Code may have been pulled, but the server did not come back. Restart `python3 server.py` in the terminal, then Re-check.",
+      );
+      setPhase("idle");
+      setBusy(false);
+      return;
+    }
+    onRetry();
+  }
+
+  async function handleUpdate() {
+    setBusy(true);
+    setActionError(null);
+    setActionDetail(null);
+    setPhase("pulling");
+    try {
+      const result = await api.gitPull({ restart: true });
+      if (result.restarting || result.restart_required) {
+        await finishAfterRestart(result.message || "Pull succeeded.");
+        return;
+      }
+      setActionDetail(result.message || "Already up to date.");
+      onRetry();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Old backend without /api/git-pull → fall back to manual instructions.
+      if (/\bHTTP 404\b/.test(msg) || /not found/i.test(msg)) {
+        setActionError(
+          "This backend does not support one-click Update yet. Run the commands below, restart the server, then Re-check.",
+        );
+        setPhase("idle");
+        setBusy(false);
+        return;
+      }
+      // Connection dropped while the server re-exec'd after a successful pull.
+      if (
+        /Failed to fetch|NetworkError|Load failed|fetch/i.test(msg) ||
+        msg === "Failed to fetch"
+      ) {
+        await finishAfterRestart("Connection dropped during restart — waiting for server…");
+        return;
+      }
+      setActionError(msg);
+      setPhase("idle");
+      setBusy(false);
+    }
+  }
+
   return (
     <div className={styles.center}>
       <span className={styles.errorTitle}>Update required</span>
@@ -165,11 +247,63 @@ function UpdateRequiredScreen({
             : ""}
         </span>
       )}
+      {phase === "restarting" && (
+        <>
+          <span className={styles.spinner} aria-hidden />
+          <span className={styles.centerText}>
+            {actionDetail || "Restarting server to load the new code…"}
+          </span>
+        </>
+      )}
+      {phase === "pulling" && (
+        <>
+          <span className={styles.spinner} aria-hidden />
+          <span className={styles.centerText}>Pulling latest commits…</span>
+        </>
+      )}
+      {actionError && (
+        <span className={styles.actionError} role="alert">
+          {actionError}
+        </span>
+      )}
+      {actionDetail && phase === "idle" && !actionError && (
+        <span className={styles.centerText}>{actionDetail}</span>
+      )}
+      <div className={styles.actionRow}>
+        <button
+          type="button"
+          className={styles.primary}
+          onClick={handleUpdate}
+          disabled={busy}
+          title={
+            supportsPull
+              ? "Run git pull --ff-only on the server, then restart"
+              : "One-click pull (falls back to manual commands if unsupported)"
+          }
+        >
+          {busy
+            ? phase === "restarting"
+              ? "Restarting…"
+              : "Updating…"
+            : "Update"}
+        </button>
+        <button
+          type="button"
+          className={styles.retry}
+          onClick={onRetry}
+          disabled={busy}
+        >
+          Re-check
+        </button>
+      </div>
+      <span className={styles.centerText}>
+        Or run these commands yourself if automatic update fails (dirty tree,
+        diverged branch, or offline):
+      </span>
       <pre className={styles.centerCode}>{cmds.join("\n")}</pre>
-      {git.hint && <span className={styles.centerText}>{git.hint}</span>}
-      <button type="button" className={styles.retry} onClick={onRetry}>
-        Re-check after pull
-      </button>
+      {git.hint && phase === "idle" && (
+        <span className={styles.centerText}>{git.hint}</span>
+      )}
     </div>
   );
 }
