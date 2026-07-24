@@ -88,11 +88,18 @@ export default function Results() {
       state.data.detail?.status === "running");
 
   // Poll faster while a live run is streaming cases; slower otherwise.
+  // While live, always soft-reload (not only when the runs-list signature
+  // changes): per-case progress can race the signature check and leave the
+  // gallery stuck at 0 until a big burst arrives.
   useEffect(() => {
     if (state.status !== "ready") return;
     const softReload = state.softReload;
-    const ms = selectedLive ? 800 : 3000;
+    const ms = selectedLive ? 500 : 3000;
     const timer = window.setInterval(() => {
+      if (selectedLive) {
+        softReload();
+        return;
+      }
       void Promise.all([api.runs(), api.matchrate()])
         .then(([{ runs }, matchrate]) => {
           const nextRuns = runsSignature(runs);

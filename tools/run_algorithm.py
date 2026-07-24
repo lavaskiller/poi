@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections import Counter
 from typing import Any, Callable, Dict, List, Optional
@@ -506,6 +507,14 @@ def _run_subprocess(
 
     duration_ms is wall-clock for the whole subprocess, including process start.
     Per-case latency_ms (when present on each pred) is predict-call wall time only.
+
+    I/O model (important for live UI)
+    ---------------------------------
+    Do **not** write the entire stdin payload before reading stdout. With a full
+    cohort the child can finish many cases into the OS pipe buffer while the
+    parent is still blocked on ``stdin.write``; the UI then sits at 0/N and
+    jumps when the parent finally drains stdout. Feed stdin on a side thread,
+    drain stderr on another, and read stdout immediately on the main thread.
     """
     if lang == "python":
         cmd = [_default_predict_python(), RUNNER, script_path]
@@ -513,6 +522,10 @@ def _run_subprocess(
         cmd = [script_path]  # non-python: script speaks the JSONL protocol itself
     stdin_data = "".join(json.dumps(c["input"], ensure_ascii=False) + "\n" for c in cases)
     submission_dir = os.path.dirname(os.path.abspath(script_path))
+    env = _predict_env(submission_dir) if lang == "python" else None
+    if env is not None:
+        # Line-buffer child stdout even when piped (belt-and-suspenders with runner flush).
+        env["PYTHONUNBUFFERED"] = "1"
     t0 = time.perf_counter()
     try:
         proc = subprocess.Popen(
@@ -522,7 +535,7 @@ def _run_subprocess(
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
-            env=_predict_env(submission_dir) if lang == "python" else None,
+            env=env,
             cwd=submission_dir if lang == "python" else None,
         )
     except (PermissionError, OSError) as e:
@@ -530,13 +543,49 @@ def _run_subprocess(
 
     preds: List[Dict[str, Any]] = []
     stderr_chunks: List[str] = []
-    try:
-        assert proc.stdin is not None and proc.stdout is not None
+    stdin_error: List[BaseException] = []
+
+    def _feed_stdin() -> None:
+        assert proc.stdin is not None
         try:
-            proc.stdin.write(stdin_data)
+            # Chunked write so we interleave with the child's reads sooner.
+            view = stdin_data
+            step = 256 * 1024
+            for i in range(0, len(view), step):
+                proc.stdin.write(view[i : i + step])
+                proc.stdin.flush()
             proc.stdin.close()
         except BrokenPipeError:
             pass
+        except BaseException as exc:  # noqa: BLE001 — surface on main thread
+            stdin_error.append(exc)
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
+
+    def _drain_stderr() -> None:
+        assert proc.stderr is not None
+        try:
+            while True:
+                chunk = proc.stderr.read(4096)
+                if not chunk:
+                    break
+                stderr_chunks.append(chunk)
+        except Exception:
+            pass
+        finally:
+            try:
+                proc.stderr.close()
+            except Exception:
+                pass
+
+    try:
+        assert proc.stdin is not None and proc.stdout is not None
+        feeder = threading.Thread(target=_feed_stdin, name="poi-predict-stdin", daemon=True)
+        drainer = threading.Thread(target=_drain_stderr, name="poi-predict-stderr", daemon=True)
+        feeder.start()
+        drainer.start()
 
         deadline = (t0 + RUN_TIMEOUT_S) if RUN_TIMEOUT_S else None
         while True:
@@ -549,9 +598,16 @@ def _run_subprocess(
                 raise RunError(f"submission timed out after {RUN_TIMEOUT_S:g}s")
             line = proc.stdout.readline()
             if line == "":
-                if proc.poll() is not None:
+                if proc.poll() is not None and not feeder.is_alive():
                     break
-                time.sleep(0.01)
+                if proc.poll() is not None and feeder.is_alive():
+                    # Child exited while stdin still feeding — wait briefly.
+                    feeder.join(timeout=0.05)
+                    if not feeder.is_alive():
+                        # Drain any remaining stdout after feeder done.
+                        continue
+                    break
+                time.sleep(0.005)
                 continue
             line = line.strip()
             if not line:
@@ -573,23 +629,23 @@ def _run_subprocess(
             if on_pred is not None:
                 on_pred(idx, pred)
 
+        feeder.join(timeout=5)
+        drainer.join(timeout=5)
+        if stdin_error:
+            raise RunError(f"failed to feed submission stdin: {stdin_error[0]!r}")
         proc.wait(timeout=1 if deadline is None else max(1.0, deadline - time.perf_counter()))
     except subprocess.TimeoutExpired:
         proc.kill()
         raise RunError(f"submission timed out after {RUN_TIMEOUT_S:g}s")
     finally:
-        if proc.stderr is not None:
-            try:
-                stderr_chunks.append(proc.stderr.read() or "")
-            except Exception:
-                pass
-            try:
-                proc.stderr.close()
-            except Exception:
-                pass
         if proc.stdout is not None:
             try:
                 proc.stdout.close()
+            except Exception:
+                pass
+        if proc.stdin is not None:
+            try:
+                proc.stdin.close()
             except Exception:
                 pass
         duration_ms = round((time.perf_counter() - t0) * 1000.0, 3)
@@ -608,8 +664,10 @@ def _run_subprocess(
     ]
     if errored:
         i, err = errored[0]
+        case_meta = ""
+        # Prefer a photo tag when available on the harness side (caller scores later).
         raise RunError(
-            f"submission failed on case {i}: {err} "
+            f"submission failed on case {i}{case_meta}: {err} "
             f"({len(errored)} case error(s) total; refusing to score)"
         )
     if len(preds) != len(cases):
@@ -948,9 +1006,16 @@ def execute_submission(ctx: Dict[str, Any]) -> Dict[str, Any]:
     scored_cases: List[Dict[str, Any]] = []
     n_total = len(cases)
     t_wall0 = time.perf_counter()
+    # Live JSON is rewritten every case — omit heavy script_text until final save
+    # so Results polling stays snappy.
+    record_base_live = {
+        k: v for k, v in record_base.items() if k != "script_text"
+    }
 
     def _write_live(*, status: str = "running", error: Optional[str] = None,
-                    duration_ms: Optional[float] = None) -> Dict[str, Any]:
+                    duration_ms: Optional[float] = None,
+                    phase: Optional[str] = None,
+                    include_script: bool = False) -> Dict[str, Any]:
         metrics = _metrics_from_scored(scored_cases, n_eligible_total=n_total)
         metrics["duration_ms"] = duration_ms
         metrics["runtime"] = _host_runtime_info()
@@ -974,13 +1039,17 @@ def execute_submission(ctx: Dict[str, Any]) -> Dict[str, Any]:
         progress = {
             "done": len(scored_cases),
             "total": n_total,
+            "phase": phase or (
+                "scoring" if scored_cases else "starting_predict"
+            ),
             "last_photo": (last or {}).get("photo"),
             "last_dataset": (last or {}).get("dataset"),
             "last_correct": (last or {}).get("correct"),
             "last_match_kind": (last or {}).get("match_kind"),
         }
+        base = record_base if include_script else record_base_live
         record = {
-            **record_base,
+            **base,
             "metrics": metrics,
             "cases": list(scored_cases),
             "status": status,
@@ -999,7 +1068,7 @@ def execute_submission(ctx: Dict[str, Any]) -> Dict[str, Any]:
             _score_one_case(cases[idx], pred, mode, relations)
         )
         # Throttle disk a bit only if extremely fast; usually case-level is fine.
-        _write_live(status="running")
+        _write_live(status="running", phase="scoring")
 
     tmp_dir = tempfile.mkdtemp(prefix="poi-submit-")
     script_path = os.path.join(
@@ -1010,7 +1079,7 @@ def execute_submission(ctx: Dict[str, Any]) -> Dict[str, Any]:
             fh.write(script_text)
         if lang != "python":
             os.chmod(script_path, 0o755)
-        _write_live(status="running")
+        _write_live(status="running", phase="starting_predict")
         try:
             _preds, duration_ms = _run_subprocess(
                 script_path, lang, cases, on_pred=on_pred,
