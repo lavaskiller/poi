@@ -8,35 +8,46 @@ run JSON under `poi-data/generated/runs/`.
 
 ## Seed baselines (default `pack_seed_bundle.py`)
 
-| Run | Role | Published metrics (166 eligible) | Code |
+Frozen run JSON under `poi-data-seed/generated/runs/`. Metrics below match the
+**unique-149** seed cohort currently packed in that bundle (exact / canonical).
+
+| Run | Role | Seed archive (149 eligible) | Code |
 |---|---|---|---|
-| `baseline-nearest` v1 | MapKit distance rank-1 | **38%** (63/166) | `examples/baseline_nearest.py` |
-| `mapkit-baseline` v1 | Bloggo weighted + unique OCR override | **39%** (64/166) | `examples/mapkit_ocr_override.py` (+ weighted/policy) |
-| `mapkit-baseline` v2 | Fully live list_fit + FastVLM skill on weak cases | seed archive **48%** / **68%**; re-run is live | `examples/mapkit_baseline_v2.py` + `mapkit_vlm_live.py` (bundle: `ensemble_v2`) |
+| `baseline-nearest` v1 | MapKit distance rank-1 | **33%** exact (49/149) · **50%** canonical (74/149) | `examples/baseline_nearest.py` |
+| `mapkit-baseline` v1 | Weighted + unique OCR override | **34%** exact (50/149) · **50%** canonical (74/149) | `examples/mapkit_ocr_override.py` (+ weighted/policy) |
+| `mapkit-baseline` v2 | Live list_fit + FastVLM skill on weak cases | **44%** exact (66/149) · **65%** canonical (97/149) | `examples/mapkit_baseline_v2.py` + `mapkit_vlm_live.py` (bundle: `ensemble_v2`) |
 
 Rebuild: `python3 tools/pack_seed_bundle.py --clean` (curates these three automatically).
 
+A larger private eval (e.g. 166 eligible) can score differently; do not mix those
+percentages with the seed table. Live v2 re-runs on another machine may also
+differ from the archived seed JSON — the archive is not a live measurement.
+
 ## Full selector map
+
+Paths under `tools/` are abbreviated; full path is `tools/<file>` unless noted.
 
 | File | Role | Default run name |
 |---|---|---|
 | `examples/baseline_nearest.py` | Distance rank-1 | `baseline-nearest` |
-| `examples/mapkit_weighted.py` | Category-weighted distance (Bloggo) | (UI / weighted) |
-| `examples/mapkit_ocr_override.py` | Bloggo + unique OCR name override | `mapkit-baseline` v1 |
-| `examples/mapkit_baseline_v2.py` | Live ensemble (list_fit + FastVLM cascade + residual) | `mapkit-baseline` v2 |
-| `examples/mapkit_vlm_live.py` | Bundleable FastVLM runtime (place_match / skill) | used by v2 |
+| `examples/mapkit_weighted.py` | Category-weighted distance | (UI / weighted) |
+| `examples/mapkit_ocr_override.py` | Weighted + unique OCR name override | `mapkit-baseline` v1 |
+| `examples/mapkit_baseline_v2.py` | Live ensemble: list_fit vs access_ocr; FastVLM skill@5 when weak | `mapkit-baseline` v2 |
+| `examples/mapkit_vlm_live.py` | Bundleable FastVLM runtime (skill / place_match) | used by v2 |
 | `examples/selector_access_ocr.py` | Access-point demote + strong OCR | `selector-access-ocr` |
-| `examples/selector_list_fit.py` | OCR v2 + generic demote + structure refine (K=10–20) | `selector-list-fit` / `selector-list-fit-k20` |
-| `stitch_loop70_ensemble.py` | Historical offline stitch (cache residual) | `selector-loop70` provenance only |
-| `run_selector_ocr_override.py` | Bloggo + unique OCR name override | `selector-ocr-override` |
-| `run_vlm_topk_rerank.py` | FastVLM Top-K image rerank | `vlm-topk-{style}-k{K}` |
-| `run_selector_photo_match.py` | access_ocr + photo–place VLM cascade | `selector-photo-match` |
-| `stitch_loop60_ensemble.py` | Stitch list_fit + cascade (no VLM re-run) | `selector-loop60-pass` |
-| `run_selector_bloggo_vlm_verify.py` | Bloggo default; VLM only when ambiguous | `selector-bloggo-vlm-verify` |
-| `run_selector_bloggo_vlm_conditioned.py` | Bloggo + conditioned VLM | `selector-bloggo-vlm-conditioned` |
-| `run_selector_bloggo_vlm_gate.py` | Bloggo + semantic gate | `selector-bloggo-vlm-gate` |
-| `run_selector_ocr_vlm_specialty.py` | OCR then VLM specialty verify | `selector-ocr-vlm-specialty` |
-| `run_selector_ocr_vlm_specialty_loose.py` | Same, looser YES parser | `selector-ocr-vlm-specialty-loose` |
+| `examples/selector_list_fit.py` | Stronger OCR + generic demote + structure refine (K=10–20) | `selector-list-fit` / `selector-list-fit-k20` |
+| `examples/poi_confidence_policy.py` | AUTO_PICK / SHOW_PICKER / NONE tiers (not a scorer) | used by `simulate_confidence_policy.py` |
+| `tools/stitch_loop70_ensemble.py` | Historical offline stitch (cache residual) | `selector-loop70` provenance only |
+| `tools/run_selector_ocr_override.py` | Weighted + unique OCR name override | `selector-ocr-override` |
+| `tools/run_vlm_topk_rerank.py` | FastVLM Top-K image rerank | `vlm-topk-{style}-k{K}` |
+| `tools/run_selector_photo_match.py` | access_ocr + photo–place VLM cascade | `selector-photo-match` |
+| `tools/stitch_loop60_ensemble.py` | Stitch list_fit + cascade (no VLM re-run) | `selector-loop60-pass` |
+| `tools/run_selector_bloggo_vlm_verify.py` | Weighted default; VLM only when ambiguous | `selector-bloggo-vlm-verify` |
+| `tools/run_selector_bloggo_vlm_conditioned.py` | Weighted + conditioned VLM | `selector-bloggo-vlm-conditioned` |
+| `tools/run_selector_bloggo_vlm_gate.py` | Weighted + semantic gate | `selector-bloggo-vlm-gate` |
+| `tools/run_selector_ocr_vlm_specialty.py` | OCR then VLM specialty verify | `selector-ocr-vlm-specialty` |
+| `tools/run_selector_ocr_vlm_specialty_loose.py` | Same, looser YES parser | `selector-ocr-vlm-specialty-loose` |
+| `tools/simulate_confidence_policy.py` | Offline confidence-policy simulation on a labeled cohort | report JSON only |
 
 ## `run_vlm_topk_rerank.py` prompt styles
 
@@ -78,8 +89,9 @@ list_fit if it disagrees with access_ocr, else live FastVLM skill@K5 when
 access≈nearest. Override only on short, non-hedged, unambiguous answers
 (long free-text / “however closest is…” refused). No curated residual photo
 list and no published prediction JSONL in the decision path. Write-through
-cache is memoization only. Seed JSON 48%/68% is a historical archive; live
-re-run scores are measured separately.
+cache is memoization only. Seed JSON **44% / 65%** (unique-149) is a historical
+archive; live re-run scores are measured separately. See
+[`docs/mapkit-baseline-v2.md`](../docs/mapkit-baseline-v2.md).
 
 **Fail-loud (default `POI_VLM_MODE=live`):** if FastVLM is not provisioned
 (venv / torch+MPS / ml-fastvlm / checkpoint), the run **aborts** instead of
@@ -129,13 +141,15 @@ if the env is missing.
 
 ## Historical name map
 
+Old paths (no longer in tree) → current paths:
+
 | Old file | New file |
 |---|---|
-| `run_fastvlm_baseline.py` | `run_vlm_topk_rerank.py` |
-| `run_bloggo_ocr_reranker.py` | `run_selector_ocr_override.py` |
-| `run_fastvlm_bloggo_hybrid.py` | `run_selector_bloggo_vlm_verify.py` |
-| `run_fastvlm_bloggo_conditioned_v2.py` | `run_selector_bloggo_vlm_conditioned.py` |
-| `run_fastvlm_bloggo_semantic_gate_v3.py` | `run_selector_bloggo_vlm_gate.py` |
-| `run_bloggo_ocr_fastvlm_semantic_v4.py` | `run_selector_ocr_vlm_specialty.py` |
-| `run_bloggo_ocr_fastvlm_semantic_v5_permissive.py` | `run_selector_ocr_vlm_specialty_loose.py` |
+| `tools/run_fastvlm_baseline.py` | `tools/run_vlm_topk_rerank.py` |
+| `tools/run_bloggo_ocr_reranker.py` | `tools/run_selector_ocr_override.py` |
+| `tools/run_fastvlm_bloggo_hybrid.py` | `tools/run_selector_bloggo_vlm_verify.py` |
+| `tools/run_fastvlm_bloggo_conditioned_v2.py` | `tools/run_selector_bloggo_vlm_conditioned.py` |
+| `tools/run_fastvlm_bloggo_semantic_gate_v3.py` | `tools/run_selector_bloggo_vlm_gate.py` |
+| `tools/run_bloggo_ocr_fastvlm_semantic_v4.py` | `tools/run_selector_ocr_vlm_specialty.py` |
+| `tools/run_bloggo_ocr_fastvlm_semantic_v5_permissive.py` | `tools/run_selector_ocr_vlm_specialty_loose.py` |
 | `examples/pwe13_access_ocr_selector.py` | `examples/selector_access_ocr.py` |
