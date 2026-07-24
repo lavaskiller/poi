@@ -83,33 +83,46 @@ re-run scores are measured separately.
 quietly scoring OCR-only under the ensemble name. Only
 `POI_VLM_MODE=off` is allowed to run the deterministic core without VLM.
 
-### FastVLM on another Mac (provisioning)
+### FastVLM on another Mac (automated setup)
 
-Git has algorithm code only. On each evaluation machine:
+Git has our glue code only. **Live** mapkit-baseline v2 also needs Apple’s
+FastVLM checkout, a 0.5B checkpoint, and a torch/MPS venv under the data root.
+
+**One-shot (recommended on Apple Silicon macOS):**
 
 ```bash
-# 1) Data + seed (photos, CSV, candidates) — already in poi-data / seed zip
-# 2) Copy internal FastVLM bundle into the data root (not git):
-#    poi-data/tools/fastvlm-venv/          # python with torch MPS
-#    poi-data/tools/ml-fastvlm/            # repo + llava/
-#    poi-data/tools/ml-fastvlm/checkpoints/llava-fastvithd_0.5b_stage3/
+# After git clone + seed/data under poi-data/ (or POI_DATA_DIR):
+./tools/setup_fastvlm.sh
 
-export POI_DATA_DIR=/path/to/poi-data
+export POI_DATA_DIR="$(pwd)/poi-data"   # if not already set
 export POI_PREDICT_PYTHON="$POI_DATA_DIR/tools/fastvlm-venv/bin/python"
-# optional overrides:
-# export POI_FASTVLM_REPO="$POI_DATA_DIR/tools/ml-fastvlm"
-# export POI_FASTVLM_MODEL="$POI_FASTVLM_REPO/checkpoints/llava-fastvithd_0.5b_stage3"
+# optional: POI_FASTVLM_REPO / POI_FASTVLM_MODEL (script prints defaults)
 
-# Smoke: must import torch and see MPS
-"$POI_PREDICT_PYTHON" -c "import torch; assert torch.backends.mps.is_available()"
+./tools/dev_up.sh
+```
 
-# Deterministic-only re-run (no VLM assets required):
+What the script does:
+
+1. `git clone` [apple/ml-fastvlm](https://github.com/apple/ml-fastvlm) → `poi-data/tools/ml-fastvlm`
+2. Download **0.5B stage3** from Apple CDN → `…/checkpoints/llava-fastvithd_0.5b_stage3/`
+3. Create `poi-data/tools/fastvlm-venv` and `pip install` torch + editable llava
+4. Smoke-check `import torch` / MPS
+
+Flags: `--skip-model` (no download), `--force-venv` (recreate venv).  
+Not a 10-second install (network + multi‑GB). Linux: use `POI_VLM_MODE=off` instead.
+
+**Manual copy** (if you already have an internal bundle): place the same three
+paths under `$POI_DATA_DIR/tools/` and set `POI_PREDICT_PYTHON` as above.
+
+**Deterministic core only** (no VLM assets):
+
+```bash
 export POI_VLM_MODE=off
 ```
 
 `GET /api/deps-status` reports FastVLM venv/repo/checkpoint as **warnings**
-(server still boots). Live ensemble runs enforce readiness inside
-`mapkit_baseline_v2.predict`.
+(server still boots). Live ensemble runs fail-loud inside `mapkit_baseline_v2`
+if the env is missing.
 
 ## Historical name map
 

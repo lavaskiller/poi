@@ -28,6 +28,9 @@ processes cause API 404 / version skew — not a path-layout requirement.
 
 ```bash
 cd /wherever/you/cloned/poi      # any path is fine
+# Optional live FastVLM (Apple Silicon): ./tools/setup_fastvlm.sh
+# then: export POI_PREDICT_PYTHON=$POI_DATA_DIR/tools/fastvlm-venv/bin/python
+# Or skip VLM: export POI_VLM_MODE=off
 
 # one shot: Python + npm setup, backend :8420, and frontend :5173
 chmod +x tools/dev_up.sh         # once

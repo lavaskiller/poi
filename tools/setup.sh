@@ -76,3 +76,7 @@ npm --prefix "$ROOT/web" install
 
 echo "✓ setup complete"
 echo "  Start both processes with: $ROOT/tools/dev_up.sh"
+echo "  Optional (mapkit-baseline v2 live FastVLM on Apple Silicon):"
+echo "    $ROOT/tools/setup_fastvlm.sh"
+echo "    export POI_PREDICT_PYTHON=\"\${POI_DATA_DIR:-$ROOT/poi-data}/tools/fastvlm-venv/bin/python\""
+echo "  Or deterministic core only:  export POI_VLM_MODE=off"
