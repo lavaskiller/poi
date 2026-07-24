@@ -84,14 +84,21 @@ POI_VLM_MODE=off python3 tools/run_algorithm.py …
 | `POI_FASTVLM_REPO` / `POI_FASTVLM_MODEL` | under `poi-data/tools/ml-fastvlm/…` | Model paths |
 | `POI_DATA_DIR` | auto | Photo + model root (harness injects if unset) |
 
-**Reproducibility contract (v2):** every eligible case uses the same rule —
-list_fit if it disagrees with access_ocr, else live FastVLM skill@K5 when
-access≈nearest. Override only on short, non-hedged, unambiguous answers
-(long free-text / “however closest is…” refused). No curated residual photo
-list and no published prediction JSONL in the decision path. Write-through
-cache is memoization only. Seed JSON **44% / 65%** (unique-149) is a historical
-archive; live re-run scores are measured separately. See
-[`docs/mapkit-baseline-v2.md`](../docs/mapkit-baseline-v2.md).
+**Reproducibility contract (v2)** — plain English (details + examples in
+[`docs/mapkit-baseline-v2.md`](../docs/mapkit-baseline-v2.md)):
+
+1. Run two rule engines on the same MapKit list + OCR (**no photo model yet**).
+2. If **list_fit ≠ access_ocr**, keep **list_fit** and **skip VLM** (aggressive
+   path had a reason to disagree).
+3. Else keep access_ocr (or fallbacks). Call **FastVLM skill@5 only when weak**:
+   weak = access_ocr empty **or** access_ocr still equals **distance rank‑1
+   (nearest)**. In other words: rules never left “just the closest pin.”
+4. Trust VLM only on short, non-hedged answers (long free-text / “however
+   closest is…” refused). Same rule for every case — no curated hard-photo list.
+5. Write-through `POI_VLM_CACHE` is memoization only.
+
+Seed JSON **44% / 65%** (unique-149) is a historical archive; live re-run scores
+are measured separately.
 
 **Fail-loud (default `POI_VLM_MODE=live`):** if FastVLM is not provisioned
 (venv / torch+MPS / ml-fastvlm / checkpoint), the run **aborts** instead of

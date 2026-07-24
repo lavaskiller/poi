@@ -9,107 +9,179 @@ v2 answers **once** per photo + candidate list, in the order below.
 
 ---
 
-## What it does
+## What problem is this solving?
 
-Given MapKit’s **nearby place candidates** around the photo GPS, pick **one place name** that best matches what was photographed.
+MapKit gives a **list of nearby place names** sorted mostly by GPS distance.
+
+That list is often **wrong as a photo label**:
+
+| What GPS thinks is closest | What the photo actually is |
+|----------------------------|----------------------------|
+| `Banff Gondola Stop` (bus stop pin) | `Banff Gondola` (the attraction) |
+| `Restroom` / `Parking` | The park or shop next door |
+| A random café 8 m away | A landmark whose name is on a sign in the photo |
+
+So v2 is **not** “always pick the closest pin.”  
+It is: **use cheap rules first (OCR + name patterns); only if those rules had nothing better than “closest pin,” look at the photo with a vision model (FastVLM).**
 
 | | |
 |--|--|
 | **Inputs** | `nearby_candidates`, `ocr_text`, `image` (plus case metadata) |
-| **Output** | `{ "prediction": "<place name>", "reason": "..." }` — empty string prediction = abstain |
-| **Ground truth** | **Not used.** Scoring is done later by the harness |
-| **Names outside the list** | Not invented. Even VLM output is mapped only to spellings already on the candidate list |
+| **Output** | `{ "prediction": "<place name>", "reason": "..." }` — empty prediction = abstain |
+| **Ground truth** | **Not used** at predict time. Scoring is done later by the harness |
+| **Invented names** | **No.** Every answer must already appear on the MapKit candidate list |
 
-Compared with v1 (weighted + unique OCR override), v2 has a **stronger OCR/list core** and attaches **FastVLM only on weak cases**.
+Compared with v1 (weighted + unique OCR override), v2 has a **stronger rule core** and runs **FastVLM only on weak cases**.
 
 ---
 
-## End-to-end flow
+## Big picture (read this first)
 
-Same order as `predict` in code.
+```text
+1. MapKit candidates around the photo GPS
+2. Two cheap rule engines each pick a name (no photo model yet)
+3. Combine those two picks into one "core" answer
+4. If the core is still basically "just the nearest pin" → ask FastVLM
+   If the core already left nearest (OCR / access demote / list_fit fight) → skip VLM
+5. Optional tiny structure cleanup (kiosk → supermarket, etc.)
+```
+
+**Why “cheap first”?**  
+Rules are free and deterministic. FastVLM is slow, needs a GPU Mac + model weights, and can ramble or invent. So we only pay for VLM when the rules did not already find a reason to leave pure distance.
+
+---
+
+## End-to-end flow (same order as code)
 
 ```text
 predict(case)
 │
-├─ no candidates? → prediction "", reason no_candidates
+├─ no candidates? → "" / no_candidates
 │
-├─ [A] deterministic core (_core_pick)
-│     run list_fit and access_ocr; keep one
-│     (if both fail: weighted → nearest)
+├─ [A] Core pick (rules only — no VLM)
+│     access_ocr  ──┐
+│     list_fit    ──┼─→ one core name + reason
+│     (else weighted → nearest)
 │
-├─ reason == list_fit ?  → return that name immediately  (no VLM)
+├─ If reason is list_fit  → done (skip VLM)
+│     list_fit disagreed with access_ocr = "strong enough" signal
 │
-├─ [B] if access_ocr is “weak”: FastVLM skill @ top-5
-│     weak = no access_ocr result, or it equals distance rank-1 (nearest)
-│     only short, decisive answers override the core (vlm_skill)
-│     UNKNOWN / ambiguous / rambling → keep core
+├─ [B] Else if core is WEAK → FastVLM on top-5
+│     WEAK means: access_ocr empty, OR access_ocr == nearest pin
+│     Strong short answer can override → reason vlm_skill
+│     UNKNOWN / hedged / long text → keep core
 │
-└─ [C] structure_refine (list_fit helper)
-      if the name changes → reason = structure_refine
+└─ [C] structure_refine (list_fit helper on final name)
 ```
 
-If `POI_VLM_MODE=live` (default) but FastVLM cannot run, the run **fails entirely** — it does **not** quietly score OCR-only under the ensemble name.  
-For an intentional core-only run, set `POI_VLM_MODE=off`.
+If `POI_VLM_MODE=live` (default) but FastVLM cannot run, the **whole run fails** — it does **not** quietly score as a full ensemble.  
+For rules-only: `POI_VLM_MODE=off`.
 
 ---
 
-## [A] Deterministic core `_core_pick`
+## [A] Two rule engines (why both?)
 
-Pick a name from candidates + OCR only (no VLM).
+Both engines look at the **same** candidate list + OCR.  
+Neither looks at the photo image. Neither uses ground truth.
 
-### Two rule engines
+They are **two different personalities**, not two unrelated systems:
 
-| Name | File | Behavior |
-|------|------|----------|
-| **access_ocr** | `examples/selector_access_ocr.py` | (1) If OCR strongly matches a candidate name, pick it. (2) Else if rank-1 looks like Stop / Gift Shop / Entrance / … and a nearby non-access candidate shares the name core, prefer that **main place**. (3) Else nearest. |
-| **list_fit** | `examples/selector_list_fit.py` | Stronger OCR scoring (boost long distinctive tokens; do not flip rank-1 on weak OCR), drop pure generics (restroom, parking, …), demote access labels, plus structure refine. |
+| | **access_ocr** (conservative) | **list_fit** (aggressive) |
+|--|-------------------------------|---------------------------|
+| **File** | `examples/selector_access_ocr.py` | `examples/selector_list_fit.py` |
+| **Goal** | Cheap wins that rarely break a correct nearest | Catch harder cases in top‑10–20 |
+| **OCR** | Simple: full-name / multi-token match | Stronger: long distinctive tokens, typo tolerance; **refuses** to flip rank‑1 on weak OCR |
+| **Access pins** | Stop / Gift Shop / Entrance → prefer “main” place with same name core | Same idea, plus drop pure generics (restroom, parking, …) |
+| **Extra** | — | Structure refine patterns (kiosk, trail stem, …) |
+| **If nothing fires** | Falls back to **nearest** (rank‑1 by distance) | Falls back to nearest among remaining non-generics |
 
-**Why run both.**  
-If list_fit returns a **different** name from access_ocr, treat list_fit as strong enough to disagree with the cheaper path and **take list_fit**.  
-If they agree (or only one fires), keep that side and later decide whether VLM is needed.
+### Why not one big script?
 
-### Core selection table (`_core_pick`)
+If you only keep the aggressive rules, you **regress** easy cases (weak OCR flips a correct nearest).  
+If you only keep the conservative rules, you **miss** hard cases (generic restroom wins, weak long-token OCR ignored).
 
-| Condition | prediction | reason |
-|-----------|------------|--------|
-| list_fit present and **≠** access_ocr | list_fit | `list_fit` |
-| else access_ocr present | access_ocr | `access_ocr` |
-| else list_fit only | list_fit | `list_fit_only` |
-| else weighted succeeds | weighted | `weighted` |
-| else | candidates[0] name | `nearest` |
+Running **both** and comparing answers gives a free signal:
 
-`weighted` is `examples/mapkit_weighted.py` — category-aware effective distance, used as backup.
+> “Did the aggressive engine feel the need to pick a **different** name?”
 
-### What the “main place” access rule means
+### How the two answers are merged (`_core_pick`)
 
-Maps often place a **bus stop, gift shop, or donation box** pin slightly closer than the destination pin.  
-Nearest-only then returns the access label, not the place people mean.
+| What happened | Keep | `reason` | Intuition |
+|---------------|------|----------|-----------|
+| list_fit and access_ocr both return names, and they **differ** | **list_fit** | `list_fit` | Aggressive path had a real reason to disagree → trust it; **do not call VLM later** |
+| access_ocr has a name (and list_fit agrees, or list_fit empty) | access_ocr | `access_ocr` | Conservative path is fine; maybe call VLM if still “nearest” |
+| only list_fit has a name | list_fit | `list_fit_only` | |
+| both empty | weighted, else nearest | `weighted` / `nearest` | last resorts |
 
-Examples (both names already on the candidate list):
+`weighted` = `examples/mapkit_weighted.py` (category-aware distance), used only as backup.
 
-- Rank-1 `Banff Gondola Stop` → pick `Banff Gondola`
-- Rank-1 `Goulding's Gift Shop` → pick `Goulding's Lodge` when the name stem matches and the main POI is nearby
+### Worked example — why “disagree → list_fit”
 
-The algorithm does **not** invent a new string; it switches to another **listed** candidate.
+Candidates (distance order):
+
+1. `Capilano Rd Stop`  
+2. `Dog Bar`  
+3. `Capilano Suspension Bridge Park`
+
+- OCR text on the photo includes something like `CAPILANO` / `SUSPENSION`.
+- **access_ocr** might still end near nearest (weak / shared road tokens).
+- **list_fit** boosts the long distinctive token and picks **Capilano Suspension Bridge Park**.
+
+→ Names **disagree** → core = list_fit, reason `list_fit` → **VLM skipped**.  
+We treat that disagreement as “list_fit already did the hard work.”
+
+### Worked example — access demote (“main place”)
+
+Candidates:
+
+1. `Banff Gondola Stop` (12 m)  
+2. `Banff Gondola` (45 m)
+
+Nearest-only would label the photo “Stop.”  
+access_ocr / list_fit see rank‑1 as an **access label** and a nearby candidate that is the **name core** → pick `Banff Gondola`.
+
+The algorithm **switches to another listed candidate**; it does not invent a new string.
+
+---
+
+## What “weak” means (the important bit)
+
+**Nearest** = the first candidate after MapKit distance ranking = “the pin closest to the GPS.”  
+Call that name `nearest`.
+
+After the core step, look at what **access_ocr** returned (`pred_acc` in code):
+
+| Situation | In plain English | Call FastVLM? |
+|-----------|------------------|---------------|
+| Core reason is already `list_fit` | Aggressive rules already overrode the cheap path | **No** |
+| `pred_acc` is empty | Rules found nothing | **Yes** |
+| `pred_acc` **equals** `nearest` (same name after normalize) | Rules did **not** improve on pure distance — “stuck on closest pin” | **Yes** |
+| `pred_acc` **differs** from `nearest` | Rules already left nearest (OCR hit or access demote) | **No** |
+
+So when docs say:
+
+> “If we’re still at ‘just the nearest place,’ call the expensive model”
+
+they mean exactly:
+
+```text
+access_ocr's answer  ==  candidates[0].name
+```
+
+**Not** “the user is near something.”  
+**Not** “confidence is low” in a ML-probability sense.  
+It is a **hard, deterministic check**: did the cheap rules still output pure distance rank‑1?
+
+### Why that is a good VLM trigger
+
+- If rules already used **OCR** or **Stop→main place**, we have a non-distance reason. Second-guessing with VLM often hurts.
+- If the answer is still **only** “closest pin,” the photo is the remaining evidence that could tell Gondola vs Stop vs café — so we pay for VLM.
+
+This check is applied to **every** case the same way. There is **no** hand-picked “hard photo list.”
 
 ---
 
 ## [B] FastVLM — only when weak
-
-### When it runs (`_should_call_vlm`)
-
-If `reason == list_fit`, **stop** — no VLM.
-
-Otherwise look at the access_ocr result (`pred_acc`):
-
-| pred_acc | Call VLM? |
-|----------|-----------|
-| empty | yes |
-| equals distance rank-1 (**nearest**), after normalize | yes |
-| differs from nearest | no (rules already beat pure distance) |
-
-So the photo model runs only when the cheap path is still “stuck on nearest.”  
-This is **not** a curated residual photo list — the same rule applies to every case.
 
 ### How it is called
 
@@ -118,37 +190,38 @@ This is **not** a curated residual photo list — the same rule applies to every
 | Module | `examples/mapkit_vlm_live.py` |
 | Shortlist | top **5** by distance (`VLM_K = 5`) |
 | Style | `skill` (`VLM_STYLE`) |
-| Model | FastVLM 0.5B (Apple, MPS) |
+| Model | FastVLM 0.5B (Apple Silicon / MPS) |
+| Question (essence) | Which candidate number matches the photo? Or **UNKNOWN**. Prefer signs/logos and real destinations over access labels. |
 
-Skill prompt (essence): answer with a single candidate number or **UNKNOWN**; no explanation. Prefer signage/logo → distinctive landmark → destination over access labels. Do not pick a shop just because food is visible.
+### When the VLM answer is trusted (`_high_confidence_vlm_name`)
 
-### When the answer is trusted (`_high_confidence_vlm_name`)
-
-Override the core only if the model raw string passes **all** of:
+Override the core only if **all** hold:
 
 1. Non-empty  
 2. No `UNKNOWN`  
 3. No hedge phrases (`not clearly`, `however`, `closest match`, `likely`, …)  
 4. Length ≤ **16** characters (blocks rambling free-text)  
-5. `parse_selection` resolves a candidate index  
+5. Parses to a candidate index  
 6. That name **differs** from the current core prediction  
 
-On success: `reason = vlm_skill`.  
-On failure: keep the core name (no forced override).
+| Result | What we do |
+|--------|------------|
+| Passes all checks | prediction = that name, `reason = vlm_skill` |
+| Fails any check | **keep core** (no forced override) |
 
-`POI_VLM_MODE=off` skips VLM and appends `+vlm_mode_off` to `reason` — that is the **allowed** degradation. Missing image / model errors under live mode raise **RuntimeError**.
+`POI_VLM_MODE=off` skips VLM and tags `reason` with `+vlm_mode_off` (allowed).  
+Missing model/image under `live` → **RuntimeError** (fail loud).
 
 ### Cache
 
-`POI_VLM_CACHE` JSONL is **memoization** of identical live calls (key includes model, prompt, candidates, photo).  
-It is **not** a hand-curated answer key for hard cases. Delete the file to re-infer everything.
+`POI_VLM_CACHE` JSONL memoizes identical live calls.  
+It is **not** a curated answer key. Delete the file to re-infer everything.
 
 ---
 
 ## [C] structure_refine
 
-After the steps above, apply `selector_list_fit._refine_structure` to the final name.  
-(If the core already returned via list_fit, list_fit may have refined once already; this can run again.)
+After core (+ optional VLM), run `selector_list_fit._refine_structure` on the final name.
 
 | Pattern | Action |
 |---------|--------|
@@ -156,6 +229,26 @@ After the steps above, apply `selector_list_fit._refine_structure` to the final 
 | Name looks like trail/hike and a proper stem repeats across candidates | Prefer a Point / Museum-style representative |
 
 If the name changes: `reason = structure_refine`.
+
+---
+
+## Decision cheat-sheet
+
+```text
+                    ┌─ list_fit ≠ access_ocr ──→ use list_fit ──→ STOP (no VLM)
+                    │
+  both engines ─────┤
+                    │
+                    └─ else use access_ocr (or list_fit_only / weighted / nearest)
+                              │
+                              ├─ that answer ≠ nearest ──→ keep it ──→ no VLM
+                              │
+                              └─ that answer == nearest (or empty)
+                                        │
+                                        └─→ FastVLM top-5
+                                              ├─ short confident pick → vlm_skill
+                                              └─ else keep core
+```
 
 ---
 

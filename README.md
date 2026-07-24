@@ -174,7 +174,7 @@ UI boot: `/api/deps-status` then `/api/git-status`. Hard dep failures block the 
 |------|------------|--------------|
 | `baseline-nearest` | MapKit distance rank-1 | seed data only |
 | `mapkit-baseline` v1 | weighted + unique OCR override | seed data + OCR column |
-| `mapkit-baseline` v2 | list_fit + live FastVLM on weak cases | **FastVLM** or `POI_VLM_MODE=off` |
+| `mapkit-baseline` v2 | Rules first (list_fit vs access_ocr); FastVLM only if still ≈ nearest pin | **FastVLM** or `POI_VLM_MODE=off` — see [`docs/mapkit-baseline-v2.md`](docs/mapkit-baseline-v2.md) |
 
 Bundle for UI paste/submit:
 
