@@ -8,11 +8,29 @@ function jobTitle(j: Job): string {
   return ds ? `${j.step} — ${ds}` : j.step;
 }
 
+/** Prefer server-computed pct; fall back to done/total so the bar never sticks at 0. */
+function jobPct(j: Job): number {
+  const p = j.progress;
+  if (!p) return 0;
+  if (typeof p.pct === "number" && Number.isFinite(p.pct)) {
+    return Math.min(100, Math.max(0, p.pct));
+  }
+  const done = typeof p.done === "number" ? p.done : null;
+  const total = typeof p.total === "number" ? p.total : null;
+  if (done != null && total != null && total > 0) {
+    return Math.min(100, Math.max(0, (100 * done) / total));
+  }
+  return 0;
+}
+
 function jobWhen(j: Job): string {
   if (j.status === "running") {
-    const pct = j.progress?.pct;
+    const pct = jobPct(j);
+    const msg =
+      typeof j.progress?.message === "string" ? j.progress.message : null;
     const parts: string[] = ["running"];
-    if (pct != null) parts.push(`${Math.round(pct)}%`);
+    if (pct > 0) parts.push(`${Math.round(pct)}%`);
+    if (msg) parts.push(msg);
     if (j.elapsed_s != null) parts.push(`${Math.round(j.elapsed_s)}s`);
     return parts.join(" · ");
   }
@@ -107,9 +125,11 @@ export default function Jobs() {
           <p className={styles.activeNote}>No job running.</p>
         )}
         {running.map((j) => {
-          const pct = Math.min(100, Math.max(0, j.progress?.pct ?? 0));
+          const pct = jobPct(j);
+          const msg =
+            typeof j.progress?.message === "string" ? j.progress.message : null;
           return (
-            <div key={j.id} className={styles.activeJob}>
+            <div key={j.id || j.job_id} className={styles.activeJob}>
               <div className={styles.activeHead}>
                 <span className={styles.jobDot} style={{ background: "var(--warning-fg)" }} />
                 <span className={styles.activeName}>{jobTitle(j)}</span>
@@ -117,9 +137,18 @@ export default function Jobs() {
                 <span className={styles.activeStat}>{jobWhen(j)}</span>
               </div>
               <div className={styles.jobTrack}>
-                <div className={styles.jobFill} style={{ width: `${pct || 8}%` }} />
+                <div
+                  className={styles.jobFill}
+                  style={{
+                    width: `${pct > 0 ? pct : 8}%`,
+                    transition: "width 0.4s ease-out",
+                  }}
+                />
               </div>
-              <p className={styles.activeNote}>id {j.id}</p>
+              <p className={styles.activeNote}>
+                id {j.id || j.job_id}
+                {msg ? ` · ${msg}` : ""}
+              </p>
             </div>
           );
         })}

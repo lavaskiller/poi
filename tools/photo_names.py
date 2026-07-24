@@ -476,6 +476,7 @@ def allocate_local_photo_basenames(
     sources: Iterable[Tuple[str, bytes, str, Optional[str]]],
     *,
     used: Optional[Set[str]] = None,
+    on_progress=None,
 ) -> List[Tuple[str, str, str, str]]:
     """Assign local names for ``(source_basename, bytes, dataset, timestamp)``.
 
@@ -487,11 +488,16 @@ def allocate_local_photo_basenames(
     :class:`CaptureTimeRequired` if any row cannot resolve a capture time.
 
     Identical content within the same dataset+day reuses the same local name.
+
+    ``on_progress(done, total)`` is called periodically when provided (ingest UI).
     """
     used = used if used is not None else set()
     by_key: dict = {}
+    # Materialize so we can report total without consuming a one-shot iterator.
+    items = list(sources)
+    total = len(items)
     out: List[Tuple[str, str, str, str]] = []
-    for item in sources:
+    for i, item in enumerate(items, 1):
         if len(item) == 2:
             raw, data = item  # type: ignore[misc]
             dataset, timestamp = "dataset", None
@@ -513,6 +519,11 @@ def allocate_local_photo_basenames(
             by_key[key] = local
             used.add(local)
         out.append((source, local, provenance_basename(source), iso))
+        if on_progress is not None and (i % 5 == 0 or i == total):
+            try:
+                on_progress(i, total)
+            except Exception:
+                pass
     return out
 
 

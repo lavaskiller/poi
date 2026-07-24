@@ -33,6 +33,7 @@ import match_score as match_score
 API_FEATURES = (
     "deps-status",
     "git-status",
+    "git-pull",
     "overview",
     "case",
     "mapkit-probe",
@@ -1169,6 +1170,142 @@ def _read_progress(log_path):
         return None
 
 
+def _substep_fraction(sub):
+    """0..1 completion for one live pipeline substep dict."""
+    if not isinstance(sub, dict):
+        return 0.0
+    status = (sub.get("status") or "").lower()
+    if status in ("done", "skipped", "error"):
+        return 1.0
+    try:
+        total = float(sub.get("total") or 0)
+        done = float(sub.get("done") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if total <= 0:
+        return 0.0
+    return max(0.0, min(1.0, done / total))
+
+
+# Steps that belong to the post-ingest enrichment pipeline (not photo copy).
+_PIPELINE_PROGRESS_STEPS = frozenset({
+    "exif", "geocode", "ocr", "mapkit_nearby", "gt_mapkit", "gt_kakao",
+    "parallel", "ocr_nearby", "pipeline", "ingest_done",
+})
+# Photo-copy / package-prep phases written by tools/ingest_dataset.py.
+_INGEST_COPY_STEPS = frozenset({
+    "ingest", "validate", "read", "hash", "copy", "register",
+})
+
+
+def _normalize_progress(raw, job_step=None):
+    """Attach a stable ``pct`` (+ short ``message``) for the job UI.
+
+    Workers emit ``done``/``total`` and optional ``substeps``. The SPA used to
+    read only ``pct`` (almost never set), so the bar sat at the 8% placeholder
+    and jumped only when a whole pipeline stage finished. We fold in-flight
+    substep fractions into the stage counter, and for ingest jobs map the
+    photo-copy phase into the first ~10% so the bar does not reset to 0 when
+    the enrichment pipeline starts.
+    """
+    if not raw or not isinstance(raw, dict):
+        return raw
+    out = dict(raw)
+    try:
+        done = float(out["done"]) if out.get("done") is not None else None
+        total = float(out["total"]) if out.get("total") is not None else None
+    except (TypeError, ValueError):
+        done, total = None, None
+
+    substeps = out.get("substeps") if isinstance(out.get("substeps"), dict) else None
+
+    # Prefer the worker's ``done``/``total``. Pipeline emitters already fold
+    # in-flight leaf fractions into ``done`` (see ``_pipeline_progress_payload``);
+    # re-adding substep means here would double-count. Substeps are for the
+    # human ``message`` only. Fall back: if ``done`` is a whole-stage counter
+    # (int-like) and live substeps still report partial work, add their mean.
+    effective = None
+    base_pct = None
+    if total and total > 0 and done is not None:
+        effective = min(total, max(0.0, done))
+        if (
+            substeps
+            and float(done) == int(done)
+            and out.get("pct") is None
+        ):
+            fracs = [_substep_fraction(s) for s in substeps.values()]
+            # Only fold when substeps look like the *current* batch (all still
+            # running / partial) — not a full sequence snapshot with pendings.
+            live_only = [
+                s for s in substeps.values()
+                if isinstance(s, dict)
+                and (s.get("status") or "running") not in ("done", "skipped", "error", "pending")
+            ]
+            if live_only and fracs:
+                live_fracs = [_substep_fraction(s) for s in live_only]
+                stage_frac = sum(live_fracs) / len(live_fracs)
+                if 0.0 < stage_frac < 1.0:
+                    effective = min(total, max(0.0, done) + stage_frac)
+        out["effective_done"] = round(effective, 2)
+        base_pct = 100.0 * effective / total
+    elif out.get("pct") is not None:
+        try:
+            base_pct = float(out["pct"])
+        except (TypeError, ValueError):
+            base_pct = None
+
+    step = (out.get("step") or "").strip()
+    if job_step == "ingest" and base_pct is not None:
+        # Full ingest job = photo package (~10%) + enrichment stages (~90%).
+        if step in _INGEST_COPY_STEPS or (
+            step not in _PIPELINE_PROGRESS_STEPS
+            and not (isinstance(substeps, dict) and substeps)
+        ):
+            out["pct"] = round(0.10 * base_pct, 1)
+            out["phase"] = "ingest"
+        else:
+            out["pct"] = round(10.0 + 0.90 * base_pct, 1)
+            out["phase"] = "pipeline"
+    elif base_pct is not None:
+        out["pct"] = round(base_pct, 1)
+
+    # Prefer a live substep label (e.g. "mapkit_nearby 12/150 · searching…").
+    message = None
+    if substeps:
+        running = [
+            (name, sub) for name, sub in substeps.items()
+            if isinstance(sub, dict)
+            and (sub.get("status") or "running") not in ("done", "skipped", "error", "pending")
+        ]
+        if not running:
+            running = [
+                (name, sub) for name, sub in substeps.items()
+                if isinstance(sub, dict) and (sub.get("status") or "") != "pending"
+            ]
+        if running:
+            name, sub = min(running, key=lambda kv: _substep_fraction(kv[1]))
+            sub_step = (sub.get("step") or "").strip()
+            sd, st = sub.get("done"), sub.get("total")
+            if sd is not None and st:
+                message = f"{name} {sd}/{st}"
+            else:
+                message = name
+            if sub_step and sub_step not in (name, "starting", "parallel"):
+                message = f"{message} · {sub_step}"
+    if not message and step:
+        if done is not None and total and not substeps:
+            # Whole-number counters read better as ints.
+            d_disp = int(done) if float(done) == int(done) else done
+            t_disp = int(total) if float(total) == int(total) else total
+            message = f"{step} · {d_disp}/{t_disp}"
+        else:
+            message = step
+    if message:
+        out["message"] = message
+
+    return out
+
+
 def _read_warnings(log_path):
     """Structured warnings emitted by a job, including ones found mid-pipeline."""
     if not log_path or not os.path.exists(log_path):
@@ -1189,7 +1326,8 @@ def _job_public(job):
     out = dict(job)
     started, finished = job.get("started"), job.get("finished")
     out["elapsed_s"] = round((finished or time.time()) - started, 1) if started else None
-    out["progress"] = _read_progress(job.get("log_path"))
+    out["progress"] = _normalize_progress(
+        _read_progress(job.get("log_path")), job_step=job.get("step"))
     out["warnings"] = _read_warnings(job.get("log_path"))
     return out
 
@@ -1323,6 +1461,38 @@ def _run_builtin(name, params, log):
     return {"ok": False, "error": f"unknown builtin {name!r}"}
 
 
+def _pipeline_progress_payload(sequence, finished, live, step_label):
+    """Overall progress across leaf pipeline steps, folding in-flight substeps.
+
+    ``finished`` is a set of step names that already completed. ``live`` maps
+    currently running step names → their latest PROGRESS fields. Each leaf in
+    ``sequence`` contributes equally so a long MapKit pass moves the bar
+    continuously instead of sitting on a whole-stage counter.
+    """
+    fracs = []
+    substeps = {}
+    for name in sequence:
+        if name in finished:
+            fracs.append(1.0)
+            substeps[name] = {"status": "done", "done": 1, "total": 1, "step": name}
+        elif name in live:
+            sub = dict(live[name])
+            substeps[name] = sub
+            fracs.append(_substep_fraction(sub))
+        else:
+            fracs.append(0.0)
+            substeps[name] = {"status": "pending", "done": 0, "total": 0}
+    total = len(sequence) or 1
+    effective = sum(fracs)
+    return {
+        "done": round(effective, 2),
+        "total": total,
+        "pct": round(100.0 * effective / total, 1),
+        "step": step_label,
+        "substeps": substeps,
+    }
+
+
 def _post_ingest_pipeline(params, log):
     """EXIF → geocode (country for provider routing), then parallel enrichments."""
     dataset = (params.get("dataset") or "").strip()
@@ -1339,8 +1509,13 @@ def _post_ingest_pipeline(params, log):
         stages.append({"step": "gt_kakao", "status": "skipped", "reason": "KAKAO_REST_API_KEY is not set"})
     env = dict(os.environ)
     env["POI_DATA_DIR"] = DIRECTORY
+    finished = set()
 
-    def run_batch(steps, completed):
+    def emit_progress(live, step_label):
+        payload = _pipeline_progress_payload(sequence, finished, live or {}, step_label)
+        print("PROGRESS " + json.dumps(payload), file=log, flush=True)
+
+    def run_batch(steps, step_label):
         procs, lines, events = {}, {x: [] for x in steps}, queue.Queue()
         def relay(name, stream):
             for raw in iter(stream.readline, ""):
@@ -1357,6 +1532,7 @@ def _post_ingest_pipeline(params, log):
             procs[name] = p
             threading.Thread(target=relay, args=(name, p.stdout), daemon=True).start()
         live = {x: {"status": "running", "done": 0, "total": 0, "step": "starting", "retries": 0} for x in steps}
+        emit_progress(live, step_label)
         while any(p.poll() is None for p in procs.values()) or not events.empty():
             try:
                 name, line = events.get(timeout=.15)
@@ -1370,13 +1546,7 @@ def _post_ingest_pipeline(params, log):
                     live[name].update({k: ev[k] for k in ("done", "total", "step", "retries", "retry_reason") if k in ev})
                 except (json.JSONDecodeError, TypeError):
                     pass
-                print(
-                    "PROGRESS " + json.dumps({
-                        "done": completed, "total": len(sequence),
-                        "step": "parallel", "substeps": live,
-                    }),
-                    file=log, flush=True,
-                )
+                emit_progress(live, step_label)
         for p in procs.values():
             p.wait()
         results = {}
@@ -1394,15 +1564,27 @@ def _post_ingest_pipeline(params, log):
             if status == "done" and result and not result.get("targets", 1):
                 status, reason = "skipped", result.get("skip_reason") or "no eligible rows"
             live[name]["status"] = status
+            if status in ("done", "skipped", "error"):
+                finished.add(name)
             stages.append({
                 "step": name, "status": status, "reason": reason,
                 "returncode": p.returncode, "result": result,
             })
             results[name] = result
+        emit_progress({}, step_label)
         return results, live
 
+    # Bridge from the ingest photo-copy phase so the bar does not reset to 0.
+    print(
+        "PROGRESS " + json.dumps({
+            "done": 0, "total": len(sequence), "pct": 0,
+            "step": "ingest_done",
+        }),
+        file=log, flush=True,
+    )
+
     # 1) EXIF — fill coords/time when still empty
-    first, _ = run_batch(["exif"], 0)
+    first, _ = run_batch(["exif"], "exif")
     exif = first.get("exif") or {}
     targets, no_gps = exif.get("targets", 0), exif.get("no_gps", 0)
     if targets and no_gps:
@@ -1425,10 +1607,9 @@ def _post_ingest_pipeline(params, log):
         }
         warnings.append(w)
         print("WARNING " + json.dumps(w, ensure_ascii=False), file=log, flush=True)
-    print("PROGRESS " + json.dumps({"done": 1, "total": len(sequence), "step": "exif"}), file=log, flush=True)
 
     # 2) Geocode — country/city/address before provider-sensitive steps
-    geo_results, _ = run_batch(["geocode"], 1)
+    geo_results, _ = run_batch(["geocode"], "geocode")
     geo = geo_results.get("geocode") or {}
     empty_geo = geo.get("empty_result", 0) or 0
     geo_targets = geo.get("targets", 0) or 0
@@ -1443,30 +1624,16 @@ def _post_ingest_pipeline(params, log):
         }
         warnings.append(w)
         print("WARNING " + json.dumps(w, ensure_ascii=False), file=log, flush=True)
-    print("PROGRESS " + json.dumps({"done": 2, "total": len(sequence), "step": "geocode"}), file=log, flush=True)
 
     # 3) OCR ∥ MapKit nearby ∥ GT Kakao (independent of MapKit nearby list)
     parallel = ["ocr", "mapkit_nearby"]
     if "gt_kakao" in sequence:
         parallel.append("gt_kakao")
-    _, live = run_batch(parallel, 2)
-    print(
-        "PROGRESS " + json.dumps({
-            "done": 3, "total": len(sequence),
-            "step": "ocr_nearby", "substeps": live,
-        }),
-        file=log, flush=True,
-    )
+    _, live = run_batch(parallel, "ocr_nearby")
 
     # 4) GT MapKit — same nearby set, distance-cut name match (needs step 3)
-    _, live_gt = run_batch(["gt_mapkit"], 3)
-    print(
-        "PROGRESS " + json.dumps({
-            "done": len(sequence), "total": len(sequence),
-            "step": "pipeline", "substeps": {**live, **live_gt},
-        }),
-        file=log, flush=True,
-    )
+    _, live_gt = run_batch(["gt_mapkit"], "gt_mapkit")
+    emit_progress({**live, **live_gt}, "pipeline")
     errors = [x["step"] for x in stages if x["status"] == "error"]
     outcome = {
         "ok": True, "step": "pipeline", "dataset": dataset,
@@ -2509,8 +2676,8 @@ def git_sync_status(*, force_fetch=False, now=None):
             "ahead": ahead_n,
             "message": message,
             "hint": (
-                "cd to the repo, run `git pull --ff-only`, restart `python3 server.py`, "
-                "then reload this page."
+                "Click Update to pull automatically, or run `git pull --ff-only` "
+                "and restart `python3 server.py`."
                 if update_required
                 else None
             ),
@@ -2543,6 +2710,235 @@ def git_sync_status(*, force_fetch=False, now=None):
         _GIT_STATUS_CACHE["ts"] = now - max(0.0, _GIT_STATUS_TTL_S - 5.0)
         _GIT_STATUS_CACHE["payload"] = payload
         return dict(payload)
+
+
+def _git_invalidate_status_cache():
+    _GIT_STATUS_CACHE["ts"] = 0.0
+    _GIT_STATUS_CACHE["payload"] = None
+
+
+def _git_resolve_upstream():
+    """Return (branch, upstream) or raise RuntimeError."""
+    branch_p = _git_run("rev-parse", "--abbrev-ref", "HEAD", timeout=5)
+    branch = branch_p.stdout.strip() if branch_p.returncode == 0 else ""
+    up_p = _git_run("rev-parse", "--abbrev-ref", "@{u}", timeout=5)
+    if up_p.returncode == 0 and up_p.stdout.strip():
+        return branch, up_p.stdout.strip()
+    for candidate in ("origin/main", "origin/master"):
+        v = _git_run("rev-parse", "--verify", candidate, timeout=5)
+        if v.returncode == 0:
+            return branch, candidate
+    raise RuntimeError("No upstream remote branch (set tracking or origin/main).")
+
+
+def git_pull_update(*, restart: bool = True):
+    """Fast-forward pull from upstream. Never force-push, never create a merge.
+
+    Used by POST /api/git-pull so the Update button can avoid a terminal.
+    Refuses dirty trees and non-ff situations; those stay manual.
+    """
+    if _git_truthy_env("POI_DISABLE_GIT_PULL"):
+        return {
+            "ok": False,
+            "error_code": "disabled",
+            "message": "Git pull from the UI is disabled (POI_DISABLE_GIT_PULL).",
+            "restart_required": False,
+            "restarting": False,
+        }
+
+    git_dir = os.path.join(REPO_DIR, ".git")
+    if not os.path.isdir(git_dir) and not os.path.isfile(git_dir):
+        return {
+            "ok": False,
+            "error_code": "not_a_repo",
+            "message": "Not a git checkout — cannot pull.",
+            "restart_required": False,
+            "restarting": False,
+        }
+
+    try:
+        porcelain = _git_run("status", "--porcelain", timeout=10)
+        if porcelain.returncode != 0:
+            err = (porcelain.stderr or porcelain.stdout or "git status failed").strip()
+            return {
+                "ok": False,
+                "error_code": "check_failed",
+                "message": f"Could not read working tree: {err[:240]}",
+                "restart_required": False,
+                "restarting": False,
+            }
+        dirty = [ln for ln in (porcelain.stdout or "").splitlines() if ln.strip()]
+        if dirty:
+            preview = ", ".join(ln[3:].strip() or ln for ln in dirty[:8])
+            more = f" (+{len(dirty) - 8} more)" if len(dirty) > 8 else ""
+            return {
+                "ok": False,
+                "error_code": "dirty",
+                "message": (
+                    "Working tree has uncommitted changes — refusing automatic pull. "
+                    f"Dirty: {preview}{more}. Commit, stash, or discard locally, then retry."
+                ),
+                "dirty_count": len(dirty),
+                "restart_required": False,
+                "restarting": False,
+                "commands": [
+                    "git status",
+                    "git stash push -u -m 'poi-eval before pull'",
+                    "git pull --ff-only",
+                    "# then restart: python3 server.py",
+                ],
+            }
+
+        branch, upstream = _git_resolve_upstream()
+        remote_name = upstream.split("/", 1)[0] if "/" in upstream else "origin"
+        fetch = _git_run("fetch", "--quiet", remote_name, timeout=_GIT_FETCH_TIMEOUT_S)
+        if fetch.returncode != 0:
+            err = (fetch.stderr or fetch.stdout or "git fetch failed").strip()
+            return {
+                "ok": False,
+                "error_code": "fetch_failed",
+                "message": f"Could not fetch {remote_name}: {err[:240]}",
+                "branch": branch,
+                "upstream": upstream,
+                "restart_required": False,
+                "restarting": False,
+            }
+
+        behind_p = _git_run("rev-list", "--count", f"HEAD..{upstream}", timeout=10)
+        ahead_p = _git_run("rev-list", "--count", f"{upstream}..HEAD", timeout=10)
+        behind_n = int((behind_p.stdout or "0").strip() or "0")
+        ahead_n = int((ahead_p.stdout or "0").strip() or "0")
+
+        if behind_n > 0 and ahead_n > 0:
+            return {
+                "ok": False,
+                "error_code": "diverged",
+                "message": (
+                    f"Local branch has diverged from {upstream} "
+                    f"({behind_n} behind, {ahead_n} ahead). Resolve manually — "
+                    "automatic pull only does fast-forward."
+                ),
+                "branch": branch,
+                "upstream": upstream,
+                "behind": behind_n,
+                "ahead": ahead_n,
+                "restart_required": False,
+                "restarting": False,
+                "commands": [
+                    "git status",
+                    "git pull --ff-only   # will fail until diverged history is fixed",
+                    "# or: git fetch && git reset --hard @{u}  (discards local commits)",
+                ],
+            }
+
+        if behind_n == 0:
+            _git_invalidate_status_cache()
+            git = git_sync_status(force_fetch=False)
+            return {
+                "ok": True,
+                "pulled": False,
+                "already_current": True,
+                "message": f"Already up to date with {upstream}.",
+                "branch": branch,
+                "upstream": upstream,
+                "behind": 0,
+                "ahead": ahead_n,
+                "restart_required": False,
+                "restarting": False,
+                "git": git,
+            }
+
+        before = _git_run("rev-parse", "--short", "HEAD", timeout=5)
+        before_short = (before.stdout.strip() if before.returncode == 0 else "?")
+
+        pull = _git_run("pull", "--ff-only", timeout=max(30.0, _GIT_FETCH_TIMEOUT_S))
+        if pull.returncode != 0:
+            err = (pull.stderr or pull.stdout or "git pull --ff-only failed").strip()
+            return {
+                "ok": False,
+                "error_code": "pull_failed",
+                "message": f"git pull --ff-only failed: {err[:320]}",
+                "branch": branch,
+                "upstream": upstream,
+                "behind": behind_n,
+                "restart_required": False,
+                "restarting": False,
+                "commands": [
+                    "git pull --ff-only",
+                    "# then restart: python3 server.py",
+                ],
+            }
+
+        after = _git_run("rev-parse", "--short", "HEAD", timeout=5)
+        after_short = (after.stdout.strip() if after.returncode == 0 else "?")
+        _git_invalidate_status_cache()
+        git = git_sync_status(force_fetch=True)
+
+        return {
+            "ok": True,
+            "pulled": True,
+            "already_current": False,
+            "message": (
+                f"Pulled {behind_n} commit(s) ({before_short} → {after_short}). "
+                "Server will restart to load the new code."
+                if restart
+                else (
+                    f"Pulled {behind_n} commit(s) ({before_short} → {after_short}). "
+                    "Restart `python3 server.py`, then re-check."
+                )
+            ),
+            "branch": branch,
+            "upstream": upstream,
+            "behind_before": behind_n,
+            "local_short_before": before_short,
+            "local_short": after_short,
+            "restart_required": True,
+            "restarting": False,  # set by the HTTP handler when it schedules re-exec
+            "git": git,
+            "commands": (
+                None
+                if restart
+                else ["# restart backend from this repo:", "python3 server.py"]
+            ),
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "error_code": "timeout",
+            "message": "Git command timed out while pulling updates.",
+            "restart_required": False,
+            "restarting": False,
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "error_code": "pull_failed",
+            "message": f"Git pull failed: {e}",
+            "restart_required": False,
+            "restarting": False,
+        }
+
+
+def _schedule_server_reexec(delay_s: float = 0.45):
+    """Replace this process with a fresh ``server.py`` after the HTTP response.
+
+    Pull updates files on disk; the running interpreter still holds old code.
+    A short delay lets the response flush, then ``os.execv`` restarts in-place.
+    """
+
+    def _reexec():
+        try:
+            time.sleep(max(0.1, float(delay_s)))
+            os.chdir(REPO_DIR)
+            script = os.path.join(REPO_DIR, "server.py")
+            # Keep any extra CLI args the operator passed (none in normal use).
+            extra = list(sys.argv[1:]) if len(sys.argv) > 1 else []
+            os.execv(sys.executable, [sys.executable, script, *extra])
+        except Exception as e:
+            # Last resort log — process stays on old code.
+            print(f"ERROR: server re-exec after git pull failed: {e}", file=sys.stderr)
+
+    threading.Thread(target=_reexec, name="poi-git-pull-reexec", daemon=True).start()
 
 
 def _is_blocked_static(rel_url: str) -> bool:
@@ -3373,6 +3769,39 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not self._require_mutating_access():
             return
         route = self.path.split("?")[0]
+        if route == "/api/git-pull":
+            # Update button: ff-only pull, then optional in-process restart.
+            raw = self._read_body(16 * 1024) or b"{}"
+            try:
+                body = json.loads(raw or b"{}")
+                if not isinstance(body, dict):
+                    body = {}
+            except Exception:
+                body = {}
+            want_restart = body.get("restart", True)
+            if isinstance(want_restart, str):
+                want_restart = want_restart.strip().lower() in ("1", "true", "yes", "on")
+            else:
+                want_restart = bool(want_restart)
+            payload = git_pull_update(restart=want_restart)
+            if (
+                payload.get("ok")
+                and payload.get("restart_required")
+                and want_restart
+            ):
+                payload["restarting"] = True
+                payload["message"] = (
+                    payload.get("message")
+                    or "Pull succeeded. Server is restarting to load the new code."
+                )
+                self._send_json(payload, code=200)
+                _schedule_server_reexec()
+                return
+            code = 200 if payload.get("ok") else 400
+            if payload.get("error_code") == "disabled":
+                code = 403
+            self._send_json(payload, code=code)
+            return
         if route == "/api/gt/reconcile":
             self._handle_gt_reconcile_save()
             return

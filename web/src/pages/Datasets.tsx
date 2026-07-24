@@ -151,14 +151,32 @@ function jobTitle(j: Job): string {
   return ds ? `${j.step} — ${ds}` : j.step;
 }
 
+/** Prefer server-computed pct; fall back to done/total so the bar never sticks at 0. */
+function jobPct(j: Job): number {
+  const p = j.progress;
+  if (!p) return 0;
+  if (typeof p.pct === "number" && Number.isFinite(p.pct)) {
+    return Math.min(100, Math.max(0, p.pct));
+  }
+  const done = typeof p.done === "number" ? p.done : null;
+  const total = typeof p.total === "number" ? p.total : null;
+  if (done != null && total != null && total > 0) {
+    return Math.min(100, Math.max(0, (100 * done) / total));
+  }
+  return 0;
+}
+
 function jobWhen(j: Job): string {
   if (j.status === "running") {
-    const pct = j.progress?.pct;
+    const pct = jobPct(j);
+    const msg =
+      typeof j.progress?.message === "string" ? j.progress.message : null;
     const done = j.progress?.done;
     const total = j.progress?.total;
     const parts: string[] = [];
-    if (pct != null) parts.push(`${Math.round(pct)}%`);
-    if (done != null && total != null) parts.push(`${done}/${total}`);
+    if (pct > 0) parts.push(`${Math.round(pct)}%`);
+    if (msg) parts.push(msg);
+    else if (done != null && total != null) parts.push(`${done}/${total}`);
     if (j.elapsed_s != null) parts.push(`${Math.round(j.elapsed_s)}s`);
     return parts.length ? parts.join(" · ") : "running…";
   }
@@ -1483,7 +1501,9 @@ export default function Datasets() {
           )}
 
           {running.map((j) => {
-            const pct = Math.min(100, Math.max(0, j.progress?.pct ?? 0));
+            const pct = jobPct(j);
+            const msg =
+              typeof j.progress?.message === "string" ? j.progress.message : null;
             const done = j.progress?.done;
             const total = j.progress?.total;
             const isIngest = j.step === "ingest";
@@ -1495,12 +1515,22 @@ export default function Datasets() {
                   <span className={styles.activeSpacer} />
                   <span className={styles.activeStat}>
                     {pct > 0 ? `${Math.round(pct)}%` : "running"}
-                    {done != null && total != null ? ` · ${done}/${total}` : ""}
+                    {msg
+                      ? ` · ${msg}`
+                      : done != null && total != null
+                        ? ` · ${done}/${total}`
+                        : ""}
                     {j.elapsed_s != null ? ` · ${Math.round(j.elapsed_s)}s` : ""}
                   </span>
                 </div>
                 <div className={styles.jobTrack}>
-                  <div className={styles.jobFill} style={{ width: `${pct || 8}%` }} />
+                  <div
+                    className={styles.jobFill}
+                    style={{
+                      width: `${pct > 0 ? pct : 8}%`,
+                      transition: "width 0.4s ease-out",
+                    }}
+                  />
                 </div>
                 <p className={styles.activeNote}>
                   {isIngest

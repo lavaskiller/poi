@@ -55,8 +55,17 @@ CANONICAL_FIELDS = [
 ]
 
 
-def _progress(done, total):
-    print("PROGRESS " + json.dumps({"done": done, "total": total}), flush=True)
+def _progress(done, total, step="ingest"):
+    """Live progress for the job panel (photo-copy phase of an ingest job)."""
+    try:
+        d, t = float(done), float(total)
+        pct = round(100.0 * d / t, 1) if t > 0 else 0.0
+    except (TypeError, ValueError):
+        pct = None
+    payload = {"done": done, "total": total, "step": step}
+    if pct is not None:
+        payload["pct"] = pct
+    print("PROGRESS " + json.dumps(payload), flush=True)
 
 
 def _result(obj):
@@ -87,11 +96,14 @@ def _extract_rows(zip_path, report, root, slug, photo_dir, dest_dir, default_con
             f"(capture time + GPS required)",
             flush=True,
         )
-        _progress(0, n)
+        # Three equal sub-phases so large ZIPs don't sit at 0% during read/hash.
+        # Overall done runs 0..3n (read + hash + copy), reported as done/n with
+        # fractional progress via step labels.
+        _progress(0, n, step="read")
 
         # Read each photo once → (name, bytes, dataset, timestamp) for allocate.
         payloads: list = []
-        for i, r in enumerate(rows, start=2):
+        for i, r in enumerate(rows, start=1):
             photo_rel = (r.get("photo") or "").strip()
             raw_base = PurePosixPath(photo_rel).name if photo_rel else ""
             src_name = f"{root}/{photo_rel}" if root else photo_rel
@@ -101,9 +113,19 @@ def _extract_rows(zip_path, report, root, slug, photo_dir, dest_dir, default_con
                     data = src.read()
             ts = (r.get("timestamp") or r.get("capture_time") or "").strip() or None
             payloads.append((raw_base, data, slug, ts))
+            # Read phase occupies 0 .. n/3 of the bar (report as done in 0..n scale
+            # with step label; normalize on the server maps ingest copy → 0–10%).
+            if i % 5 == 0 or i == n:
+                _progress(round(i / 3, 2), n, step="read")
 
         try:
-            allocated = allocate_local_photo_basenames(payloads)
+            # Hash + capture-time resolve is CPU-bound on large photos.
+            def _hash_progress(done_i, _total_i):
+                _progress(round(n / 3 + done_i / 3, 2), n, step="hash")
+
+            _progress(round(n / 3, 2), n, step="hash")
+            allocated = allocate_local_photo_basenames(
+                payloads, on_progress=_hash_progress)
         except CaptureTimeRequired as e:
             # Surface as a clean ingest failure (which rows lack time).
             missing = []
@@ -159,7 +181,7 @@ def _extract_rows(zip_path, report, root, slug, photo_dir, dest_dir, default_con
                 "timestamp": ts_iso,
             })
             if i % 5 == 0 or i == n:
-                _progress(i, n)
+                _progress(round(2 * n / 3 + i / 3, 2), n, step="copy")
         print(
             f"[ingest] local ids for {len(allocated)} rows "
             f"({len(written)} unique files; "
@@ -178,6 +200,7 @@ def main() -> int:
     args = ap.parse_args()
 
     # 1. validate the package shape first (reuse the validator).
+    _progress(0, 1, step="validate")
     try:
         report = validate_zip(args.zip)
     except ValidationError as e:

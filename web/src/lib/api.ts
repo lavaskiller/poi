@@ -301,9 +301,14 @@ export interface DatasetsResponse {
 export interface JobProgress {
   done?: number;
   total?: number;
+  /** 0–100; server normalizes from done/total (+ pipeline substeps). */
   pct?: number;
+  /** Short live label, e.g. "mapkit_nearby 12/150 · searching nearby POIs". */
   message?: string;
+  step?: string;
+  phase?: string;
   eta_s?: number;
+  substeps?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -575,6 +580,28 @@ export interface GitSyncStatus {
   repo_dir?: string;
 }
 
+/** POST /api/git-pull — Update button (ff-only; refuses dirty/diverged). */
+export interface GitPullResult {
+  ok: boolean;
+  pulled?: boolean;
+  already_current?: boolean;
+  message?: string;
+  error_code?: string;
+  restart_required?: boolean;
+  /** True when the backend scheduled an in-process re-exec after the response. */
+  restarting?: boolean;
+  branch?: string;
+  upstream?: string;
+  behind?: number;
+  behind_before?: number;
+  ahead?: number;
+  local_short?: string;
+  local_short_before?: string;
+  dirty_count?: number;
+  commands?: string[] | null;
+  git?: GitSyncStatus;
+}
+
 export const api = {
   overview: () => getJSON<Overview>("/api/overview"),
 
@@ -586,6 +613,32 @@ export const api = {
     getJSON<GitSyncStatus>(
       refresh ? "/api/git-status?refresh=1" : "/api/git-status",
     ),
+
+  /**
+   * Update button: fast-forward pull on the server checkout.
+   * By default the backend restarts itself after a successful pull so new
+   * code is loaded; the SPA should poll /api/health then re-boot.
+   */
+  async gitPull(opts: { restart?: boolean } = {}): Promise<GitPullResult> {
+    const res = await fetch("/api/git-pull", {
+      method: "POST",
+      headers: authHeaders({
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      }),
+      body: JSON.stringify({ restart: opts.restart !== false }),
+    });
+    const data = (await res.json().catch(() => ({}))) as GitPullResult & {
+      detail?: string;
+      error?: string;
+    };
+    if (!res.ok || data.ok === false) {
+      throw new Error(
+        data.message || data.detail || data.error || `/api/git-pull → HTTP ${res.status}`,
+      );
+    }
+    return data;
+  },
 
   runs: () => getJSON<{ runs: Run[] }>("/api/runs"),
 
