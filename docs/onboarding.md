@@ -1,7 +1,9 @@
-# Onboarding — running POI Eval in a fresh environment
+# Onboarding — deep dive
 
-This is the practical setup guide for standing the tool up on a new machine.
-For the project overview and API list, see [`../README.md`](../README.md).
+**Start here for a short path:** [`../README.md`](../README.md) (clone → setup → seed → optional FastVLM → `dev_up.sh`).
+
+This page expands data layout, seed packing, and platform notes once the
+dashboard is up.
 
 The system is two processes:
 
