@@ -3,9 +3,10 @@
 Role-based names (preferred). Old exploratory names remain only in historical
 run JSON under `poi-data/generated/runs/`.
 
-**How the current best ensemble works (readable walkthrough):**
+**How the current best ensemble picks a place (plain-language):**
 [`docs/best-algorithm-loop70.md`](../docs/best-algorithm-loop70.md)
-— offline `selector-loop70` (highest scored) and live twin `mapkit-baseline` v2.
+— why nearest pin fails, OCR, “Stop/Gift Shop → main place”, optional photo model;
+offline `selector-loop70` vs live `mapkit-baseline` v2.
 
 ## Seed baselines (default `pack_seed_bundle.py`)
 

@@ -1,238 +1,212 @@
-# Best algorithm: selector-loop70 (and live twin)
+# 지금 제일 잘 맞는 POI 알고리즘은 어떻게 고르나
 
-이 문서는 현재 평가 세트에서 **가장 높은 점수를 낸 알고리즘**이  
-**무엇을 입력으로 받아, 어떤 순서로, 왜 그렇게 고르는지**를 설명합니다.
-
-코드 파일 목록만 나열하지 않고, **한 장의 결정 흐름**으로 읽히게 썼습니다.
+사진을 찍으면 앱은 “여기가 어디지?”를 맞춰야 한다.  
+우리 평가에서 **가장 점수가 높은 방식**이 그 답을 **어떤 순서로** 내는지를, 코드 이름 없이 먼저 설명한다.
 
 ---
 
-## 1. 한 줄 요약
+## 이 문제가 어려운 이유
 
-> GPS 주변 MapKit 후보 목록에서,  
-> **값싼 규칙(OCR·접근점 제거)으로 먼저 고르고**,  
-> 그게 “그냥 제일 가까운 곳” 수준으로 약할 때만  
-> **사진(VLM)으로 후보를 다시 고른다.**
+휴대폰 GPS는 “대충 이 근처”만 알려 준다.  
+MapKit에 물어보면 반경 안에 장소가 **여러 개** 온다. 거리 순으로 예를 들면:
 
-| | Offline champion | Live twin (재현·배포용) |
+1. Banff Gondola **Stop** (버스 정류장 핀) — 카메라에서 71m  
+2. Banff Gondola (곤돌라 본체) — 81m  
+3. 주차장, 기프트샵, 다른 상점 …
+
+사람은 사진을 보면 “곤돌라에 왔다”고 안다.  
+그런데 **그냥 제일 가까운 핀**을 고르면 정류장 이름이 나온다.  
+정류장·기프트샵·화장실·기부함 같은 핀은 지도에 자주 있고, 좌표가 본체보다 **조금 더 가깝게** 찍혀 있는 경우가 많다.
+
+그래서 “항상 1등(거리)”만 쓰면 틀리기 쉽고,  
+아래 알고리즘은 **거리만 믿지 않고** 몇 단계를 거친다.
+
+---
+
+## 한 줄로
+
+**주변 장소 후보 목록**을 받은 뒤,
+
+1. 사진 글자(OCR)가 어느 이름과 맞으면 그걸 고르고,  
+2. 1등이 “정류장/샵/화장실”처럼 부속 이름이면 **본체 이름**으로 바꾸고,  
+3. 그래도 확신이 없으면 **사진을 보는 작은 AI(VLM)** 에게 후보 중에서만 고르게 한다.
+
+정답지(GT)는 **채점할 때만** 쓴다. 고르는 과정에는 넣지 않는다.
+
+---
+
+## 지금 점수가 제일 좋은 것 / 실제로 돌리기 좋은 것
+
+같은 아이디어를 두 형태로 갖고 있다.
+
+| | 기록용 (최고 점수) | 실행용 (라이브) |
 |---|---|---|
-| **이름** | `selector-loop70` | `mapkit-baseline` v2 |
-| **점수 (166 eligible)** | **exact 48%** (80/166) · **canonical 70%** (117/166) | 시드/라이브 재측정 (아카이브 ~48%대; VLM 환경 의존) |
-| **코드** | `tools/stitch_loop70_ensemble.py` + 구성 셀렉터들 | `examples/mapkit_baseline_v2.py` (`ensemble_v2` 번들) |
-| **성격** | 여러 런·캐시를 **스티치**한 최고 기록 | 같은 철학의 **완전 라이브** `predict()` |
+| 부르는 이름 | selector-loop70 | mapkit-baseline v2 |
+| 평가 (166장) | 엄격 일치 약 **48%**, 느슨한 인정 포함 약 **70%** | 같은 설계를 **매번 새로** 돌림 |
+| 성격 | 예전에 돌려 둔 결과·캐시를 잘 이어 붙인 **최고 기록** | 앱/재현에 가깝게 **한 번에 추론** |
 
-**exact** = 이름 문자열 일치(엄격).  
-**canonical** = alias / related_credit 등 라벨 관계 포함(제품에 더 가깝게 “같은 장소로 인정”).
+아래 설명은 둘 다 통한다. 차이는 “VLM을 캐시에서 읽느냐, 지금 돌리느냐” 정도다.
 
-> **중요:** loop70의 공식 ≥70% pass 기록은 **오프라인 스티치 + residual VLM 캐시**를 포함합니다.  
-> 앱에 넣을 “한 함수”에 가장 가까운 것은 **mapkit-baseline v2** 입니다.  
-> 둘 다 아래 파이프라인 철학은 같습니다.
+**점수 두 종류**
 
----
+- **엄격(exact):** 예측 이름과 정답 이름이 글자 그대로 같음  
+- **느슨(canonical):** “같은 장소로 봐도 되는” 별칭·관련 장소까지 맞춤으로 인정  
 
-## 2. 입력이 뭐고, 출력이 뭔가
+제품 느낌에는 느슨한 쪽이 가깝고, 비교 실험에는 엄격한 쪽도 같이 본다.
 
-```text
-입력 (predict 시점에 GT 없음)
-├─ nearby_candidates[]   MapKit 근처 POI (거리순, category/id 포함)
-├─ ocr_text              기기 Vision OCR (간판·메뉴 텍스트)
-└─ image                 사진 (VLM이 켜질 때만 사용)
-
-출력
-└─ place name 문자열  (또는 빈 문자열 = abstain)
-   + reason 태그 (list_fit / vlm_skill / …)
-```
-
-평가 때만 CSV의 ground truth와 비교합니다.  
-**예측 경로에는 GT가 들어가지 않습니다.**
+참고로 **무조건 가장 가까운 핀**만 고르면 엄격 일치가 대략 30%대 후반이다.  
+이 알고리즘은 그 위에 OCR·규칙·사진을 얹어 올린 것이다.
 
 ---
 
-## 3. 전체 그림 (loop70 / v2 공통 철학)
+## 재료: 알고리즘이 보는 것
 
-```text
-                    ┌─────────────────────────┐
-   사진 + GPS  ───► │ MapKit nearby (top ~20) │
-                    └───────────┬─────────────┘
-                                │
-              ┌─────────────────┴─────────────────┐
-              ▼                                   ▼
-     ┌────────────────┐                 ┌──────────────────┐
-     │ list_fit       │                 │ access_ocr       │
-     │ 강한 OCR 매칭  │                 │ OCR + 접근점강등 │
-     │ 구조 refine    │                 └────────┬─────────┘
-     └───────┬────────┘                          │
-             │                                   │
-             └────────────┬──────────────────────┘
-                          ▼
-              list_fit 이 access_ocr 와 다르면?
-                    │
-          yes ──────┤────── no
-           │                 │
-           ▼                 ▼
-     list_fit 채택     access≈nearest (약함)?
-                              │
-                    yes ──────┤────── no
-                     │                 │
-                     ▼                 ▼
-              FastVLM (skill)     access_ocr 유지
-              짧은 확신 답만 채택
-                     │
-                     └────────┬────────
-                              ▼
-                     structure_refine
-                     (키오스크→마트, 트레일→포인트 등)
-                              ▼
-                         최종 place name
-```
-
-직관:
-
-1. **글자가 보이면 OCR이 이김** (거리보다 증거를 우선).  
-2. **버스 정류장 / 기프트샵 / 화장실** 같은 “접근·부대시설” 1등은 본체로 끌어올림.  
-3. 그래도 “그냥 제일 가까운 곳”이면 **사진으로 후보 중 고름**.  
-4. VLM은 **짧게·단정적으로** 고를 때만 믿음 (장황한 추측 문장은 버림).
-
----
-
-## 4. 단계별 동작
-
-### Step A — `access_ocr` (값싼 기본선)
-
-**파일:** `examples/selector_access_ocr.py`
-
-| 순서 | 규칙 | 예시 |
-|------|------|------|
-| 1 | OCR이 후보 이름과 강하게 겹치면 그 후보 | 간판 `CAPILANO` → Capilano … Park |
-| 2 | rank-1이 Stop / Gift Shop / Entrance 등이면, 이름 핵이 같은 비-접근 후보로 | *Banff Gondola **Stop*** → *Banff Gondola* |
-| 3 | 아니면 거리 1등 (nearest) | |
-
-역할: **VLM 없이** 자주 나는 실패(접근점이 1등)를 줄입니다.
-
----
-
-### Step B — `list_fit` (OCR·리스트 적합도 강화판)
-
-**파일:** `examples/selector_list_fit.py`  
-**후보 창:** 보통 top **10–20** (loop70 스티치는 limit 20).
-
-access_ocr보다 공격적인 OCR 점수:
-
-- 긴 고유 토큰(길이 ≥7) OCR 히트에 큰 가산점  
-- OCR 오타 허용(긴 토큰 fuzzy, 예: SUSPENSTON ≈ suspension)  
-- rank-1을 뒤집으려면 **점수 마진**이 있어야 함 (약한 OCR 플립 방지)  
-- 순수 generic (`Restroom`, `Parking` …) 제외  
-- 마지막에 **structure refine** (아래 Step D)
-
-**스티치 규칙 (핵심):**
-
-```text
-if list_fit 결과 ≠ access_ocr 결과:
-    → list_fit 채택   # OCR/구조가 “다른 답을 말할 정도로” 강함
-else:
-    → access 쪽 유지 후, 약하면 VLM으로
-```
-
-즉 list_fit은 **항상 이기지 않고**, access와 **의견이 갈릴 때만** 이깁니다.
-
----
-
-### Step C — 사진 모델 (VLM) — “약할 때만”
-
-| | Offline loop70 | Live mapkit-baseline v2 |
-|---|---|---|
-| 트리거 | residual / cascade 스티치, skill 캐시 등 | **access_ocr ≈ nearest** 인 모든 케이스에 동일 적용 |
-| 모델 | FastVLM 0.5B (캐시된 출력 재사용 가능) | 동일, **라이브 추론** (캐시는 메모이제이션만) |
-| 프롬프트 | skill / place_match 등 실험 혼합 | **skill @ top-5**, UNKNOWN 허용 |
-| 수락 조건 | 후보 이름 복원 + 길이 필터 등 | **짧은 답만** (≤16자), hedge 문구 거부, 번호/유일 이름 파싱 |
-
-**Live v2가 VLM 답을 버리는 경우 (의도적):**
-
-- `UNKNOWN`
-- “not clearly… however closest is …” 식 hedge
-- 긴 free-text (0.5B가 추측으로 이름 발명하는 패턴이 코호트에서 손해)
-
-이때는 **access_ocr를 유지**합니다.  
-“무조건 VLM  Believes”가 아니라 **고-precision 오버라이드**입니다.
-
----
-
-### Step D — `structure_refine`
-
-**파일:** `examples/selector_list_fit.py` 의 `_refine_structure`
-
-OCR이 이미 잠근 이름은 건드리지 않고, 구조 패턴만:
-
-| 패턴 | 동작 |
+| 재료 | 정체 |
 |------|------|
-| rank가 Vigo / Coinstar 등 **매장 안 키오스크** | 근처 supermarket / grocery 이름으로 |
-| 현재 픽이 trail/hike 이고, 주변에 같은 고유 stem이 잔뜩 | Point / Museum 쪽 클러스터 대표로 |
+| 후보 목록 | GPS 근처 MapKit 장소들 (이름, 거리, 대략 10~20개) |
+| OCR 텍스트 | 사진에서 읽은 글자 (간판, 메뉴, 표지판) |
+| 사진 자체 | 글자가 약할 때만, 작은 비전 모델이 후보 중 고를 때 사용 |
 
-loop70 v5 노트: 이 refine이 소수의 케이스를 더 끌어 canonical 70%대에 기여.
-
----
-
-### Step E — (Offline only) free-text name recovery
-
-**파일:** `tools/stitch_loop70_ensemble.py` 의 `recover_name`
-
-과거 VLM raw 출력에서 따옴표·부분 문자열로 **후보 리스트에 있는 이름만** 복원.  
-라이브 v2는 이 경로를 쓰지 않고, 짧은 skill 파싱만 씁니다 (장황 free-text가 평균적으로 손해).
+“식당/카페 카테고리 분류”를 먼저 하지 않는다.  
+**목록 + 글자 + (필요할 때만) 사진**이다.
 
 ---
 
-## 5. 점수 해석 (selector-loop70 v5, n=166)
+## 고르는 순서 (이야기)
 
-| 지표 | 값 | 의미 |
-|------|-----|------|
-| exact | 80 / 166 (**48%**) | 문자 그대로 GT와 동일 |
-| canonical | 117 / 166 (**70%**) | alias + related_credit 포함 |
-| abstain | 11 | 후보 0 등 |
-| wrong (exact 기준 잔여) | 37 | 아직 틀린 구체 POI |
+### 1단계 — 사진에 이름이 보이면, 그게 답에 가깝다
 
-`match_kind` 대략: exact 80 · alias 16 · related_credit 21 · related 1 · wrong 37 · abstain 11.
+간판에 `CAPILANO`가 보이는데, 거리 1등이 “Dog Bar”처럼 다른 곳이면  
+**글자와 이름이 겹치는 후보**를 고른다.
 
-**baseline-nearest**는 같은 코호트에서 exact ~38%대.  
-loop70은 거리 1등 대비 **+10%p exact**, canonical 쪽은 라벨 관계와 함께 **~70%** 고지.
+거리를 완전히 무시하지는 않는다.  
+OCR 신호가 **약하면** 1등을 함부로 뒤집지 않는다.  
+(짧은 단어 하나 겹쳤다고 엉뚱한 곳으로 가면 안 되니까.)
+
+### 2단계 — 1등이 “앞에 선 자리” 이름이면, 목적지로 올린다
+
+지도 데이터에는 본 장소와 **붙어 있는 작은 핀**이 많다.
+
+| 지도에 가까운 이름 | 사람이 말하는 곳 |
+|--------------------|------------------|
+| Banff Gondola **Stop** | Banff Gondola (곤돌라) |
+| Goulding's **Gift Shop** | Goulding's Lodge (숙소) |
+| Savers **Donation Drop Spot** | Savers (가게) |
+| 화장실 / 주차장 / 정류장 | 그 시설이 속한 장소 |
+
+알고리즘은 대략 이렇게 생각한다.
+
+> “지금 1등 이름에 Stop, Gift Shop, Entrance, Parking 같은 말이 붙어 있고,  
+> 목록 조금 아래에 **같은 이름 줄기**를 가진 다른 장소가 있으면  
+> 사람은 그걸 목적지로 찍었을 가능성이 크다.”
+
+그래서 **정류장 핀을 본체로 “끌어올린다”**는 말은:
+
+- 틀린 말을 새로 지어내는 게 아니라  
+- 이미 목록에 있는 **본체 쪽 이름**을 고른다는 뜻이다.
+
+예: 1등 `Banff Gondola Stop` → 선택 `Banff Gondola`.
+
+### 3단계 — 위가 애매하면, 사진 AI에게 “이 목록 중 어디?”
+
+OCR도 약하고, 2단계로도 1등(거리)과 다를 게 없으면  
+“그냥 제일 가까운 곳”에 머무른 상태다. 확신이 낮다.
+
+이때만 사진 모델(FastVLM)을 켠다.  
+질문 형태는 대략:
+
+> 후보 1…5 중에서 이 사진이 찍힌 곳은? 모르겠으면 UNKNOWN.
+
+**믿고 덮어쓰는 답만 받는다.**
+
+- 짧게 “3” 처럼 고른 것  
+- 장황하게 “잘 안 보이지만 아마 가까운 곳은…” 하는 추측은 **버림**  
+- UNKNOWN이면 거리/규칙 쪽 답을 유지  
+
+즉 사진 AI가 항상 최종 보스가 아니다.  
+**글자·규칙으로 이미 그럴듯하면 사진 AI를 끼워 넣지 않는다.**
+
+### 4단계 — 아주 드문 정리
+
+- 마트 안 **환전/키오스크** 핀이 잡혀 있으면 → 근처 슈퍼마켓 이름 쪽으로  
+- 등산로 이름만 잡혀 있고 같은 지명 핀이 잔뜩이면 → 전망 포인트/박물관 같은 대표 이름 쪽으로  
+
+자주 안 타고, 있으면 조금 도와주는 뒷정리 규칙이다.
 
 ---
 
-## 6. 왜 이 구조인가 (설계 의도)
+## 그림으로 한 번 더
 
-| 실패 유형 | 대응 단계 |
-|-----------|-----------|
-| 간판은 보이는데 더 가까운 잡 POI가 1등 | OCR (`list_fit` / `access_ocr`) |
-| 목적지 앞 *Stop / Gift Shop* 이 1등 | access demote |
-| OCR 약함·실내·밀집 상권 | VLM (약할 때만) |
-| VLM 환각·장황 추측 | 짧은 답만 수락 / UNKNOWN 유지 |
-| 마트 안 키오스크·트레일 노드 | structure_refine |
-
-**카테고리 분류기를 쓰지 않습니다.**  
-카테고리는 weighted 거리 등에 쓰일 수 있지만, loop70 본체는  
-**후보 리스트 + OCR + (조건부) 사진** 입니다.
-
----
-
-## 7. 재실행 방법
-
-### Offline 스티치 (기록 재현에 가깝게)
-
-```bash
-# 선행: access_ocr / photo-match cascade 런 JSON, skill residual cache 등
-python3 tools/stitch_loop70_ensemble.py
+```text
+사진 + 위치
+    │
+    ▼
+MapKit: 근처 장소 후보 여러 개 (거리순)
+    │
+    ▼
+① 사진 글자(OCR) ↔ 후보 이름 매칭이 확실?
+    │ 예 ──► 그 이름
+    │ 아니오
+    ▼
+② 1등이 "Stop / Gift Shop / 화장실…" 부속 이름?
+    │ 예 ──► 목록 안의 본체 이름으로
+    │ 아니오
+    ▼
+③ 아직 "그냥 제일 가까운 곳" 수준?
+    │ 예 ──► 사진 AI가 후보 중 짧게 고름 (애매하면 유지)
+    │ 아니오
+    ▼
+④ 필요하면 키오스크·트레일 정도만 살짝 정리
+    │
+    ▼
+장소 이름 하나 (또는 후보 없음 → 비움)
 ```
 
-의존 기본 경로(스크립트 argparse 참고):
+---
 
-- `poi-data/generated/runs/selector-access-ocr__v1.json`
-- `poi-data/generated/runs/selector-photo-match-cascade__v2.json`
-- `poi-data/generated/vlm_skill_k20_loop70_residual_cache.jsonl`
+## “loop70”이랑 “v2” 차이는?
 
-### Live ensemble (배포·공정 비교용)
+| | loop70 (기록) | mapkit-baseline v2 (라이브) |
+|---|---|---|
+| 목표 | 평가에서 **숫자 최대한** | **같은 규칙을 매번** 재현 |
+| 사진 AI | 예전에 돌린 결과·캐시를 이어 쓰기도 함 | 그때그때 추론 (동일 입력 메모 캐시만) |
+| 쓸 때 | “우리 상한이 어디쯤이었지?” | “지금 코드로 다시 돌려 보자 / 앱에 가깝게” |
+
+팀에서 “최고 효율”이라고 부르는 숫자는 보통 **loop70 기록**이다.  
+앞으로 공정하게 개선 비교할 때는 **v2를 라이브로 돌린 점수**를 보는 편이 맞다.
+
+---
+
+## 얼마나 맞나 (대략)
+
+같은 평가 사진 166장 기준 (loop70 최고 기록):
+
+- 글자 그대로 맞춤: 약 **절반** (48%)  
+- 같은 장소로 인정하면: 약 **70%**  
+- 후보 자체가 없어서 비움: 소수  
+- 나머지: 아직 틀린 구체 이름  
+
+틀린 쪽을 줄이려면 “더 똑똑한 고르기”만이 아니라,  
+확 신 없을 때 **구체 이름 대신 동네/지역만 보여 주기** 같은 제품 정책이 따로 필요하다.  
+그건 이 고르기 알고리즘 **다음 층** 이야기다.
+
+---
+
+## 코드 어디 보면 되나 (필요할 때)
+
+읽기 전용 지도. 처음부터 여기부터 볼 필요는 없다.
+
+| 하고 싶은 것 | 파일 |
+|--------------|------|
+| 라이브로 한 번에 고르기 | `examples/mapkit_baseline_v2.py` |
+| OCR + 부속 핀 → 본체 | `examples/selector_access_ocr.py`, `examples/selector_list_fit.py` |
+| 기록용으로 이어 붙이기 | `tools/stitch_loop70_ensemble.py` |
+| 셀렉터 이름 표 | `tools/SELECTORS.md` |
+
+라이브 재실행 예:
 
 ```bash
-# FastVLM 준비 (Apple Silicon)
-./tools/setup_fastvlm.sh
+./tools/setup_fastvlm.sh   # 사진 AI 환경 (Apple Silicon)
 
 poi-data/tools/fastvlm-venv/bin/python tools/run_algorithm.py \
   --name mapkit-baseline \
@@ -240,58 +214,23 @@ poi-data/tools/fastvlm-venv/bin/python tools/run_algorithm.py \
   --params image,nearby_candidates,ocr_text
 ```
 
-VLM 없이 deterministic core만:
+사진 AI 없이 글자·규칙만:
 
 ```bash
 POI_VLM_MODE=off python3 tools/run_algorithm.py …
 ```
 
-| 환경 변수 | 기본 | 역할 |
-|-----------|------|------|
-| `POI_VLM_MODE` | `live` | `live` / `off` / `cache_first` |
-| `POI_PREDICT_PYTHON` | fastvlm-venv 자동 | `predict` 서브프로세스 |
-| `POI_VLM_CACHE` | mapkit_baseline_v2_live_cache.jsonl | 라이브 호출 메모이 (삭제 시 재추론) |
-
-`live`인데 FastVLM이 없으면 **조용히 OCR-only로 점수를 속이지 않고 실패**합니다.
-
 ---
 
-## 8. 관련 파일 지도
+## 자주 생기는 오해
 
-| 역할 | 경로 |
+| 오해 | 실제 |
 |------|------|
-| Offline 스티치 엔트리 | `tools/stitch_loop70_ensemble.py` |
-| Live ensemble `predict` | `examples/mapkit_baseline_v2.py` |
-| Live FastVLM 런타임 | `examples/mapkit_vlm_live.py` |
-| list_fit | `examples/selector_list_fit.py` |
-| access_ocr | `examples/selector_access_ocr.py` |
-| 카테고리 가중 거리 (core fallback) | `examples/mapkit_weighted.py` |
-| 셀렉터 이름·시드 표 | `tools/SELECTORS.md` |
-| 제출 번들 | `python3 tools/bundle_submission.py ensemble_v2` |
-
-셀렉터 전체 목록·구 파일명 매핑은 [`tools/SELECTORS.md`](../tools/SELECTORS.md) 참고.
+| “AI가 사진만 보고 장소를 안다” | 먼저 지도 후보가 있고, 그중 고른다. 후보 밖 이름은 원칙적으로 안 만든다. |
+| “항상 사진 AI가 최종” | 글자·규칙이 충분하면 사진 AI를 안 부른다. |
+| “정류장을 본체로” = 환각 | 목록에 이미 있는 본체 이름을 고를 뿐이다. |
+| “카테고리(식당/공원)로 먼저 나눈다” | 이 최고 점수 파이프라인의 본체는 아니다. |
 
 ---
 
-## 9. 이 알고리즘이 *아닌* 것
-
-- 딥러닝 end-to-end place ID 모델이 아님  
-- 카테고리/지역 사전 분류 후 분기하는 시스템이 아님 (평가 슬라이스용 카테고리와 무관)  
-- “VLM이 항상 최종 결정”이 아님 — **약한 케이스의 신중한 오버라이드**  
-- loop70 최고 점수 JSON ≠ 프로덕션 단일 바이너리 (라이브는 v2 계약 사용)
-
----
-
-## 10. 다음 제품 연결 (참고)
-
-잘못 고른 구체 POI를 줄이려면, 이 파이프라인 **위에** confidence gate를 올리는 편이 자연스럽습니다.
-
-- 후보 0 / abstain → 지오그래픽만  
-- margin 애매 · OCR 무 · VLM 미호출 → POI 대신 지역  
-- list_fit·짧은 VLM 합의 → 구체 POI  
-
-그 게이트 튜닝 UI는 이 문서 범위 밖이며, 알고리즘 본체 이해는 여기까지면 충분합니다.
-
----
-
-*Metrics snapshot: `selector-loop70` v5 on the private 166-case eligible cohort; re-runs and label-relation files can move the number slightly. Prefer live v2 for apples-to-apples future comparisons.*
+*숫자는 비공개 평가 세트·라벨 정의에 따라 조금 달라질 수 있다. 로직 설명은 코드 기준이다.*
