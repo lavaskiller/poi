@@ -65,8 +65,24 @@ EOF
   exit 1
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "ERROR: python3 is required" >&2
+# Prefer a newer CPython for the venv when present (Homebrew), else system python3.
+PYTHON_BIN=""
+for c in python3.12 python3.11 python3.10 python3.9 python3; do
+  if command -v "$c" >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v "$c")"
+    break
+  fi
+done
+if [[ -z "$PYTHON_BIN" ]]; then
+  cat >&2 <<'EOF'
+ERROR: no python3 found on PATH.
+Install Python 3.9+ (python.org or Homebrew: brew install python@3.11), then re-run.
+EOF
+  exit 1
+fi
+echo "→ using $PYTHON_BIN ($($PYTHON_BIN --version 2>&1))"
+if ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'; then
+  echo "ERROR: need Python 3.9+ for the FastVLM venv" >&2
   exit 1
 fi
 if ! command -v git >/dev/null 2>&1; then
@@ -168,7 +184,7 @@ fi
 
 if [[ ! -x "$PY" ]]; then
   echo "→ creating venv at $VENV_DIR"
-  python3 -m venv "$VENV_DIR"
+  "$PYTHON_BIN" -m venv "$VENV_DIR"
 fi
 
 echo "→ upgrading pip…"
