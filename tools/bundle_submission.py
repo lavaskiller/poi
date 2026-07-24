@@ -124,9 +124,9 @@ def bundle_example_ensemble_v2() -> str:
         banner=[
             "mapkit-baseline v2 — fully live ensemble (no curated residual list).",
             "list_fit@K20; on access≈nearest: live FastVLM skill@K5 (high-conf only).",
-            "Write-through memo cache only (same key → same live result).",
+            "Default POI_VLM_MODE=live REQUIRES FastVLM (venv+MPS+checkpoint); missing env aborts the run.",
+            "POI_VLM_MODE=off → deterministic core only (honest; not an ensemble score).",
             "Interpreter: POI_PREDICT_PYTHON or poi-data/tools/fastvlm-venv.",
-            "POI_VLM_MODE=off → deterministic core only.",
         ],
     )
 

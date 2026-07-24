@@ -92,6 +92,81 @@ def vlm_mode() -> str:
     return "live"
 
 
+def check_live_ready() -> Optional[str]:
+    """Return a human-readable error if live FastVLM cannot run, else None.
+
+    ``POI_VLM_MODE=off`` always passes (deterministic core is intentional).
+    ``cache_first`` passes without a loaded model (cache-only path).
+    Default ``live`` requires: importable torch, MPS, ml-fastvlm repo, checkpoint.
+    """
+    mode = vlm_mode()
+    if mode == "off":
+        return None
+    if mode == "cache_first":
+        return None
+
+    import platform
+    import sys
+
+    if platform.system() != "Darwin":
+        return (
+            f"FastVLM live requires macOS with MPS (this host is {platform.system()}). "
+            "Provision an Apple Silicon machine, or set POI_VLM_MODE=off for the "
+            "deterministic OCR/access core only (not a live ensemble score)."
+        )
+    try:
+        import torch  # type: ignore
+    except ImportError:
+        py = sys.executable
+        return (
+            f"torch is not importable in this predict interpreter ({py}). "
+            "Point POI_PREDICT_PYTHON at poi-data/tools/fastvlm-venv/bin/python "
+            "(or install torch+MPS there). Or set POI_VLM_MODE=off for deterministic core only."
+        )
+    if not getattr(torch.backends, "mps", None) or not torch.backends.mps.is_available():
+        return (
+            "torch is importable but MPS is not available. "
+            "Use Apple Silicon + a torch build with MPS, via fastvlm-venv. "
+            "Or set POI_VLM_MODE=off for deterministic core only."
+        )
+    try:
+        import PIL  # noqa: F401
+    except ImportError:
+        return (
+            "Pillow (PIL) is required for FastVLM image load but is missing in "
+            f"{sys.executable}. Install into the FastVLM venv."
+        )
+
+    repo, model_path = model_paths()
+    if not repo.is_dir():
+        return (
+            f"FastVLM repo missing: {repo}. "
+            "Clone/provision ml-fastvlm under poi-data/tools/ml-fastvlm "
+            "(or set POI_FASTVLM_REPO). Or POI_VLM_MODE=off."
+        )
+    # llava package lives inside the repo and is added to sys.path at load time.
+    if not (repo / "llava").is_dir():
+        return (
+            f"FastVLM repo incomplete (no llava/): {repo}. "
+            "Restore the full ml-fastvlm checkout. Or POI_VLM_MODE=off."
+        )
+    if not model_path.is_dir():
+        return (
+            f"FastVLM checkpoint missing: {model_path}. "
+            "Download llava-fastvithd_0.5b_stage3 under "
+            "poi-data/tools/ml-fastvlm/checkpoints/ (or set POI_FASTVLM_MODEL). "
+            "Or POI_VLM_MODE=off for deterministic core only."
+        )
+    return None
+
+
+def require_live_ready() -> None:
+    """Raise RuntimeError when live mode is selected but the host cannot run VLM."""
+    err = check_live_ready()
+    if err:
+        raise RuntimeError("FastVLM live environment not ready: " + err)
+
+
 def data_root() -> Path:
     env = (os.environ.get("POI_DATA_DIR") or "").strip()
     if env:
@@ -549,13 +624,14 @@ def infer(
 
     model, err = get_model()
     if model is None:
-        return {
-            "ok": False,
-            "prediction": "",
-            "raw_output": "",
-            "reason": "vlm_unavailable",
-            "error": err,
-        }
+        # Do not soft-succeed: callers that treat vlm_unavailable as "keep OCR"
+        # silently publish fake ensemble scores. Raise so the harness fails loud.
+        raise RuntimeError(
+            "FastVLM unavailable in live mode: "
+            + (err or "unknown")
+            + ". Fix the environment (see check_live_ready / SELECTORS.md) "
+            "or set POI_VLM_MODE=off for deterministic core only."
+        )
 
     raw = ""
     error = ""

@@ -235,6 +235,105 @@ def _check_frontend_modules() -> Dict[str, Any]:
     )
 
 
+def _data_root_for_deps() -> Path:
+    env = (os.environ.get("POI_DATA_DIR") or "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    for cand in (REPO_DIR / "poi-data", REPO_DIR / "poi-data-seed"):
+        if cand.is_dir():
+            return cand.resolve()
+    return (REPO_DIR / "poi-data").resolve()
+
+
+def _check_fastvlm_assets() -> List[Dict[str, Any]]:
+    """Soft gate for mapkit-baseline v2 live re-runs (not required to boot server).
+
+    Code is in git; weights/venv are provisioned under poi-data/tools/. When
+    missing, UI should show a warning — live ensemble runs fail-loud separately.
+    """
+    items: List[Dict[str, Any]] = []
+    root = _data_root_for_deps()
+    venv_py = root / "tools" / "fastvlm-venv" / "bin" / "python"
+    repo = Path(
+        os.environ.get("POI_FASTVLM_REPO")
+        or (root / "tools" / "ml-fastvlm")
+    ).expanduser()
+    model = Path(
+        os.environ.get("POI_FASTVLM_MODEL")
+        or (repo / "checkpoints" / "llava-fastvithd_0.5b_stage3")
+    ).expanduser()
+
+    venv_ok = venv_py.is_file() and os.access(venv_py, os.X_OK)
+    items.append(
+        _item(
+            "fastvlm_venv",
+            "FastVLM venv (predict interpreter)",
+            ok=venv_ok,
+            required=False,
+            detail=(
+                f"present: {venv_py}"
+                if venv_ok
+                else f"missing: {venv_py} — mapkit-baseline v2 live re-run needs this"
+            ),
+            fix=(
+                "Provision poi-data/tools/fastvlm-venv (torch+MPS) from the internal "
+                "bundle / GDrive, or set POI_PREDICT_PYTHON to that python. "
+                "Or POI_VLM_MODE=off for deterministic core only."
+            ),
+        )
+    )
+    repo_ok = repo.is_dir() and (repo / "llava").is_dir()
+    items.append(
+        _item(
+            "fastvlm_repo",
+            "FastVLM ml-fastvlm checkout",
+            ok=repo_ok,
+            required=False,
+            detail=f"{'present' if repo_ok else 'missing'}: {repo}",
+            fix=(
+                "Copy ml-fastvlm under poi-data/tools/ml-fastvlm "
+                "(or set POI_FASTVLM_REPO)."
+            ),
+        )
+    )
+    model_ok = model.is_dir()
+    items.append(
+        _item(
+            "fastvlm_checkpoint",
+            "FastVLM checkpoint (0.5B stage3)",
+            ok=model_ok,
+            required=False,
+            detail=f"{'present' if model_ok else 'missing'}: {model}",
+            fix=(
+                "Download llava-fastvithd_0.5b_stage3 into "
+                "poi-data/tools/ml-fastvlm/checkpoints/ (or POI_FASTVLM_MODEL)."
+            ),
+        )
+    )
+    if platform.system() == "Darwin":
+        items.append(
+            _item(
+                "fastvlm_mps_host",
+                "macOS host for MPS",
+                ok=True,
+                required=False,
+                detail="Darwin — live FastVLM is supported on this OS",
+            )
+        )
+    else:
+        items.append(
+            _item(
+                "fastvlm_mps_host",
+                "macOS host for MPS",
+                ok=False,
+                required=False,
+                detail=f"{platform.system()}: live FastVLM needs Apple Silicon macOS",
+                fix="Run live mapkit-baseline v2 on a Mac, or POI_VLM_MODE=off.",
+            )
+        )
+    return items
+
+
 def check_runtime_deps() -> Dict[str, Any]:
     """Return a structured dependency report.
 
@@ -258,6 +357,7 @@ def check_runtime_deps() -> Dict[str, Any]:
     items.extend(_check_pip_packages())
     items.extend(_check_swift_toolchain())
     items.append(_check_frontend_modules())
+    items.extend(_check_fastvlm_assets())
 
     missing = [i for i in items if i["required"] and not i["ok"]]
     warnings = [i for i in items if (not i["required"]) and not i["ok"]]

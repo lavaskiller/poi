@@ -24,10 +24,11 @@ Harness import policy: repo ``examples/`` is not on PYTHONPATH. Bundle with::
 
 Live FastVLM needs MPS + ``poi-data/tools/fastvlm-venv`` (or ``POI_PREDICT_PYTHON``).
 ``POI_VLM_MODE=off`` → deterministic core only (honest reason suffix).
+Default ``live`` **requires** FastVLM (MPS + checkpoint + venv); missing env
+fails the whole run instead of silently scoring OCR-only as an ensemble.
 """
 from __future__ import annotations
 
-import os
 import re
 import unicodedata
 from typing import Any, Dict, List, Union
@@ -49,8 +50,12 @@ except ImportError as e:  # pragma: no cover - missing siblings / not bundled
 
 DESCRIPTION = (
     "mapkit-baseline v2 = fully live ensemble: list_fit@K20 + FastVLM skill@K5 "
-    "on every weak (access≈nearest) case; short non-hedged answers only."
+    "on every weak (access≈nearest) case; short non-hedged answers only. "
+    "Requires FastVLM unless POI_VLM_MODE=off."
 )
+
+# Fail once per process if live VLM was requested but the host cannot run it.
+_vlm_env_checked = False
 
 # VLM shortlist size. K=5 matches photo-match stress runs; longer lists dilute
 # FastVLM-0.5B and increase false overrides.
@@ -187,11 +192,28 @@ def _high_confidence_vlm_name(
     return ""
 
 
+def _ensure_vlm_environment() -> None:
+    """Fail the run up front when live FastVLM was requested but cannot run.
+
+    Without this, missing venv/checkpoint silently degrades to OCR-only while
+    still saving a ``mapkit-baseline`` accuracy as if the ensemble ran.
+    """
+    global _vlm_env_checked
+    if _vlm_env_checked:
+        return
+    _vlm_env_checked = True
+    vlm.require_live_ready()
+
+
 def predict(case: Dict[str, Any]) -> Union[str, Dict[str, Any]]:
     """Fully live ensemble: core + uniform weak-case FastVLM.
 
     Returns ``{prediction, reason}`` for harness visibility.
+    Raises ``RuntimeError`` when ``POI_VLM_MODE`` is live (default) but FastVLM
+    is not provisioned, or when a required VLM call cannot run (no image, etc.).
     """
+    _ensure_vlm_environment()
+
     candidates: List[Dict[str, Any]] = list(case.get("nearby_candidates") or [])
     if not candidates:
         return {"prediction": "", "reason": "no_candidates"}
@@ -210,13 +232,24 @@ def predict(case: Dict[str, Any]) -> Union[str, Dict[str, Any]]:
         vlm_cands = candidates[:VLM_K]
         out = vlm.infer(case, vlm_cands, style=VLM_STYLE)
         note = out.get("reason") or ""
-        if note in (
+        # Explicit offline mode: keep core and tag reason (allowed degradation).
+        if note == "vlm_mode_off":
+            reason = f"{reason}+{note}"
+        elif note in (
             "vlm_unavailable",
             "vlm_image_missing",
             "vlm_cache_missing",
-            "vlm_mode_off",
+            "vlm_error",
         ):
-            reason = f"{reason}+{note}"
+            detail = out.get("error") or note
+            photo = (case.get("photo") or "").strip()
+            raise RuntimeError(
+                f"mapkit-baseline v2 FastVLM call failed ({note}"
+                + (f" on {photo}" if photo else "")
+                + f"): {detail}. "
+                "Fix FastVLM provisioning or set POI_VLM_MODE=off for "
+                "deterministic core only (not a live ensemble score)."
+            )
         else:
             raw = out.get("raw_output") or ""
             # Prefer parse on shortlist; fall back to full list for name match only.

@@ -76,7 +76,40 @@ access≈nearest. Override only on short, non-hedged, unambiguous answers
 (long free-text / “however closest is…” refused). No curated residual photo
 list and no published prediction JSONL in the decision path. Write-through
 cache is memoization only. Seed JSON 48%/68% is a historical archive; live
-re-run (current 160-eligible) is measured separately.
+re-run scores are measured separately.
+
+**Fail-loud (default `POI_VLM_MODE=live`):** if FastVLM is not provisioned
+(venv / torch+MPS / ml-fastvlm / checkpoint), the run **aborts** instead of
+quietly scoring OCR-only under the ensemble name. Only
+`POI_VLM_MODE=off` is allowed to run the deterministic core without VLM.
+
+### FastVLM on another Mac (provisioning)
+
+Git has algorithm code only. On each evaluation machine:
+
+```bash
+# 1) Data + seed (photos, CSV, candidates) — already in poi-data / seed zip
+# 2) Copy internal FastVLM bundle into the data root (not git):
+#    poi-data/tools/fastvlm-venv/          # python with torch MPS
+#    poi-data/tools/ml-fastvlm/            # repo + llava/
+#    poi-data/tools/ml-fastvlm/checkpoints/llava-fastvithd_0.5b_stage3/
+
+export POI_DATA_DIR=/path/to/poi-data
+export POI_PREDICT_PYTHON="$POI_DATA_DIR/tools/fastvlm-venv/bin/python"
+# optional overrides:
+# export POI_FASTVLM_REPO="$POI_DATA_DIR/tools/ml-fastvlm"
+# export POI_FASTVLM_MODEL="$POI_FASTVLM_REPO/checkpoints/llava-fastvithd_0.5b_stage3"
+
+# Smoke: must import torch and see MPS
+"$POI_PREDICT_PYTHON" -c "import torch; assert torch.backends.mps.is_available()"
+
+# Deterministic-only re-run (no VLM assets required):
+export POI_VLM_MODE=off
+```
+
+`GET /api/deps-status` reports FastVLM venv/repo/checkpoint as **warnings**
+(server still boots). Live ensemble runs enforce readiness inside
+`mapkit_baseline_v2.predict`.
 
 ## Historical name map
 
