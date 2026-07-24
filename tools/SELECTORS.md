@@ -3,10 +3,8 @@
 Role-based names (preferred). Old exploratory names remain only in historical
 run JSON under `poi-data/generated/runs/`.
 
-**How the current best ensemble picks a place (plain-language):**
-[`docs/best-algorithm-loop70.md`](../docs/best-algorithm-loop70.md)
-— why nearest pin fails, OCR, “Stop/Gift Shop → main place”, optional photo model;
-offline `selector-loop70` vs live `mapkit-baseline` v2.
+**mapkit-baseline v2 algorithm (predict pipeline):**
+[`docs/mapkit-baseline-v2.md`](../docs/mapkit-baseline-v2.md).
 
 ## Seed baselines (default `pack_seed_bundle.py`)
 

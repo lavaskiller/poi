@@ -7,7 +7,7 @@ Internal tool for **evaluating POI (point-of-interest) prediction algorithms**.
 
 This README is the **onboarding path** for a new machine. Deeper notes:
 [`docs/onboarding.md`](docs/onboarding.md) · algorithm details: [`tools/SELECTORS.md`](tools/SELECTORS.md) ·
-**how the best POI picker works (plain language):** [`docs/best-algorithm-loop70.md`](docs/best-algorithm-loop70.md).
+**mapkit-baseline v2 algorithm:** [`docs/mapkit-baseline-v2.md`](docs/mapkit-baseline-v2.md).
 
 ---
 
