@@ -312,14 +312,17 @@ def vision_fill_missing_ocr(seed_dir: Path, cfg: dict) -> dict:
             for _row, src, key in targets:
                 f.write(f"{key}\t{src}\n")
         print(f"[pack] vision OCR on {len(targets)} seed photos missing caption_ondevice…")
+        # ocr_all.swift: argv[1]=input tsv (name\\tpath lines); OCR rows on stdout.
         try:
-            proc = subprocess.run(
-                ["swift", str(swift), str(in_tsv), str(out_tsv)],
-                cwd=str(_ROOT),
-                capture_output=True,
-                text=True,
-                timeout=max(120, 30 * len(targets)),
-            )
+            with open(out_tsv, "w", encoding="utf-8") as out_f:
+                proc = subprocess.run(
+                    ["swift", str(swift), str(in_tsv)],
+                    cwd=str(_ROOT),
+                    stdout=out_f,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=max(120, 45 * len(targets)),
+                )
         except (OSError, subprocess.TimeoutExpired) as e:
             print(f"[pack] warn: vision OCR failed: {e}")
             filled = sum(1 for r in rows if (r.get("caption_ondevice") or "").strip())
@@ -331,8 +334,8 @@ def vision_fill_missing_ocr(seed_dir: Path, cfg: dict) -> dict:
                 "ocr_empty": len(rows) - filled,
             }
         if proc.returncode != 0:
-            print(f"[pack] warn: ocr_all.swift exit {proc.returncode}: "
-                  f"{(proc.stderr or proc.stdout or '')[-300:]}")
+            err = (proc.stderr or "")[-300:]
+            print(f"[pack] warn: ocr_all.swift exit {proc.returncode}: {err}")
 
         text_by_key: Dict[str, str] = {}
         if out_tsv.is_file():
