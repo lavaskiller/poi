@@ -19,7 +19,10 @@ from match_score import (
     load_gt_mapkit_overrides,
     overlay_gt_mapkit_overrides,
 )
-from run_algorithm import run_submission, list_runs, get_run, delete_run, RunError
+from run_algorithm import (
+    run_submission, prepare_submission, execute_submission,
+    list_runs, get_run, delete_run, RunError,
+)
 from gt_classify_common import read_csv as gc_read_csv, write_csv as gc_write_csv, backup_csv as gc_backup_csv
 from check_deps import check_runtime_deps, ensure_runtime_deps
 import run_algorithm as algorithm
@@ -3304,6 +3307,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self._start_job(step, {}, extra_resp={"provider": provider})
 
     def _handle_run(self):
+        """Start an algorithm run and return immediately for live Results polling.
+
+        Body may include ``"async": false`` to force the legacy blocking path
+        (CLI-style tests). Default is async: prepare + reserve version, respond
+        with name/version/job_id, then execute in a daemon thread while writing
+        partial cases to generated/runs/live/.
+        """
         body = self._read_body(20 * 1024 * 1024)
         if body is None:
             return
@@ -3322,31 +3332,70 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._send_api_error("invalid_request", 400,
                                  detail="params must contain only string signal keys")
             return
+        want_async = req.get("async", True)
+        if isinstance(want_async, str):
+            want_async = want_async.strip().lower() not in ("0", "false", "no")
+        common = dict(
+            name=(req.get("name") or "").strip(),
+            script_text=req.get("script_text") or "",
+            lang=(req.get("lang") or "python").strip(),
+            dataset=(req.get("scope") or "all").strip(),
+            mode=(req.get("mode") or "exact").strip(),
+            params=req.get("params"),
+            save_mode=(req.get("save_mode") or "auto").strip(),
+            csv_path=CSV_PATH,
+            config_path=config_read_path(),
+            candidate_paths=match_candidate_paths(),
+            runs_dir=RUNS_DIR,
+            candidate_limit=req.get("candidate_limit"),
+            label_relations_path=os.path.join(
+                DIRECTORY, "eval_label_relations.v1.jsonl"
+            ),
+        )
+        if not want_async:
+            try:
+                result = run_submission(**common)
+                self._send_json({"ok": True, "status": "done", **result})
+            except RunError as e:
+                self._send_api_error("run_failed", 422, detail=e)
+            except Exception as e:
+                self.log_error("algorithm run failed: %s", e)
+                self._send_api_error("internal_error", 500)
+            return
         try:
-            result = run_submission(
-                name=(req.get("name") or "").strip(),
-                script_text=req.get("script_text") or "",
-                lang=(req.get("lang") or "python").strip(),
-                dataset=(req.get("scope") or "all").strip(),
-                mode=(req.get("mode") or "exact").strip(),
-                params=req.get("params"),
-                save_mode=(req.get("save_mode") or "auto").strip(),
-                csv_path=CSV_PATH,
-                config_path=config_read_path(),
-                candidate_paths=match_candidate_paths(),
-                runs_dir=RUNS_DIR,
-                candidate_limit=req.get("candidate_limit"),
-                # Always the data-dir sidecar (not match_score import-time path).
-                label_relations_path=os.path.join(
-                    DIRECTORY, "eval_label_relations.v1.jsonl"
-                ),
-            )
-            self._send_json({"ok": True, **result})
+            job_id = uuid.uuid4().hex[:12]
+            ctx = prepare_submission(**common, job_id=job_id)
         except RunError as e:
             self._send_api_error("run_failed", 422, detail=e)
+            return
         except Exception as e:
-            self.log_error("algorithm run failed: %s", e)
+            self.log_error("algorithm run prepare failed: %s", e)
             self._send_api_error("internal_error", 500)
+            return
+
+        def _worker():
+            try:
+                execute_submission(ctx)
+            except Exception as e:
+                self.log_error("algorithm run worker failed: %s", e)
+
+        threading.Thread(target=_worker, daemon=True).start()
+        self._send_json({
+            "ok": True,
+            "status": "running",
+            "job_id": ctx["job_id"],
+            "name": ctx["name"],
+            "version": ctx["version"],
+            "safe_name": ctx["safe_name"],
+            "n_eligible": ctx["n_eligible"],
+            "n_cases": 0,
+            "metrics": {
+                "n_eligible": ctx["n_eligible"],
+                "n_completed": 0,
+                "correct": 0,
+                "accuracy_pct": 0,
+            },
+        })
 
 
 if __name__ == "__main__":

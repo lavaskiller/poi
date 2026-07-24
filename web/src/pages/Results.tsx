@@ -14,7 +14,7 @@ import {
   type Run,
   type RunDetail,
 } from "../lib/api";
-import { useRefreshOnFocus } from "../lib/dataRefresh";
+import { notifyDataChanged, useRefreshOnFocus } from "../lib/dataRefresh";
 import { useAsync } from "../lib/useAsync";
 import styles from "./Results.module.css";
 
@@ -32,8 +32,17 @@ interface ResultsData {
 
 function runsSignature(runs: Run[]): string {
   return runs
-    .filter((run) => typeof run.accuracy_pct === "number")
-    .map((run) => `${run.name}:${run.version}:${run.created_at || ""}`)
+    .map((run) =>
+      [
+        run.name,
+        run.version,
+        run.created_at || "",
+        run.status || "done",
+        run.n_completed ?? run.correct ?? "",
+        run.accuracy_pct ?? "",
+        run.progress?.done ?? "",
+      ].join(":"),
+    )
     .sort()
     .join("|");
 }
@@ -73,12 +82,16 @@ export default function Results() {
   const mrSig =
     state.status === "ready" ? matchrateSignature(state.data.matchrate) : "";
 
-  // A run can finish while Results is already open (for example in another
-  // tab). Poll run index + matchrate ceiling; soft-reload when either changes
-  // so reconcile overrides update the provider-ceiling tiles without a flash.
+  const selectedLive =
+    state.status === "ready" &&
+    (state.data.selected?.status === "running" ||
+      state.data.detail?.status === "running");
+
+  // Poll faster while a live run is streaming cases; slower otherwise.
   useEffect(() => {
     if (state.status !== "ready") return;
     const softReload = state.softReload;
+    const ms = selectedLive ? 800 : 3000;
     const timer = window.setInterval(() => {
       void Promise.all([api.runs(), api.matchrate()])
         .then(([{ runs }, matchrate]) => {
@@ -89,12 +102,13 @@ export default function Results() {
         .catch(() => {
           // Keep valid displayed data on a transient background polling failure.
         });
-    }, 3000);
+    }, ms);
     return () => window.clearInterval(timer);
-  }, [state.status, runSig, mrSig, state.softReload]);
+  }, [state.status, runSig, mrSig, state.softReload, selectedLive]);
 
   const [filter, setFilter] = useState<FilterId>("all");
   const [page, setPage] = useState(0);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const galleryRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
 
@@ -129,15 +143,29 @@ export default function Results() {
     const { detail, matchrate, selected, runs } = state.data;
     if (!detail || !selected) return null;
     const cases = detail.cases ?? [];
-    const eligible = cases.length || selected.n_eligible || 0;
+    const isLive = (selected.status || detail.status) === "running";
+    const isFailed = (selected.status || detail.status) === "failed";
+    const eligible =
+      selected.n_eligible ||
+      detail.progress?.total ||
+      cases.length ||
+      0;
+    const completed =
+      selected.n_completed ??
+      detail.progress?.done ??
+      cases.length;
     const correct =
       selected.correct ?? cases.filter((c) => c.correct).length;
     const failures = cases.filter((c) => !c.correct);
     const byKind = (kind: string) => failures.filter((c) => c.match_kind === kind);
 
+    // While streaming, "all" shows every finished case (correct + wrong) so the
+    // gallery grows in real time; after done, keep the failure-focused default.
     const filtered =
       filter === "all"
-        ? failures
+        ? isLive || isFailed
+          ? [...cases].reverse()
+          : failures
         : filter === "wrong"
           ? failures.filter((c) =>
               ["wrong", "related", "related_credit", "alias"].includes(c.match_kind) ||
@@ -154,34 +182,40 @@ export default function Results() {
     const start = safePage * GALLERY_PAGE_SIZE;
     const end = Math.min(start + GALLERY_PAGE_SIZE, filtered.length);
 
-    const gallery = filtered.slice(start, end).map((c, i) => ({
-      dataset: c.dataset,
-      photo: c.photo,
-      // Unique even when the run JSON lists the same photo twice.
-      key: `${safePage}:${start + i}:${c.dataset}/${c.photo}`,
-      index: start + i + 1,
-      card: {
-        band: c.prediction ? "warning" : "danger",
-        filename: c.photo,
-        // Long-edge 720: sharp on retina cards (~350–500 CSS px) without full-res weight.
-        image: photoUrl(c.dataset, c.photo, { thumb: true, w: 720 }),
-        imageLoading: "eager" as const,
-        title: `#${start + i + 1} · ${c.dataset}${c.context?.category ? " · " + c.context.category : ""}${c.match_kind ? " · " + c.match_kind : ""}`,
-        predicted: `✗ ${c.prediction || "— no prediction"}`,
-        predictedTone: "danger" as const,
-        groundTruth: `✓ ${c.gt}`,
-        groundTruthTone: "success" as const,
-        gtSrc: "src · mapkit",
-      } satisfies CaseCardData,
-    }));
+    const gallery = filtered.slice(start, end).map((c, i) => {
+      const ok = !!c.correct;
+      return {
+        dataset: c.dataset,
+        photo: c.photo,
+        // Unique even when the run JSON lists the same photo twice.
+        key: `${safePage}:${start + i}:${c.dataset}/${c.photo}:${c.correct}`,
+        index: start + i + 1,
+        card: {
+          band: ok ? "success" : c.prediction ? "warning" : "danger",
+          filename: c.photo,
+          // Long-edge 720: sharp on retina cards (~350–500 CSS px) without full-res weight.
+          image: photoUrl(c.dataset, c.photo, { thumb: true, w: 720 }),
+          imageLoading: "eager" as const,
+          title: `#${start + i + 1} · ${c.dataset}${c.context?.category ? " · " + c.context.category : ""}${c.match_kind ? " · " + c.match_kind : ""}`,
+          predicted: ok
+            ? `✓ ${c.prediction || "—"}`
+            : `✗ ${c.prediction || "— no prediction"}`,
+          predictedTone: ok ? ("success" as const) : ("danger" as const),
+          groundTruth: `✓ ${c.gt}`,
+          groundTruthTone: "success" as const,
+          gtSrc: "src · mapkit",
+        } satisfies CaseCardData,
+      };
+    });
 
     const scored = runs
-      .filter((r) => typeof r.accuracy_pct === "number")
+      .filter((r) => typeof r.accuracy_pct === "number" || r.status === "running")
       .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
 
     return {
       cases,
       eligible,
+      completed,
       correct,
       failures,
       filtered,
@@ -194,6 +228,8 @@ export default function Results() {
       matchrate,
       selected,
       detail,
+      isLive,
+      isFailed,
       wrongN: failures.filter(
         (c) => c.match_kind === "wrong" || (!c.match_kind && !!c.prediction),
       ).length,
@@ -232,6 +268,7 @@ export default function Results() {
     detail,
     matchrate,
     eligible,
+    completed,
     correct,
     cases,
     failures,
@@ -242,6 +279,8 @@ export default function Results() {
     rangeStart,
     rangeEnd,
     scored,
+    isLive,
+    isFailed,
     wrongN,
     abstainN,
     errorN,
@@ -249,11 +288,18 @@ export default function Results() {
   } = derived;
   const canonical = selected.accuracy_canonical_pct;
   const isBest =
+    !isLive &&
+    !isFailed &&
     bestRun(state.data.runs)?.name === selected.name &&
     bestRun(state.data.runs)?.version === selected.version;
 
   const FILTERS: { id: FilterId; label: string; dot?: string }[] = [
-    { id: "all", label: `All failures · ${failures.length}` },
+    {
+      id: "all",
+      label: isLive || isFailed
+        ? `All finished · ${cases.length}`
+        : `All failures · ${failures.length}`,
+    },
     { id: "wrong", label: `Wrong pick · ${wrongN}`, dot: "var(--warning-fg)" },
     { id: "related", label: `Related / alias · ${relatedN}`, dot: "var(--accent-default)" },
     { id: "abstain", label: `Abstain · ${abstainN}`, dot: "var(--text-tertiary)" },
@@ -263,6 +309,28 @@ export default function Results() {
   const onSelectRun = (value: string) => {
     const [name, ver] = value.split("::");
     setParams({ name, version: ver });
+  };
+
+  const onDeleteRun = async () => {
+    if (!selected) return;
+    if (
+      !window.confirm(
+        `Delete run ${selected.name} v${selected.version}? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setDeleteBusy(true);
+    try {
+      await api.deleteRun(selected.name, selected.version);
+      notifyDataChanged("run");
+      setParams({});
+      state.reload();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleteBusy(false);
+    }
   };
 
   const exportCsv = (mode: "all" | "failures" = "all") => {
@@ -308,11 +376,34 @@ export default function Results() {
             {isBest && <span className={styles.bestPill}>BEST YET</span>}
           </div>
           <p className={styles.sub}>
-            {eligible.toLocaleString()} eligible cases · {detail.mode || selected.mode || "exact"}{" "}
-            match · {formatDuration(selected.duration_ms)} runtime · scope{" "}
+            {isLive
+              ? `${completed.toLocaleString()} / ${eligible.toLocaleString()} cases scored live`
+              : `${eligible.toLocaleString()} eligible cases`}{" "}
+            · {detail.mode || selected.mode || "exact"} match ·{" "}
+            {formatDuration(selected.duration_ms)} runtime · scope{" "}
             {selected.scope || "all"}
           </p>
+          {isLive && (
+            <p className={styles.sub} style={{ color: "var(--accent-default)" }}>
+              Running… {completed}/{eligible}
+              {selected.progress?.last_photo
+                ? ` · last ${selected.progress.last_dataset || ""}/${selected.progress.last_photo}`
+                : ""}
+              {selected.accuracy_pct != null
+                ? ` · ${selected.accuracy_pct}% so far`
+                : ""}
+            </p>
+          )}
+          {isFailed && (
+            <p className={styles.sub} style={{ color: "var(--danger-fg)" }}>
+              Failed after {completed}/{eligible} cases
+              {selected.error || detail.error
+                ? ` — ${selected.error || detail.error}`
+                : ""}
+            </p>
+          )}
         </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
           <span className={styles.sortNote}>Switch run</span>
           <select
@@ -331,11 +422,17 @@ export default function Results() {
           >
             {scored.map((r) => (
               <option key={`${r.name}-${r.version}`} value={`${r.name}::${r.version}`}>
-                {r.name} · v{r.version} · {r.accuracy_pct}%
+                {r.name} · v{r.version}
+                {r.status === "running"
+                  ? ` · running ${r.progress?.done ?? r.n_completed ?? 0}/${r.n_eligible ?? "?"}`
+                  : r.status === "failed"
+                    ? " · failed"
+                    : ` · ${r.accuracy_pct}%`}
               </option>
             ))}
           </select>
         </label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>
         <Button
           kind="secondary"
           onClick={() => exportCsv("all")}
@@ -348,7 +445,9 @@ export default function Results() {
           style={{ textDecoration: "none" }}
           title="Open Compare with this run pre-selected as B"
         >
-          <Button kind="secondary">Compare with…</Button>
+          <Button kind="secondary" disabled={isLive}>
+            Compare with…
+          </Button>
         </Link>
         <Link to="/retrieval" style={{ textDecoration: "none" }}>
           <Button kind="secondary">Retrieval ceiling</Button>
@@ -366,10 +465,20 @@ export default function Results() {
             if (selected.has_script === false) e.preventDefault();
           }}
         >
-          <Button kind="secondary" disabled={selected.has_script === false}>
+          <Button kind="secondary" disabled={selected.has_script === false || isLive}>
             Re-run →
           </Button>
         </Link>
+        <Button
+          kind="secondary"
+          disabled={deleteBusy || isLive}
+          onClick={() => void onDeleteRun()}
+          title={isLive ? "Wait for the run to finish before deleting" : "Delete this run"}
+        >
+          {deleteBusy ? "Deleting…" : "Delete"}
+        </Button>
+        </div>
+        </div>
       </header>
 
       <div className={styles.metrics}>

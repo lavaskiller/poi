@@ -466,14 +466,26 @@ export default function NewRun() {
         // Exact k for /retrieval bars: only runs with candidate_limit == N are plotted.
         candidate_limit: usesNearby ? candidateLimit : null,
         save_mode: "auto",
+        async: true,
       });
+      notifyDataChanged("run");
+      // Live path: server returns immediately; Results polls case-by-case.
+      if (res.status === "running" || res.job_id) {
+        setResultMsg(
+          `Run started: ${res.name} · v${res.version}` +
+            ` · streaming ${res.n_eligible ?? res.metrics?.n_eligible ?? "?"} cases…`,
+        );
+        navigate(
+          `/results?name=${encodeURIComponent(res.name)}&version=${res.version}`,
+        );
+        return;
+      }
       const acc = res.metrics?.accuracy_pct;
       setResultMsg(
         `Run saved: ${res.name} · v${res.version}` +
           (acc != null ? ` · ${acc}% strict` : "") +
           ` · ${res.n_cases ?? res.metrics?.n_eligible ?? "?"} cases`,
       );
-      notifyDataChanged("run");
       navigate(`/results?name=${encodeURIComponent(res.name)}&version=${res.version}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -849,7 +861,7 @@ export default function NewRun() {
             </Button>
             <span className={styles.runHint}>
               {running
-                ? "Scoring in progress — this can take a few minutes for the full cohort…"
+                ? "Starting run — Results will update case by case…"
                 : "Runs predict() on every eligible case and saves a versioned result"}
             </span>
             {error && (

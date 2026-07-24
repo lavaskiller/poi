@@ -31,7 +31,7 @@ import sys
 import tempfile
 import time
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import match_score as ms
 from file_ops import atomic_write_json, file_lock
@@ -414,8 +414,28 @@ def _default_label_relations_path(csv_path: str,
     return ms.default_label_relations_path()
 
 
-def _run_subprocess(script_path: str, lang: str, cases: List[Dict[str, Any]]):
+def _raise_from_runner_failure(msg: str) -> None:
+    lower = (msg or "").lower()
+    if "import preflight failed" in lower:
+        raise RunError("submission import preflight failed: " + msg)
+    if "submission failed on case" in lower:
+        raise RunError(msg)
+    if "syntax error" in lower:
+        raise RunError("submission failed to load: " + msg)
+    raise RunError("submission failed to load: " + msg)
+
+
+def _run_subprocess(
+    script_path: str,
+    lang: str,
+    cases: List[Dict[str, Any]],
+    on_pred: Optional[Callable[[int, Dict[str, Any]], None]] = None,
+):
     """Run the submission and return (preds, duration_ms).
+
+    Streams each stdout JSONL line as soon as it arrives so callers can score
+    and persist partial results for the Results UI. ``on_pred(index, pred)`` is
+    invoked after each successful line (0-based).
 
     duration_ms is wall-clock for the whole subprocess, including process start.
     Per-case latency_ms (when present on each pred) is predict-call wall time only.
@@ -428,47 +448,92 @@ def _run_subprocess(script_path: str, lang: str, cases: List[Dict[str, Any]]):
     submission_dir = os.path.dirname(os.path.abspath(script_path))
     t0 = time.perf_counter()
     try:
-        proc = subprocess.run(
-            cmd, input=stdin_data, capture_output=True, text=True,
-            timeout=RUN_TIMEOUT_S,
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
             env=_predict_env(submission_dir) if lang == "python" else None,
             cwd=submission_dir if lang == "python" else None,
         )
-    except subprocess.TimeoutExpired:
-        raise RunError(f"submission timed out after {RUN_TIMEOUT_S:g}s")
     except (PermissionError, OSError) as e:
         raise RunError(f"could not execute submission: {e}")
-    duration_ms = round((time.perf_counter() - t0) * 1000.0, 3)
-    if proc.returncode != 0:
-        # Prefer stderr (preflight / case abort). Some runners print to stdout.
-        err_lines = (proc.stderr or "").strip().splitlines()
-        out_lines = (proc.stdout or "").strip().splitlines()
-        detail = err_lines or out_lines
-        msg = detail[-1] if detail else f"exit {proc.returncode}"
-        # Distinguish import preflight from load / per-case failures for UI.
-        lower = msg.lower()
-        if "import preflight failed" in lower:
-            raise RunError("submission import preflight failed: " + msg)
-        if "submission failed on case" in lower:
-            raise RunError(msg)
-        if "syntax error" in lower:
-            raise RunError("submission failed to load: " + msg)
-        raise RunError("submission failed to load: " + msg)
 
     preds: List[Dict[str, Any]] = []
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
+    stderr_chunks: List[str] = []
+    try:
+        assert proc.stdin is not None and proc.stdout is not None
         try:
-            preds.append(json.loads(line))
-        except json.JSONDecodeError:
-            # Non-JSON stdout is a protocol bug — abort, do not score empties.
-            raise RunError(
-                "submission produced non-JSON output; refusing to score partial results"
-            )
-    # Belt-and-suspenders: runner should already abort on case errors, but if a
-    # custom non-Python binary emits error fields, still refuse a scored run.
+            proc.stdin.write(stdin_data)
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
+
+        deadline = (t0 + RUN_TIMEOUT_S) if RUN_TIMEOUT_S else None
+        while True:
+            if deadline is not None and time.perf_counter() > deadline:
+                proc.kill()
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
+                raise RunError(f"submission timed out after {RUN_TIMEOUT_S:g}s")
+            line = proc.stdout.readline()
+            if line == "":
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.01)
+                continue
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                pred = json.loads(line)
+            except json.JSONDecodeError:
+                proc.kill()
+                raise RunError(
+                    "submission produced non-JSON output; refusing to score partial results"
+                )
+            if not isinstance(pred, dict):
+                proc.kill()
+                raise RunError(
+                    "submission produced non-object JSON; refusing to score partial results"
+                )
+            idx = len(preds)
+            preds.append(pred)
+            if on_pred is not None:
+                on_pred(idx, pred)
+
+        proc.wait(timeout=1 if deadline is None else max(1.0, deadline - time.perf_counter()))
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        raise RunError(f"submission timed out after {RUN_TIMEOUT_S:g}s")
+    finally:
+        if proc.stderr is not None:
+            try:
+                stderr_chunks.append(proc.stderr.read() or "")
+            except Exception:
+                pass
+            try:
+                proc.stderr.close()
+            except Exception:
+                pass
+        if proc.stdout is not None:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+        duration_ms = round((time.perf_counter() - t0) * 1000.0, 3)
+
+    stderr_text = "".join(stderr_chunks)
+    if proc.returncode not in (0, None):
+        err_lines = stderr_text.strip().splitlines()
+        # Runner may put the fatal message on stderr; partial preds already on_pred.
+        msg = err_lines[-1] if err_lines else f"exit {proc.returncode}"
+        _raise_from_runner_failure(msg)
+
     errored = [
         (i, p.get("error"))
         for i, p in enumerate(preds)
@@ -488,6 +553,112 @@ def _run_subprocess(script_path: str, lang: str, cases: List[Dict[str, Any]]):
     return preds, duration_ms
 
 
+def _score_one_case(
+    case: Dict[str, Any],
+    pred_obj: Dict[str, Any],
+    mode: str,
+    label_relations: Optional[Dict],
+) -> Dict[str, Any]:
+    """Score a single predict() result against its harness case."""
+    pred = (pred_obj.get("prediction") or "").strip()
+    err = pred_obj.get("error")
+    gt = case["_gt"]
+    provider = case.get("_provider") or "mapkit"
+    match = ms.match_prediction(
+        gt, pred, dataset=case["_dataset"], photo=case["_photo"],
+        provider=provider, mode=mode, relations=label_relations or {},
+    )
+    is_correct = match["correct_strict"]
+    is_canonical = match["correct_canonical"]
+    match_kind = match["match_kind"]
+    if err:
+        match_kind = "error"
+    elif not pred:
+        match_kind = "abstain"
+    lat = pred_obj.get("latency_ms")
+    try:
+        latency_ms = float(lat) if lat is not None else None
+    except (TypeError, ValueError):
+        latency_ms = None
+    return {
+        "dataset": case["_dataset"],
+        "photo": case["_photo"],
+        "gt": gt,
+        "prediction": pred,
+        "reason": pred_obj.get("reason"),
+        "correct": is_correct,
+        "correct_canonical": is_canonical,
+        "match_kind": match_kind,
+        "matched_label": match.get("matched_label") or "",
+        "error": err,
+        "latency_ms": latency_ms,
+    }
+
+
+def _metrics_from_scored(
+    scored_cases: List[Dict[str, Any]],
+    *,
+    n_eligible_total: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Aggregate metrics from zero or more scored cases.
+
+    While a live run is in progress, ``n_eligible`` is the full cohort size
+    (``n_eligible_total``) so progress is ``len(cases) / n_eligible``. Accuracy
+    percentages are over **completed** cases only until the run finishes.
+    """
+    completed = len(scored_cases)
+    n_report = n_eligible_total if n_eligible_total is not None else completed
+    correct = sum(1 for c in scored_cases if c.get("correct"))
+    correct_canonical = sum(1 for c in scored_cases if c.get("correct_canonical"))
+    errored = sum(1 for c in scored_cases if c.get("match_kind") == "error" or c.get("error"))
+    abstained = sum(1 for c in scored_cases if c.get("match_kind") == "abstain")
+    kind_counts: Dict[str, int] = {}
+    by_dataset: Dict[str, Dict[str, int]] = {}
+    for c in scored_cases:
+        mk = c.get("match_kind") or "wrong"
+        kind_counts[mk] = kind_counts.get(mk, 0) + 1
+        d = by_dataset.setdefault(
+            c.get("dataset") or "",
+            {"n": 0, "correct": 0, "correct_canonical": 0},
+        )
+        d["n"] += 1
+        d["correct"] += 1 if c.get("correct") else 0
+        d["correct_canonical"] += 1 if c.get("correct_canonical") else 0
+    # Live accuracy is over finished cases so the tile moves as results arrive.
+    denom = completed if completed else 0
+    accuracy = (correct / denom) if denom else 0.0
+    accuracy_canonical = (correct_canonical / denom) if denom else 0.0
+    latencies = [
+        c["latency_ms"] for c in scored_cases
+        if isinstance(c.get("latency_ms"), (int, float))
+    ]
+    return {
+        "n_eligible": n_report,
+        "n_completed": completed,
+        "correct": correct,
+        "correct_canonical": correct_canonical,
+        "abstained": abstained,
+        "errored": errored,
+        "accuracy": accuracy,
+        "accuracy_pct": round(100 * accuracy) if denom else 0,
+        "accuracy_canonical": accuracy_canonical,
+        "accuracy_canonical_pct": round(100 * accuracy_canonical) if denom else 0,
+        "match_kind_counts": dict(sorted(kind_counts.items())),
+        "by_dataset": {
+            k: {
+                **v,
+                "accuracy": (v["correct"] / v["n"] if v["n"] else 0.0),
+                "accuracy_canonical": (
+                    v["correct_canonical"] / v["n"] if v["n"] else 0.0
+                ),
+            }
+            for k, v in sorted(by_dataset.items())
+        },
+        "latency_ms": _latency_summary(latencies),
+        "cases": scored_cases,
+    }
+
+
 def _score(cases, preds, mode: str,
            label_relations: Optional[Dict] = None) -> Dict[str, Any]:
     """Score predictions.
@@ -499,87 +670,23 @@ def _score(cases, preds, mode: str,
       - correct_canonical / accuracy_canonical  (strict ∪ accepted_aliases)
       - match_kind breakdown (exact, alias, related, wrong, abstain)
     """
-    n = len(cases)
-    correct = correct_canonical = errored = abstained = 0
-    kind_counts: Dict[str, int] = {}
-    by_dataset: Dict[str, Dict[str, int]] = {}
-    scored_cases: List[Dict[str, Any]] = []
-    # Default: load sidecar if present so alias expansion works without callers
-    # threading the path; pass {} to force strict-only dual metrics off... actually
-    # None means auto-load; empty dict means no relations.
     if label_relations is None:
         label_relations = ms.load_label_relations()
 
+    scored_cases: List[Dict[str, Any]] = []
     for i, c in enumerate(cases):
         p = preds[i] if i < len(preds) else {"prediction": "", "error": "no output for case"}
-        pred = (p.get("prediction") or "").strip()
-        err = p.get("error")
-        gt = c["_gt"]
-        provider = c.get("_provider") or "mapkit"
-        match = ms.match_prediction(
-            gt, pred, dataset=c["_dataset"], photo=c["_photo"],
-            provider=provider, mode=mode, relations=label_relations,
-        )
-        is_correct = match["correct_strict"]
-        is_canonical = match["correct_canonical"]
-        match_kind = match["match_kind"]
-        # An execution/protocol error is distinct from a blank prediction.
-        # Keep outcome counts mutually exclusive for summaries and charts.
-        if err:
-            errored += 1
-            match_kind = "error"
-        elif not pred:
-            abstained += 1
-            match_kind = "abstain"
-        if is_correct:
-            correct += 1
-        if is_canonical:
-            correct_canonical += 1
-        kind_counts[match_kind] = kind_counts.get(match_kind, 0) + 1
-        d = by_dataset.setdefault(c["_dataset"], {"n": 0, "correct": 0, "correct_canonical": 0})
-        d["n"] += 1
-        d["correct"] += 1 if is_correct else 0
-        d["correct_canonical"] += 1 if is_canonical else 0
-        lat = p.get("latency_ms")
-        try:
-            latency_ms = float(lat) if lat is not None else None
-        except (TypeError, ValueError):
-            latency_ms = None
-        scored_cases.append({
-            "dataset": c["_dataset"], "photo": c["_photo"], "gt": gt,
-            "prediction": pred, "reason": p.get("reason"),
-            "correct": is_correct,
-            "correct_canonical": is_canonical,
-            "match_kind": match_kind,
-            "matched_label": match.get("matched_label") or "",
-            "error": err,
-            "latency_ms": latency_ms,
-        })
-    accuracy = (correct / n) if n else 0.0
-    accuracy_canonical = (correct_canonical / n) if n else 0.0
-    latencies = [c["latency_ms"] for c in scored_cases if isinstance(c.get("latency_ms"), (int, float))]
-    return {
-        "n_eligible": n,
-        "correct": correct,
-        "correct_canonical": correct_canonical,
-        "abstained": abstained,
-        "errored": errored,
-        "accuracy": accuracy,
-        "accuracy_pct": round(100 * accuracy),
-        "accuracy_canonical": accuracy_canonical,
-        "accuracy_canonical_pct": round(100 * accuracy_canonical),
-        "match_kind_counts": dict(sorted(kind_counts.items())),
-        "by_dataset": {
-            k: {
-                **v,
-                "accuracy": (v["correct"] / v["n"] if v["n"] else 0.0),
-                "accuracy_canonical": (v["correct_canonical"] / v["n"] if v["n"] else 0.0),
-            }
-            for k, v in sorted(by_dataset.items())
-        },
-        "latency_ms": _latency_summary(latencies),
-        "cases": scored_cases,
-    }
+        scored_cases.append(_score_one_case(c, p, mode, label_relations))
+    return _metrics_from_scored(scored_cases)
+
+
+def live_runs_dir(runs_dir: str) -> str:
+    return os.path.join(runs_dir, "live")
+
+
+def live_run_path(runs_dir: str, job_id: str) -> str:
+    safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", (job_id or "").strip()) or "job"
+    return os.path.join(live_runs_dir(runs_dir), f"{safe}.json")
 
 
 def evaluation_set_sha256(cases: List[Dict[str, Any]]) -> str:
@@ -637,11 +744,17 @@ def _pick_version(runs_dir: str, safe: str, save_mode: str) -> int:
     return (max(existing) + 1) if existing else 1
 
 
-def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode: str,
-                   params: Optional[List[str]], save_mode: str, csv_path: str, config_path: str,
-                   candidate_paths: List[str], runs_dir: str,
-                   candidate_limit: Optional[int] = None,
-                   label_relations_path: Optional[str] = None) -> Dict[str, Any]:
+def prepare_submission(*, name: str, script_text: str, lang: str, dataset: str, mode: str,
+                       params: Optional[List[str]], save_mode: str, csv_path: str,
+                       config_path: str, candidate_paths: List[str], runs_dir: str,
+                       candidate_limit: Optional[int] = None,
+                       label_relations_path: Optional[str] = None,
+                       job_id: Optional[str] = None) -> Dict[str, Any]:
+    """Validate inputs, build cases, reserve a version, write a live run stub.
+
+    Returns a context dict consumed by ``execute_submission``. Used so the
+    HTTP handler can respond with name/version before the long predict loop.
+    """
     if not (script_text or "").strip():
         raise RunError("no script provided — attach a predict() script before running")
     lang = "python" if lang in ("python", "py", "") else lang
@@ -655,8 +768,6 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
 
     cfg = ms.load_config(config_path)
     rows = ms.read_rows(csv_path)
-    # Same read-time Reconcile overlay as matchrate so identification scoring
-    # sees promoted MapKit names without rewriting the eval CSV.
     rows, _n_ovr = ms.overlay_gt_mapkit_overrides(rows)
     candidates = ms.load_candidates(candidate_paths)
     if candidate_limit is not None and (type(candidate_limit) is not int or candidate_limit < 1 or candidate_limit > 250):
@@ -668,75 +779,43 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
 
     rel_path = _default_label_relations_path(csv_path, label_relations_path)
     relations = ms.load_label_relations(rel_path)
-
-    # Isolate each run in its own directory so only that tree is importable as
-    # local modules (not a shared /tmp soup, not repo examples/).
-    tmp_dir = tempfile.mkdtemp(prefix="poi-submit-")
-    script_path = os.path.join(
-        tmp_dir, "predict.py" if lang == "python" else "predict"
-    )
-    try:
-        with open(script_path, "w", encoding="utf-8") as fh:
-            fh.write(script_text)
-        if lang != "python":
-            os.chmod(script_path, 0o755)
-        preds, duration_ms = _run_subprocess(script_path, lang, cases)
-    finally:
-        try:
-            os.unlink(script_path)
-        except OSError:
-            pass
-        try:
-            os.rmdir(tmp_dir)
-        except OSError:
-            # If the submission wrote extra files, best-effort clean.
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-
-    scored = _score(cases, preds, mode or "exact", label_relations=relations)
-    metrics = {k: v for k, v in scored.items() if k != "cases"}
-    metrics["duration_ms"] = duration_ms
-    metrics["runtime"] = _host_runtime_info()
-    if relations:
-        metrics["label_relations_path"] = rel_path
-        metrics["label_relations_n"] = len(relations)
-
-    # --- Retrieval-depth contract (for /retrieval charts) ---
-    # ``candidate_limit`` is the exact k used to truncate nearby_candidates
-    # before predict(). accuracy_pct is the selection score *at that k only*.
-    # Charts must match on candidate_limit == N; they must not interpolate
-    # accuracy@N from a different k. null means "no truncation" / unknown k
-    # and must not be plotted as any N.
     selected_params = ALL_PARAMS if params is None else list(params)
-    used_nearby = "nearby_candidates" in selected_params
-    metrics["candidate_limit"] = candidate_limit
-    metrics["score_k"] = candidate_limit  # alias: accuracy is for this k
-    metrics["accuracy_at_k"] = candidate_limit is not None and used_nearby
-    metrics["scoring_note"] = (
-        f"strict accuracy with nearby_candidates truncated to k={candidate_limit}"
-        if candidate_limit is not None and used_nearby
-        else (
-            "strict accuracy; nearby list not truncated (candidate_limit=null)"
-            if used_nearby
-            else "strict accuracy; nearby_candidates not in params"
-        )
-    )
-
     safe = _safe_name(name)
-    # Display name tracks the stable slug so the UI never shows a one-off
-    # free-text label that diverges from the versioned filename.
     display_name = safe
     save_mode = (save_mode or "auto").strip() or "auto"
     if save_mode not in ("auto",) and not re.fullmatch(r"v\d+", save_mode):
-        # Unknown modes fall back to auto-increment (never clobber silently).
         save_mode = "auto"
+
     os.makedirs(runs_dir, exist_ok=True)
+    os.makedirs(live_runs_dir(runs_dir), exist_ok=True)
     hash_paths = [csv_path, config_path, *candidate_paths]
     if relations and os.path.isfile(rel_path):
         hash_paths.append(rel_path)
-    # Reserve version + write under a directory lock so concurrent /api/run
-    # (or CLI + UI) cannot pick the same version or leave a partial JSON.
+
+    job = (job_id or "").strip() or hashlib.sha256(
+        f"{safe}:{time.time()}".encode("utf-8")
+    ).hexdigest()[:12]
+    live_path = live_run_path(runs_dir, job)
+
     with file_lock(os.path.join(runs_dir, ".runs")):
         version = _pick_version(runs_dir, safe, save_mode)
+        # Also avoid colliding with another live run of the same identity.
+        for fn in os.listdir(live_runs_dir(runs_dir)):
+            if not fn.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(live_runs_dir(runs_dir), fn), encoding="utf-8") as f:
+                    other = json.load(f)
+            except Exception:
+                continue
+            if other.get("safe_name") == safe and other.get("version") == version:
+                version = max(version, int(other.get("version") or 0)) + 1
+
+        empty_metrics = _metrics_from_scored([], n_eligible_total=len(cases))
+        empty_metrics["duration_ms"] = None
+        empty_metrics["runtime"] = _host_runtime_info()
+        empty_metrics["candidate_limit"] = candidate_limit
+        empty_metrics["score_k"] = candidate_limit
         record = {
             "name": display_name,
             "safe_name": safe,
@@ -752,15 +831,254 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
             "data_snapshot_sha256": data_snapshot_sha256(hash_paths),
             "label_relations_path": rel_path if relations else None,
             "script_text": script_text,
-            "metrics": metrics,
-            "cases": scored["cases"],
+            "metrics": empty_metrics,
+            "cases": [],
+            "status": "running",
+            "job_id": job,
+            "progress": {"done": 0, "total": len(cases)},
         }
-        out_path = os.path.join(runs_dir, f"{safe}__v{version}.json")
+        atomic_write_json(live_path, record)
+
+    return {
+        "job_id": job,
+        "live_path": live_path,
+        "runs_dir": runs_dir,
+        "script_text": script_text,
+        "lang": lang,
+        "cases": cases,
+        "relations": relations,
+        "rel_path": rel_path,
+        "mode": record["mode"],
+        "record_base": {
+            k: v for k, v in record.items()
+            if k not in ("metrics", "cases", "status", "progress")
+        },
+        "selected_params": selected_params,
+        "candidate_limit": candidate_limit,
+        "name": display_name,
+        "safe_name": safe,
+        "version": version,
+        "n_eligible": len(cases),
+    }
+
+
+def execute_submission(ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Run predict over prepared cases, streaming scored cases into the live file."""
+    script_text = ctx["script_text"]
+    lang = ctx["lang"]
+    cases: List[Dict[str, Any]] = ctx["cases"]
+    relations = ctx["relations"]
+    rel_path = ctx["rel_path"]
+    mode = ctx["mode"]
+    live_path = ctx["live_path"]
+    runs_dir = ctx["runs_dir"]
+    safe = ctx["safe_name"]
+    version = ctx["version"]
+    candidate_limit = ctx["candidate_limit"]
+    selected_params = ctx["selected_params"]
+    record_base = ctx["record_base"]
+
+    scored_cases: List[Dict[str, Any]] = []
+    n_total = len(cases)
+    t_wall0 = time.perf_counter()
+
+    def _write_live(*, status: str = "running", error: Optional[str] = None,
+                    duration_ms: Optional[float] = None) -> Dict[str, Any]:
+        metrics = _metrics_from_scored(scored_cases, n_eligible_total=n_total)
+        metrics["duration_ms"] = duration_ms
+        metrics["runtime"] = _host_runtime_info()
+        if relations:
+            metrics["label_relations_path"] = rel_path
+            metrics["label_relations_n"] = len(relations)
+        used_nearby = "nearby_candidates" in selected_params
+        metrics["candidate_limit"] = candidate_limit
+        metrics["score_k"] = candidate_limit
+        metrics["accuracy_at_k"] = candidate_limit is not None and used_nearby
+        metrics["scoring_note"] = (
+            f"strict accuracy with nearby_candidates truncated to k={candidate_limit}"
+            if candidate_limit is not None and used_nearby
+            else (
+                "strict accuracy; nearby list not truncated (candidate_limit=null)"
+                if used_nearby
+                else "strict accuracy; nearby_candidates not in params"
+            )
+        )
+        last = scored_cases[-1] if scored_cases else None
+        progress = {
+            "done": len(scored_cases),
+            "total": n_total,
+            "last_photo": (last or {}).get("photo"),
+            "last_dataset": (last or {}).get("dataset"),
+            "last_correct": (last or {}).get("correct"),
+            "last_match_kind": (last or {}).get("match_kind"),
+        }
+        record = {
+            **record_base,
+            "metrics": metrics,
+            "cases": list(scored_cases),
+            "status": status,
+            "job_id": ctx["job_id"],
+            "progress": progress,
+        }
+        if error:
+            record["error"] = error
+        atomic_write_json(live_path, record)
+        return record
+
+    def on_pred(idx: int, pred: Dict[str, Any]) -> None:
+        if idx < 0 or idx >= n_total:
+            return
+        scored_cases.append(
+            _score_one_case(cases[idx], pred, mode, relations)
+        )
+        # Throttle disk a bit only if extremely fast; usually case-level is fine.
+        _write_live(status="running")
+
+    tmp_dir = tempfile.mkdtemp(prefix="poi-submit-")
+    script_path = os.path.join(
+        tmp_dir, "predict.py" if lang == "python" else "predict"
+    )
+    try:
+        with open(script_path, "w", encoding="utf-8") as fh:
+            fh.write(script_text)
+        if lang != "python":
+            os.chmod(script_path, 0o755)
+        _write_live(status="running")
+        try:
+            _preds, duration_ms = _run_subprocess(
+                script_path, lang, cases, on_pred=on_pred,
+            )
+        except RunError as e:
+            duration_ms = round((time.perf_counter() - t_wall0) * 1000.0, 3)
+            _write_live(status="failed", error=str(e), duration_ms=duration_ms)
+            raise
+    finally:
+        try:
+            os.unlink(script_path)
+        except OSError:
+            pass
+        try:
+            os.rmdir(tmp_dir)
+        except OSError:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # Final metrics use completed==eligible (full cohort).
+    final_metrics = _metrics_from_scored(scored_cases)
+    final_metrics["duration_ms"] = duration_ms
+    final_metrics["runtime"] = _host_runtime_info()
+    if relations:
+        final_metrics["label_relations_path"] = rel_path
+        final_metrics["label_relations_n"] = len(relations)
+    used_nearby = "nearby_candidates" in selected_params
+    final_metrics["candidate_limit"] = candidate_limit
+    final_metrics["score_k"] = candidate_limit
+    final_metrics["accuracy_at_k"] = candidate_limit is not None and used_nearby
+    final_metrics["scoring_note"] = (
+        f"strict accuracy with nearby_candidates truncated to k={candidate_limit}"
+        if candidate_limit is not None and used_nearby
+        else (
+            "strict accuracy; nearby list not truncated (candidate_limit=null)"
+            if used_nearby
+            else "strict accuracy; nearby_candidates not in params"
+        )
+    )
+    final_metrics["n_completed"] = len(scored_cases)
+
+    record = {
+        **record_base,
+        "metrics": final_metrics,
+        "cases": scored_cases,
+        "status": "done",
+        "job_id": ctx["job_id"],
+        "progress": {"done": len(scored_cases), "total": n_total},
+    }
+    out_path = os.path.join(runs_dir, f"{safe}__v{version}.json")
+    with file_lock(os.path.join(runs_dir, ".runs")):
         atomic_write_json(out_path, record)
+        try:
+            if os.path.isfile(live_path):
+                os.unlink(live_path)
+        except OSError:
+            pass
 
     return {k: v for k, v in record.items() if k not in ("script_text", "cases")} | {
         "metrics": record["metrics"],
-        "n_cases": len(scored["cases"]),
+        "n_cases": len(scored_cases),
+        "status": "done",
+    }
+
+
+def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode: str,
+                   params: Optional[List[str]], save_mode: str, csv_path: str, config_path: str,
+                   candidate_paths: List[str], runs_dir: str,
+                   candidate_limit: Optional[int] = None,
+                   label_relations_path: Optional[str] = None,
+                   job_id: Optional[str] = None) -> Dict[str, Any]:
+    """Synchronous prepare + execute (CLI and tests)."""
+    ctx = prepare_submission(
+        name=name, script_text=script_text, lang=lang, dataset=dataset, mode=mode,
+        params=params, save_mode=save_mode, csv_path=csv_path, config_path=config_path,
+        candidate_paths=candidate_paths, runs_dir=runs_dir,
+        candidate_limit=candidate_limit, label_relations_path=label_relations_path,
+        job_id=job_id,
+    )
+    return execute_submission(ctx)
+
+
+def _summarize_run_record(r: Dict[str, Any]) -> Dict[str, Any]:
+    m = r.get("metrics", {}) or {}
+    stored_hash = r.get("script_sha256")
+    stored_evaluation_hash = r.get("evaluation_set_sha256")
+    derived_evaluation_hash = (
+        evaluation_set_sha256(r.get("cases") or [])
+        if not stored_evaluation_hash and r.get("cases") is not None
+        else None
+    )
+    has_script = bool(str(r.get("script_text") or "").strip())
+    status = r.get("status") or "done"
+    progress = r.get("progress") or {}
+    return {
+        "run_id": f"{r.get('safe_name') or _safe_name(r.get('name') or '')}__v{r.get('version')}",
+        "name": r.get("name"),
+        "safe_name": r.get("safe_name"),
+        "version": r.get("version"),
+        "scope": r.get("scope"),
+        "mode": r.get("mode"),
+        "params": r.get("params", []),
+        "candidate_limit": r.get("candidate_limit"),
+        "score_k": m.get("score_k", r.get("candidate_limit")),
+        "lang": r.get("lang"),
+        "has_script": has_script,
+        "script_sha256": stored_hash or (
+            hashlib.sha256(str(r["script_text"]).encode("utf-8")).hexdigest()
+            if r.get("script_text")
+            else None
+        ),
+        "script_sha256_derived": bool(not stored_hash and r.get("script_text")),
+        "evaluation_set_sha256": stored_evaluation_hash or derived_evaluation_hash,
+        "evaluation_set_sha256_derived": bool(
+            not stored_evaluation_hash and derived_evaluation_hash
+        ),
+        "data_snapshot_sha256": r.get("data_snapshot_sha256"),
+        "created_at": r.get("created_at"),
+        "metrics": m,
+        "n_eligible": m.get("n_eligible", 0),
+        "n_completed": m.get("n_completed", len(r.get("cases") or [])),
+        "correct": m.get("correct", 0),
+        "correct_canonical": m.get("correct_canonical"),
+        "abstained": m.get("abstained", 0),
+        "errored": m.get("errored", 0),
+        "accuracy_pct": m.get("accuracy_pct", 0),
+        "accuracy_canonical_pct": m.get("accuracy_canonical_pct"),
+        "match_kind_counts": m.get("match_kind_counts"),
+        "label_relations_path": r.get("label_relations_path") or m.get("label_relations_path"),
+        "duration_ms": m.get("duration_ms"),
+        "latency_ms": m.get("latency_ms"),
+        "runtime": m.get("runtime"),
+        "status": status,
+        "job_id": r.get("job_id"),
+        "progress": progress,
+        "error": r.get("error"),
     }
 
 
@@ -780,62 +1098,38 @@ def list_runs(runs_dir: str) -> List[Dict[str, Any]]:
                 r = json.load(f)
         except Exception:
             continue
-        m = r.get("metrics", {})
-        stored_hash = r.get("script_sha256")
-        stored_evaluation_hash = r.get("evaluation_set_sha256")
-        derived_evaluation_hash = (
-            evaluation_set_sha256(r.get("cases") or [])
-            if not stored_evaluation_hash and r.get("cases") is not None
-            else None
-        )
-        has_script = bool(str(r.get("script_text") or "").strip())
-        out.append({
-            "run_id": f"{r.get('safe_name') or _safe_name(r.get('name') or '')}__v{r.get('version')}",
-            "name": r.get("name"),
-            "safe_name": r.get("safe_name"),
-            "version": r.get("version"),
-            "scope": r.get("scope"),
-            "mode": r.get("mode"),
-            "params": r.get("params", []),
-            "candidate_limit": r.get("candidate_limit"),
-            # score_k mirrors candidate_limit when present (chart: exact == N only)
-            "score_k": (r.get("metrics") or {}).get("score_k", r.get("candidate_limit")),
-            "lang": r.get("lang"),
-            # True when script_text is stored — New Run can clone / re-run this record.
-            "has_script": has_script,
-            "script_sha256": stored_hash or (
-                hashlib.sha256(str(r["script_text"]).encode("utf-8")).hexdigest()
-                if r.get("script_text")
-                else None
-            ),
-            "script_sha256_derived": bool(not stored_hash and r.get("script_text")),
-            "evaluation_set_sha256": stored_evaluation_hash or derived_evaluation_hash,
-            "evaluation_set_sha256_derived": bool(
-                not stored_evaluation_hash and derived_evaluation_hash
-            ),
-            "data_snapshot_sha256": r.get("data_snapshot_sha256"),
-            "created_at": r.get("created_at"),
-            "metrics": m,
-            "n_eligible": m.get("n_eligible", 0),
-            "correct": m.get("correct", 0),
-            "correct_canonical": m.get("correct_canonical"),
-            "abstained": m.get("abstained", 0),
-            "errored": m.get("errored", 0),
-            "accuracy_pct": m.get("accuracy_pct", 0),
-            "accuracy_canonical_pct": m.get("accuracy_canonical_pct"),
-            "match_kind_counts": m.get("match_kind_counts"),
-            "label_relations_path": r.get("label_relations_path") or m.get("label_relations_path"),
-            "duration_ms": m.get("duration_ms"),
-            "latency_ms": m.get("latency_ms"),
-            "runtime": m.get("runtime"),
-        })
-    # Dedupe by (name, version): if two files claim the same identity, keep the
-    # scored one (real accuracy) over an unscored/None entry.
+        if not r.get("status"):
+            r["status"] = "done"
+        out.append(_summarize_run_record(r))
+
+    live_dir = live_runs_dir(runs_dir)
+    if os.path.isdir(live_dir):
+        for fn in sorted(os.listdir(live_dir)):
+            if not fn.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(live_dir, fn), encoding="utf-8") as f:
+                    r = json.load(f)
+            except Exception:
+                continue
+            if not r.get("status"):
+                r["status"] = "running"
+            out.append(_summarize_run_record(r))
+
+    # Dedupe by (name, version): prefer done over live, scored over empty.
     dedup: Dict[Any, Dict[str, Any]] = {}
+    status_rank = {"done": 3, "failed": 2, "running": 1}
     for r in out:
         key = (r.get("name"), r.get("version"))
         prev = dedup.get(key)
-        if prev is None or (prev.get("accuracy_pct") is None and r.get("accuracy_pct") is not None):
+        if prev is None:
+            dedup[key] = r
+            continue
+        pr = status_rank.get(prev.get("status") or "done", 0)
+        nr = status_rank.get(r.get("status") or "done", 0)
+        if nr > pr:
+            dedup[key] = r
+        elif nr == pr and (prev.get("n_completed") or 0) < (r.get("n_completed") or 0):
             dedup[key] = r
     out = list(dedup.values())
     out.sort(key=lambda r: (r.get("created_at") or "", r.get("version") or 0), reverse=True)
@@ -849,13 +1143,36 @@ def _run_path(runs_dir: str, name: str, version: Any) -> str:
     return os.path.join(runs_dir, f"{_safe_name(name)}__v{version}.json")
 
 
+def _find_live_run(runs_dir: str, name: str, version: Any) -> Optional[Dict[str, Any]]:
+    live_dir = live_runs_dir(runs_dir)
+    if not os.path.isdir(live_dir):
+        return None
+    for fn in os.listdir(live_dir):
+        if not fn.endswith(".json"):
+            continue
+        path = os.path.join(live_dir, fn)
+        try:
+            with open(path, encoding="utf-8") as f:
+                run = json.load(f)
+        except Exception:
+            continue
+        if run.get("name") == name and run.get("version") == version:
+            return run
+    return None
+
+
 def get_run(runs_dir: str, name: str, version: Any) -> Dict[str, Any]:
     path = _run_path(runs_dir, name, version)
+    run = None
     try:
         with open(path, encoding="utf-8") as f:
             run = json.load(f)
+        if not run.get("status"):
+            run["status"] = "done"
     except FileNotFoundError:
-        raise RunError(f"run not found: {_safe_name(name)} v{version}")
+        run = _find_live_run(runs_dir, name, version)
+        if run is None:
+            raise RunError(f"run not found: {_safe_name(name)} v{version}")
     except (OSError, json.JSONDecodeError) as e:
         raise RunError(f"could not read run: {e}")
     # A slug collision must not let a differently named record be managed.
@@ -882,10 +1199,33 @@ def get_run(runs_dir: str, name: str, version: Any) -> Dict[str, Any]:
 def delete_run(runs_dir: str, name: str, version: Any) -> Dict[str, Any]:
     with file_lock(os.path.join(runs_dir, ".runs")):
         run = get_run(runs_dir, name, version)
-        try:
-            os.unlink(_run_path(runs_dir, name, version))
-        except OSError as e:
-            raise RunError(f"could not delete run: {e}")
+        path = _run_path(runs_dir, name, version)
+        removed = False
+        if os.path.isfile(path):
+            try:
+                os.unlink(path)
+                removed = True
+            except OSError as e:
+                raise RunError(f"could not delete run: {e}")
+        live_dir = live_runs_dir(runs_dir)
+        if os.path.isdir(live_dir):
+            for fn in os.listdir(live_dir):
+                if not fn.endswith(".json"):
+                    continue
+                lp = os.path.join(live_dir, fn)
+                try:
+                    with open(lp, encoding="utf-8") as f:
+                        other = json.load(f)
+                except Exception:
+                    continue
+                if other.get("name") == name and other.get("version") == version:
+                    try:
+                        os.unlink(lp)
+                        removed = True
+                    except OSError as e:
+                        raise RunError(f"could not delete live run: {e}")
+        if not removed:
+            raise RunError(f"run not found: {_safe_name(name)} v{version}")
     return {"name": run.get("name"), "version": version,
             "run_id": f"{run.get('safe_name')}__v{version}"}
 

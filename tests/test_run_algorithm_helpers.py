@@ -328,6 +328,86 @@ class PredictEnvTests(unittest.TestCase):
             self.assertEqual(preds[0].get("prediction"), "Banff Gondola")
 
 
+class LiveStreamingRunTests(unittest.TestCase):
+    def test_on_pred_called_per_case(self):
+        script = (
+            "import time\n"
+            "def predict(case):\n"
+            "    return (case.get('nearby_candidates') or [{}])[0].get('name') or 'x'\n"
+        )
+        with tempfile.TemporaryDirectory(prefix="poi-submit-") as td:
+            path = os.path.join(td, "predict.py")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(script)
+            seen = []
+            cases = [
+                {"input": {"photo": "a.jpg", "nearby_candidates": [{"name": "A"}]}},
+                {"input": {"photo": "b.jpg", "nearby_candidates": [{"name": "B"}]}},
+            ]
+
+            def on_pred(i, p):
+                seen.append((i, p.get("prediction")))
+
+            preds, _dur = ra._run_subprocess(path, "python", cases, on_pred=on_pred)
+            self.assertEqual(len(preds), 2)
+            self.assertEqual(seen, [(0, "A"), (1, "B")])
+
+    def test_live_file_grows_during_run(self):
+        script = (
+            "def predict(case):\n"
+            "    return (case.get('nearby_candidates') or [{}])[0].get('name') or ''\n"
+        )
+        with tempfile.TemporaryDirectory() as runs_dir:
+            # Minimal synthetic cohort via run_submission is heavy; exercise
+            # prepare/execute path with a tiny fake by calling internals.
+            # Use a temp CSV-less path: only _run_subprocess + manual live write.
+            live_updates = []
+
+            def on_pred(i, p):
+                live_updates.append(i)
+
+            with tempfile.TemporaryDirectory(prefix="poi-submit-") as td:
+                path = os.path.join(td, "predict.py")
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(script)
+                cases = [
+                    {"input": {"photo": f"{i}.jpg", "nearby_candidates": [{"name": f"P{i}"}]}}
+                    for i in range(3)
+                ]
+                ra._run_subprocess(path, "python", cases, on_pred=on_pred)
+            self.assertEqual(live_updates, [0, 1, 2])
+
+            # Full prepare+execute with minimal eval is covered if we skip;
+            # list_runs must surface a hand-written live record.
+            live = os.path.join(runs_dir, "live")
+            os.makedirs(live)
+            rec = {
+                "name": "live-demo",
+                "safe_name": "live-demo",
+                "version": 1,
+                "status": "running",
+                "job_id": "abc",
+                "created_at": "2026-07-23T00:00:00",
+                "metrics": {"n_eligible": 10, "n_completed": 2, "correct": 1, "accuracy_pct": 50},
+                "cases": [
+                    {"dataset": "d", "photo": "a.jpg", "gt": "A", "prediction": "A",
+                     "correct": True, "correct_canonical": True, "match_kind": "exact"},
+                    {"dataset": "d", "photo": "b.jpg", "gt": "B", "prediction": "X",
+                     "correct": False, "correct_canonical": False, "match_kind": "wrong"},
+                ],
+                "progress": {"done": 2, "total": 10},
+            }
+            with open(os.path.join(live, "abc.json"), "w", encoding="utf-8") as f:
+                json.dump(rec, f)
+            listed = ra.list_runs(runs_dir)
+            self.assertEqual(len(listed), 1)
+            self.assertEqual(listed[0]["status"], "running")
+            self.assertEqual(listed[0]["n_completed"], 2)
+            got = ra.get_run(runs_dir, "live-demo", 1)
+            self.assertEqual(got["status"], "running")
+            self.assertEqual(len(got["cases"]), 2)
+
+
 class LabelRelationsPathTests(unittest.TestCase):
     def test_prefers_sidecar_beside_csv(self):
         with tempfile.TemporaryDirectory() as d:

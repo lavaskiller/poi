@@ -101,6 +101,8 @@ export interface Run {
   accuracy_pct: number | null;
   accuracy_canonical_pct: number | null;
   n_eligible: number;
+  /** Cases finished so far (live runs); equals n_eligible when done. */
+  n_completed?: number;
   correct: number;
   correct_canonical?: number;
   created_at: string;
@@ -115,11 +117,24 @@ export interface Run {
   match_kind_counts?: Record<string, number>;
   abstained?: number;
   errored?: number;
+  /** done | running | failed — live runs stream cases into Results. */
+  status?: "done" | "running" | "failed" | string;
+  job_id?: string;
+  progress?: {
+    done?: number;
+    total?: number;
+    last_photo?: string;
+    last_dataset?: string;
+    last_correct?: boolean;
+    last_match_kind?: string;
+  };
+  error?: string;
   metrics?: {
     by_dataset?: Record<
       string,
       { n?: number; correct?: number; accuracy?: number; accuracy_pct?: number }
     >;
+    n_completed?: number;
   };
 }
 
@@ -321,17 +336,24 @@ export interface RunSubmissionRequest {
   params?: string[];
   save_mode?: string;
   candidate_limit?: number | null;
+  /** Default true: return immediately and stream cases into Results. */
+  async?: boolean;
 }
 
 export interface RunSubmissionResult {
   ok: boolean;
   name: string;
   version: number;
+  status?: "done" | "running" | "failed" | string;
+  job_id?: string;
+  safe_name?: string;
+  n_eligible?: number;
   scope?: string;
   mode?: string;
   n_cases?: number;
   metrics?: {
     n_eligible?: number;
+    n_completed?: number;
     correct?: number;
     accuracy_pct?: number;
     accuracy_canonical_pct?: number;
@@ -707,12 +729,16 @@ export const api = {
     };
   },
 
-  /** Submit a predict() script and score it. May take minutes for full cohorts. */
+  /**
+   * Submit a predict() script. By default the server returns immediately
+   * (status=running) and streams scored cases into Results via live run JSON.
+   * Pass ``async: false`` only for short synchronous tooling.
+   */
   async submitRun(req: RunSubmissionRequest): Promise<RunSubmissionResult> {
     const res = await fetch("/api/run", {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json", Accept: "application/json" }),
-      body: JSON.stringify(req),
+      body: JSON.stringify({ async: true, ...req }),
     });
     const data = (await res.json().catch(() => ({}))) as RunSubmissionResult & {
       detail?: string;
@@ -722,6 +748,22 @@ export const api = {
       throw new Error(data.detail || data.message || `/api/run → HTTP ${res.status}`);
     }
     return data;
+  },
+
+  async deleteRun(name: string, version: number): Promise<{ ok: boolean }> {
+    const res = await fetch(
+      `/api/runs?name=${encodeURIComponent(name)}&version=${encodeURIComponent(version)}`,
+      { method: "DELETE", headers: authHeaders({ Accept: "application/json" }) },
+    );
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      detail?: string;
+      message?: string;
+    };
+    if (!res.ok || data.ok === false) {
+      throw new Error(data.detail || data.message || `/api/runs DELETE → HTTP ${res.status}`);
+    }
+    return { ok: true };
   },
 
   /** Start a background enrichment / maintenance job. */
@@ -844,7 +886,11 @@ export function isEmpty(o: Overview): boolean {
 
 /** Pick the highest-accuracy scored run. */
 export function bestRun(runs: Run[]): Run | null {
-  const scored = runs.filter((r) => typeof r.accuracy_pct === "number");
+  const scored = runs.filter(
+    (r) =>
+      typeof r.accuracy_pct === "number" &&
+      (r.status == null || r.status === "done"),
+  );
   return scored.reduce<Run | null>(
     (b, r) => (b === null || (r.accuracy_pct ?? 0) > (b.accuracy_pct ?? 0) ? r : b),
     null,
