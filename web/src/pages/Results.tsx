@@ -458,7 +458,7 @@ export default function Results() {
           title={
             selected.has_script === false
               ? "This run has no stored predict() script"
-              : "Prefill New run with this script, params, k, and scope"
+              : "Open New Run with this run’s params; mapkit-baseline rebuilds script from current repo (fail-loud / live VLM policy)"
           }
           aria-disabled={selected.has_script === false}
           onClick={(e) => {

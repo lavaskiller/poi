@@ -23,6 +23,7 @@ from run_algorithm import (
     run_submission, prepare_submission, execute_submission,
     list_runs, get_run, delete_run, RunError,
 )
+import bundle_submission as _bundle_sub
 from gt_classify_common import read_csv as gc_read_csv, write_csv as gc_write_csv, backup_csv as gc_backup_csv
 from check_deps import check_runtime_deps, ensure_runtime_deps
 import run_algorithm as algorithm
@@ -2712,6 +2713,83 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.log_error("API request failed: %s", e)
                 self._send_api_error("internal_error", 500)
+            return
+        if route == "/api/run-script-refresh":
+            # Results → Re-run: rebuild script from current repo examples when
+            # the prior run is a known multi-module baseline (closes soft-degrade
+            # snapshot re-use after fail-loud policy landed in git).
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            name = (q.get("name", [""])[0]).strip()
+            version_raw = (q.get("version", [""])[0]).strip()
+            keep_stored = (q.get("keep_stored", ["0"])[0]).strip().lower() in (
+                "1", "true", "yes",
+            )
+            force_preset = (q.get("preset", [""])[0]).strip() or None
+            if not name or not version_raw:
+                self._send_api_error(
+                    "invalid_request", 400,
+                    detail="name and version are required",
+                )
+                return
+            try:
+                version = int(version_raw)
+                run = get_run(RUNS_DIR, name, version)
+            except RunError as e:
+                self._send_api_error("not_found", 404, detail=e)
+                return
+            except (TypeError, ValueError):
+                self._send_api_error(
+                    "invalid_request", 400,
+                    detail="version must be a positive integer",
+                )
+                return
+            stored = (run.get("script_text") or "").strip()
+            if not stored:
+                self._send_api_error(
+                    "invalid_request", 422,
+                    detail=(
+                        f"Run {name} v{version} has no stored script "
+                        "(rescore / cascade / legacy)."
+                    ),
+                )
+                return
+            try:
+                if keep_stored:
+                    payload = {
+                        "ok": True,
+                        "refreshed": False,
+                        "preset": None,
+                        "script_text": stored,
+                        "name": run.get("name") or name,
+                        "version": version,
+                        "params": run.get("params") or [],
+                        "candidate_limit": run.get("candidate_limit"),
+                        "scope": run.get("scope"),
+                        "message": "Using script_text stored on the prior run (keep_stored=1).",
+                    }
+                else:
+                    refreshed = _bundle_sub.refresh_script_for_rerun(
+                        run.get("name") or name,
+                        stored,
+                        force_preset=force_preset,
+                    )
+                    payload = {
+                        "ok": True,
+                        "name": run.get("name") or name,
+                        "version": version,
+                        "params": run.get("params") or [],
+                        "candidate_limit": run.get("candidate_limit"),
+                        "scope": run.get("scope"),
+                        **refreshed,
+                    }
+                self._send_json(payload)
+            except Exception as e:
+                self.log_error("run-script-refresh failed: %s", e)
+                self._send_api_error(
+                    "internal_error", 500,
+                    detail=f"could not refresh script: {e}",
+                )
             return
         if route == "/api/poi-case-explorer":
             try:

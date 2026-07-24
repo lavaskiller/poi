@@ -328,6 +328,38 @@ class PredictEnvTests(unittest.TestCase):
             self.assertEqual(preds[0].get("prediction"), "Banff Gondola")
 
 
+class RerunScriptRefreshTests(unittest.TestCase):
+    def test_mapkit_baseline_soft_snapshot_refreshes_to_ensemble_v2(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+        import bundle_submission as bundle  # noqa: E402
+
+        # Pre-fail-loud soft degrade snippet (what seed v3/v4 stored conceptually).
+        old = (
+            "import selector_list_fit\n"
+            "import mapkit_vlm_live\n"
+            "def predict(case):\n"
+            "    note = 'vlm_unavailable'\n"
+            "    reason = 'access_ocr'\n"
+            "    reason = f'{reason}+{note}'\n"
+            "    return ''\n"
+        )
+        out = bundle.refresh_script_for_rerun("mapkit-baseline", old)
+        self.assertTrue(out["refreshed"])
+        self.assertEqual(out["preset"], "ensemble_v2")
+        self.assertIn("__poi_install_inline__", out["script_text"])
+        # Current policy must be present in the rebuilt entry module.
+        self.assertIn("mapkit_baseline_v2", out["script_text"])
+
+    def test_unknown_user_script_kept(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+        import bundle_submission as bundle  # noqa: E402
+
+        custom = "def predict(case):\n    return 'x'\n"
+        out = bundle.refresh_script_for_rerun("my-cool-algo", custom)
+        self.assertFalse(out["refreshed"])
+        self.assertEqual(out["script_text"], custom.strip())
+
+
 class SeedOcrPackTests(unittest.TestCase):
     def test_backfill_and_write_ocr_tsv(self):
         from pathlib import Path

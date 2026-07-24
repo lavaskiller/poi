@@ -15,7 +15,7 @@ import argparse
 import base64
 import sys
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent
@@ -145,6 +145,115 @@ def bundle_example_ocr_override() -> str:
             "Self-contained bundle of mapkit_weighted + poi_confidence_policy + entry.",
         ],
     )
+
+
+def detect_refresh_preset(run_name: str, script_text: str) -> Optional[str]:
+    """Which current-repo source to use when Re-run loads a prior run.
+
+    Returns:
+      ``"ensemble_v2"`` | ``"ocr_override"`` | ``"nearest"`` | ``None``
+      (None = keep stored script_text as-is).
+    """
+    name = (run_name or "").strip().lower()
+    script = script_text or ""
+    low = script.lower()
+
+    if name in ("baseline-nearest", "nearest") or name.startswith("baseline-nearest"):
+        return "nearest"
+
+    # Explicit multi-module / VLM ensemble markers (incl. base64-wrapped source).
+    ensemble_markers = (
+        "mapkit_vlm_live",
+        "selector_list_fit",
+        "selector_access_ocr",
+        "mapkit_baseline_v2",
+        "_ensure_vlm_environment",
+        "vlm_unavailable",  # old soft + new fail-loud both mention this
+        "ensemble_v2",
+        "list_fit",
+    )
+    ocr_v1_markers = (
+        "mapkit_ocr_override",
+        "ocr_name_support",
+        "unique-direct-ocr-name-support",
+        "poi_confidence_policy",
+        "unique_ocr_name_override",
+    )
+
+    if name in ("mapkit-baseline", "mapkit_baseline") or name.startswith("mapkit-baseline"):
+        if any(m in script or m in low for m in ensemble_markers):
+            return "ensemble_v2"
+        if any(m in script or m in low for m in ocr_v1_markers):
+            return "ocr_override"
+        # Name is mapkit-baseline but script is ambiguous — prefer current v2
+        # policy when the stored body looks like a multi-file seed entrypoint.
+        if "mapkit_weighted" in script and "predict" in script:
+            # weighted-only seed-ish → still usually v1 path if policy present
+            if "bloggo" in low or "ocr" in low:
+                return "ocr_override"
+        # Default mapkit-baseline re-run to current live ensemble (fail-loud).
+        return "ensemble_v2"
+
+    # Unnamed / other: only auto-refresh if the body is clearly our multi-module seed.
+    if any(m in script for m in ("mapkit_vlm_live", "selector_list_fit", "mapkit_baseline_v2")):
+        return "ensemble_v2"
+    if any(m in script for m in ("mapkit_ocr_override", "poi_confidence_policy")):
+        return "ocr_override"
+    return None
+
+
+def materialize_preset(preset: str) -> str:
+    """Return current-repo script text for a refresh preset."""
+    if preset == "ensemble_v2":
+        return bundle_example_ensemble_v2()
+    if preset == "ocr_override":
+        return bundle_example_ocr_override()
+    if preset == "nearest":
+        path = _ROOT / "examples" / "baseline_nearest.py"
+        return path.read_text(encoding="utf-8")
+    raise ValueError(f"unknown refresh preset: {preset!r}")
+
+
+def refresh_script_for_rerun(
+    run_name: str,
+    stored_script: str,
+    *,
+    force_preset: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Pick current examples/bundle for Re-run, or keep the stored script.
+
+    This closes the hole where Results → Re-run reloads a pre-fail-loud
+    ``script_text`` snapshot and silently scores OCR-only under a live name.
+    """
+    stored = (stored_script or "").strip()
+    preset = (force_preset or "").strip() or detect_refresh_preset(run_name, stored)
+    if not preset:
+        return {
+            "refreshed": False,
+            "preset": None,
+            "script_text": stored,
+            "message": "Using script_text stored on the prior run (no repo refresh mapping).",
+        }
+    text = materialize_preset(preset)
+    compile(text, f"<refresh:{preset}>", "exec")
+    return {
+        "refreshed": True,
+        "preset": preset,
+        "script_text": text,
+        "message": (
+            f"Re-run script refreshed from current repo ({preset}). "
+            "Prior-run script_text was not re-used, so fail-loud / live VLM "
+            "policy matches this checkout."
+        ),
+        "stored_sha256": (
+            __import__("hashlib").sha256(stored.encode("utf-8")).hexdigest()
+            if stored
+            else None
+        ),
+        "script_sha256": __import__("hashlib")
+        .sha256(text.encode("utf-8"))
+        .hexdigest(),
+    }
 
 
 def main(argv: List[str] | None = None) -> int:

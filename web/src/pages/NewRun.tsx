@@ -319,8 +319,37 @@ export default function NewRun() {
       setError(null);
       setResultMsg(null);
       try {
-        const { run } = await api.run(name, version);
-        const script = (run.script_text || "").trim();
+        // Prefer server-side refresh from current repo examples/bundles so
+        // Results → Re-run does not replay a pre-fail-loud script_text snapshot.
+        let script = "";
+        let params: string[] = [];
+        let scope: string | undefined;
+        let candidateLimitFromRun: number | null | undefined;
+        let displayName = name;
+        let refreshedNote: string | null = null;
+
+        try {
+          const refreshed = await api.runScriptRefresh(name, version);
+          script = (refreshed.script_text || "").trim();
+          params = (refreshed.params || []).filter((p) => knownSignalKeys.has(p));
+          scope = refreshed.scope;
+          candidateLimitFromRun = refreshed.candidate_limit;
+          displayName = refreshed.name || name;
+          if (refreshed.refreshed) {
+            refreshedNote =
+              refreshed.message ||
+              `Script rebuilt from current repo (${refreshed.preset}).`;
+          }
+        } catch {
+          // Older servers without /api/run-script-refresh — fall back to stored text.
+          const { run } = await api.run(name, version);
+          script = (run.script_text || "").trim();
+          params = (run.params || []).filter((p) => knownSignalKeys.has(p));
+          scope = run.scope;
+          candidateLimitFromRun = run.candidate_limit;
+          displayName = run.name || name;
+        }
+
         if (!script) {
           setError(
             `Run ${name} v${version} has no stored script (rescore / cascade / legacy). Attach a .py file instead.`,
@@ -331,26 +360,26 @@ export default function NewRun() {
           return;
         }
         setScriptText(script);
-        setFileName(`${slugifyRunName(name)}__v${version}.py`);
+        setFileName(`${slugifyRunName(displayName)}__v${version}.py`);
         setFileSize(new Blob([script]).size);
-        setRunName(slugifyRunName(name));
+        setRunName(slugifyRunName(displayName));
 
-        const params = (run.params || []).filter((p) => knownSignalKeys.has(p));
         if (params.length > 0) setSelected(new Set(params));
         else setSelected(null);
 
-        const k = run.candidate_limit;
+        const k = candidateLimitFromRun;
         if (typeof k === "number" && Number.isFinite(k) && k >= 1) {
           setCandidateLimit(Math.min(250, Math.floor(k)));
-        } else if (params.includes("nearby_candidates") || (run.params || []).includes("nearby_candidates")) {
+        } else if (params.includes("nearby_candidates")) {
           // Nearby was on but k was null → keep a sensible default.
           setCandidateLimit(20);
         }
 
-        applyScopeFromRun(run.scope);
-        setCloneSource({ name: run.name || name, version });
+        applyScopeFromRun(scope);
+        setCloneSource({ name: displayName, version });
+        if (refreshedNote) setResultMsg(refreshedNote);
         setSearchParams(
-          { from: run.name || name, version: String(version) },
+          { from: displayName, version: String(version) },
           { replace: true },
         );
       } catch (e) {

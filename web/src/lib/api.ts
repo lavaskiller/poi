@@ -564,6 +564,37 @@ export const api = {
       `/api/runs?name=${encodeURIComponent(name)}&version=${encodeURIComponent(version)}`,
     ),
 
+  /**
+   * Results → Re-run: rebuild script from current repo when the prior run is a
+   * known multi-module baseline (mapkit-baseline ensemble / OCR override /
+   * nearest). Avoids replaying a pre-fail-loud script_text snapshot.
+   */
+  runScriptRefresh: (
+    name: string,
+    version: number,
+    opts?: { keepStored?: boolean; preset?: string },
+  ) => {
+    const qs = new URLSearchParams({
+      name,
+      version: String(version),
+    });
+    if (opts?.keepStored) qs.set("keep_stored", "1");
+    if (opts?.preset) qs.set("preset", opts.preset);
+    return getJSON<{
+      ok: boolean;
+      refreshed: boolean;
+      preset?: string | null;
+      script_text: string;
+      name: string;
+      version: number;
+      params?: string[];
+      candidate_limit?: number | null;
+      scope?: string;
+      message?: string;
+      script_sha256?: string;
+    }>(`/api/run-script-refresh?${qs.toString()}`);
+  },
+
   matchrate: (dataset = "all", mode = "exact") =>
     getJSON<MatchRate>(
       `/api/matchrate?dataset=${encodeURIComponent(dataset)}&mode=${encodeURIComponent(mode)}`,
