@@ -127,7 +127,7 @@ poi-data-seed/
   generated/runs/*.json        pre-scored baselines (default pack: 3 named)
                                  baseline-nearest v1  38%  distance rank-1
                                  mapkit-baseline v1   39%  Bloggo + OCR override
-                                 mapkit-baseline v2   48% / 68% canonical ensemble
+                                 mapkit-baseline v2   48% / 68% canonical (live FastVLM ensemble)
   generated/active-mapkit-candidate-snapshot.json
   generated/candidate-snapshots/<id>/mapkit_candidates.jsonl
                                full nearby lists for Case / predict()

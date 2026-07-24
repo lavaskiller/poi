@@ -24,6 +24,40 @@ class ExactEqualTests(unittest.TestCase):
         self.assertFalse(ms.exact_equal("x", ""))
 
 
+class DataRootResolutionTests(unittest.TestCase):
+    def test_default_label_relations_path_under_data_root(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = ms.default_label_relations_path(d)
+            self.assertEqual(
+                path, os.path.join(d, "eval_label_relations.v1.jsonl")
+            )
+
+    def test_load_label_relations_missing_is_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "missing.jsonl")
+            self.assertEqual(ms.load_label_relations(path), {})
+
+    def test_load_label_relations_reads_jsonl(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "eval_label_relations.v1.jsonl")
+            rec = {
+                "dataset": "demo",
+                "photo": "a.jpg",
+                "provider": "mapkit",
+                "gt_canonical_name": "Place",
+                "accepted_aliases": ["Alias Place"],
+                "relations": [],
+            }
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(json.dumps(rec) + "\n")
+            loaded = ms.load_label_relations(path)
+            self.assertIn(("demo", "a.jpg", "mapkit"), loaded)
+            self.assertEqual(
+                loaded[("demo", "a.jpg", "mapkit")]["accepted_aliases"],
+                ["Alias Place"],
+            )
+
+
 class NormalizedEqualTests(unittest.TestCase):
     def test_case_and_space(self):
         # Policy depends on implementation; both sides should be stable.

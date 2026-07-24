@@ -5,7 +5,7 @@ Seed contract (names and published metrics on the 166-eligible cohort)::
 
     baseline-nearest  v1   38% strict (63/166)     — MapKit distance rank-1
     mapkit-baseline   v1   39% strict (64/166)     — Bloggo + unique OCR override
-    mapkit-baseline   v2   48% strict / 68% canon   — OCR + cascade + free-text VLM
+    mapkit-baseline   v2   48% strict / 68% canon   — live OCR + FastVLM cascade + residual
 
 Source runs live under ``poi-data/generated/runs/`` (full history). This tool
 rewrites them into the curated names/versions with attached ``script_text`` so
@@ -75,8 +75,8 @@ CURATED: List[Dict[str, Any]] = [
         "name": "mapkit-baseline",
         "version": 2,
         "label": (
-            "MapKit baseline v2 — OCR + cascade + free-text VLM ensemble "
-            "(~48% strict · ~68% canonical)"
+            "MapKit baseline v2 — live list_fit + FastVLM cascade + residual "
+            "(~48% strict · ~68% canonical; re-run requires FastVLM venv)"
         ),
         # Best published cohort result was stored as selector-loop70.
         "source_candidates": [
@@ -88,6 +88,7 @@ CURATED: List[Dict[str, Any]] = [
         ],
         "script_paths": [
             "examples/mapkit_baseline_v2.py",
+            "examples/mapkit_vlm_live.py",
             "examples/selector_list_fit.py",
             "examples/selector_access_ocr.py",
             "examples/mapkit_weighted.py",
@@ -127,59 +128,51 @@ def _read_text(rel: str) -> str:
     return p.read_text(encoding="utf-8")
 
 
+def _comment_block(lines: List[str]) -> List[str]:
+    """Prefix lines as ``#`` comments (blank lines stay blank).
+
+    Seed preambles must NOT be string literals. Prepending a second module
+    docstring before a real ``examples/*.py`` source that already has a
+    docstring + ``from __future__`` triggers::
+
+        SyntaxError: from __future__ imports must occur at the beginning of the file
+
+    Comments and blank lines are the only safe preamble forms before
+    ``from __future__`` (aside from a single module docstring, which the
+    embedded source already owns).
+    """
+    out: List[str] = []
+    for line in lines:
+        if line == "":
+            out.append("")
+        else:
+            out.append("# " + line if not line.startswith("#") else line)
+    return out
+
+
 def _compose_script(kind: Optional[str], paths: List[str]) -> str:
     """Build a single script_text suitable for display / re-submit.
 
-    Multi-module algorithms are concatenated with section headers. The harness
-    runs one file; multi-module imports only work when those modules are on
-    PYTHONPATH (examples/). Seed results remain frozen either way.
+    Multi-module algorithms are **self-contained bundles** (see
+    ``tools/bundle_submission.py``). The harness blocks repo-local outside
+    imports; only this file + stdlib + site-packages run. Seed *metrics* remain
+    the frozen offline predictions either way.
+
+    Any seed-only banner must be ``#`` comments (or empty lines), never a
+    leading triple-quoted string — see ``_comment_block``.
     """
+    # Local import: curate may run without tools/ already on path in odd envs.
+    sys.path.insert(0, str(_HERE))
+    import bundle_submission as bundle  # noqa: E402
+
     if not kind or kind == "single":
         return _read_text(paths[0]).rstrip() + "\n"
 
     if kind == "ocr_override":
-        parts = [
-            '"""mapkit-baseline v1 — self-describing seed script.',
-            "",
-            "Primary modules (also under examples/):",
-            "  - mapkit_weighted.py",
-            "  - poi_confidence_policy.py",
-            "  - mapkit_ocr_override.py",
-            "",
-            "Frozen seed metrics: 39% strict (64/166). Re-run requires the",
-            "examples/ package on PYTHONPATH (or paste mapkit_ocr_override.py",
-            "into New Run after installing examples next to tools/).",
-            '"""',
-            "",
-            "# === examples/mapkit_ocr_override.py ===",
-            _read_text("examples/mapkit_ocr_override.py").rstrip(),
-            "",
-            "# --- supporting modules (reference; not executed inline) ---",
-            "# See examples/mapkit_weighted.py and examples/poi_confidence_policy.py",
-            "# in the repository for the full Bloggo + OCR name-support policy.",
-            "",
-        ]
-        return "\n".join(parts)
+        return bundle.bundle_example_ocr_override()
 
     if kind == "ensemble_v2":
-        parts = [
-            '"""mapkit-baseline v2 — seed reference script.',
-            "",
-            "Published seed metrics (frozen predictions in this run JSON):",
-            "  48% strict (80/166) · 68% canonical",
-            "",
-            "Offline builder: tools/stitch_loop70_ensemble.py",
-            "  list_fit@K20 + photo-match cascade + residual free-text VLM",
-            "  rescored with eval_label_relations.v1.jsonl",
-            "",
-            "The predict() below is the deterministic core only. Full accuracy",
-            "needs the offline VLM residual caches used when the seed was built.",
-            '"""',
-            "",
-            _read_text("examples/mapkit_baseline_v2.py").rstrip(),
-            "",
-        ]
-        return "\n".join(parts)
+        return bundle.bundle_example_ensemble_v2()
 
     # Fallback: first file
     return _read_text(paths[0]).rstrip() + "\n"
@@ -214,6 +207,17 @@ def curate_one(spec: Dict[str, Any], runs_dir: Path) -> dict:
         and src["script_text"].strip()
     ):
         script_text = src["script_text"]
+
+    # Fail fast: seed script_text is re-submitted via New Run / clone.
+    # A leading seed docstring before an embedded ``from __future__`` used to
+    # ship broken baselines that only failed at evaluation time.
+    try:
+        compile(script_text, f"{spec['name']}__v{spec['version']}.py", "exec")
+    except SyntaxError as e:
+        raise SystemExit(
+            f"[curate] script_text for {spec['name']} v{spec['version']} "
+            f"does not compile: {e}"
+        ) from e
 
     out = {
         "name": spec["name"],

@@ -32,18 +32,49 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 # UI operate on the same local store. Keep the repository-root fallback only
 # for legacy checkouts that still colocate code and data.
 _REPO_DATA_DIR = os.path.join(ROOT, "poi-data")
-DATA_ROOT = os.environ.get("POI_DATA_DIR") or (
-    _REPO_DATA_DIR if os.path.isfile(os.path.join(_REPO_DATA_DIR, "eval_set_reconciled.csv")) else ROOT
-)
+
+
+def resolve_data_root() -> str:
+    """Resolve the active dataset root (same order as server._resolve_data_dir).
+
+    Re-evaluated on demand so a process that starts before ``poi-data/`` is
+    seeded still finds label relations / overrides after the seed lands.
+    """
+    env = os.environ.get("POI_DATA_DIR")
+    if env:
+        return env
+    if os.path.isfile(os.path.join(_REPO_DATA_DIR, "eval_set_reconciled.csv")):
+        return _REPO_DATA_DIR
+    if os.path.isfile(os.path.join(ROOT, "eval_set_reconciled.csv")):
+        return ROOT  # legacy repository-root layout
+    return _REPO_DATA_DIR  # fresh install: seed target is poi-data/, not ROOT
+
+
+DATA_ROOT = resolve_data_root()
 CSV_PATH = os.path.join(DATA_ROOT, "eval_set_reconciled.csv")
 _data_cfg = os.path.join(DATA_ROOT, "dashboard_config.json")
 CONFIG_PATH = _data_cfg if os.path.exists(_data_cfg) else os.path.join(ROOT, "dashboard_config.json")
 CANDIDATE_DIR = os.path.join(DATA_ROOT, "generated")
 ACTIVE_MAPKIT_SNAPSHOT_POINTER = "active-mapkit-candidate-snapshot.json"
-DEFAULT_LABEL_RELATIONS_PATH = os.path.join(DATA_ROOT, "eval_label_relations.v1.jsonl")
 # Manual GT↔MapKit matches from the Reconcile UI. Applied at read time so
 # matchrate / algorithm runs see reconciled names without rewriting the CSV.
 GT_MAPKIT_OVERRIDES_PATH = os.path.join(DATA_ROOT, "gt_mapkit_overrides.tsv")
+
+
+def default_label_relations_path(data_root: Optional[str] = None) -> str:
+    """Path to the reviewed alias/relation sidecar under the active data root.
+
+    Resolved at call time (not only at import) so a server that started before
+    the dataset was present still picks up ``eval_label_relations.v1.jsonl``
+    after seed upload without a restart.
+    """
+    root = data_root or resolve_data_root()
+    return os.path.join(root, "eval_label_relations.v1.jsonl")
+
+
+# Compatibility for CLI defaults / external importers. Prefer
+# ``default_label_relations_path()`` at run time.
+DEFAULT_LABEL_RELATIONS_PATH = default_label_relations_path()
 
 
 def active_mapkit_candidate_file(data_root: Optional[str] = None) -> str:
@@ -53,7 +84,7 @@ def active_mapkit_candidate_file(data_root: Optional[str] = None) -> str:
     Once a pointer exists, it is authoritative: an incomplete or tampered
     snapshot is an evaluation configuration error, not a fallback opportunity.
     """
-    root = data_root or DATA_ROOT
+    root = data_root or resolve_data_root()
     generated = os.path.join(root, "generated")
     pointer_path = os.path.join(generated, ACTIVE_MAPKIT_SNAPSHOT_POINTER)
     legacy = os.path.join(generated, "mapkit_candidates.jsonl")
@@ -101,7 +132,7 @@ def default_candidate_files(data_root: Optional[str] = None) -> List[str]:
     at module import would leave that process pinned to the previously active
     artifact until it is restarted.
     """
-    root = data_root or DATA_ROOT
+    root = data_root or resolve_data_root()
     return [
         active_mapkit_candidate_file(root),
         os.path.join(root, "generated", "kakao_local_candidates.jsonl"),
@@ -379,8 +410,11 @@ def load_label_relations(path: Optional[str] = None) -> Dict[Tuple[str, str, str
 
     Canonical GT in the CSV is never overwritten; aliases only expand accepted
     predictions (strict / alias / related layers).
+
+    When ``path`` is omitted, resolve the sidecar under the current data root
+    (see ``default_label_relations_path``) so a post-start seed is visible.
     """
-    path = path or DEFAULT_LABEL_RELATIONS_PATH
+    path = path or default_label_relations_path()
     out: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
     if not path or not os.path.isfile(path):
         return out

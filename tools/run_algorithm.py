@@ -25,6 +25,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -35,7 +36,14 @@ from typing import Any, Dict, List, Optional
 import match_score as ms
 from file_ops import atomic_write_json, file_lock
 
-RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_predict_runner.py")
+_TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.abspath(os.path.join(_TOOLS_DIR, ".."))
+RUNNER = os.path.join(_TOOLS_DIR, "_predict_runner.py")
+# examples/ holds multi-module *sources* for development. The predict harness
+# never puts this directory on PYTHONPATH — submissions must be self-contained
+# (or a future package laid out entirely under the submission temp dir).
+# stdlib + installed site-packages remain available.
+EXAMPLES_DIR = os.path.join(_REPO_ROOT, "examples")
 # Full MapKit-backed submissions may legitimately take many minutes. Runs are
 # unlimited by default; set POI_RUN_TIMEOUT_S to a positive number to add a
 # deployment-specific guard.
@@ -266,6 +274,9 @@ def build_cases(rows, cfg, candidates, dataset: str, params: Optional[List[str]]
         }
         public = {k: v for k, v in full.items() if k in wanted}
         public["photo"] = photo  # always present as a reference id
+        # Dataset id is not ground truth; image/VLM baselines need it to resolve
+        # photo files under sources[dataset].photo_dir.
+        public["dataset"] = ds
         cases.append({
             "input": public, "_gt": gt, "_dataset": ds, "_photo": photo,
             "_provider": provider,
@@ -310,6 +321,99 @@ def _host_runtime_info() -> Dict[str, Any]:
     }
 
 
+def _default_predict_python() -> str:
+    """Interpreter for predict subprocesses.
+
+    Preference:
+      1. ``POI_PREDICT_PYTHON`` if set and executable
+      2. ``poi-data/tools/fastvlm-venv/bin/python`` when present (torch+MPS)
+      3. ``sys.executable`` (server / host Python)
+
+    Live mapkit-baseline v2 FastVLM needs the FastVLM venv; deterministic
+    algorithms still run correctly under that interpreter.
+    """
+    explicit = (os.environ.get("POI_PREDICT_PYTHON") or "").strip()
+    if explicit and os.path.isfile(explicit) and os.access(explicit, os.X_OK):
+        return explicit
+    try:
+        data_root = ms.resolve_data_root()
+    except Exception:
+        data_root = os.path.join(_REPO_ROOT, "poi-data")
+    for cand in (
+        os.path.join(data_root, "tools", "fastvlm-venv", "bin", "python"),
+        os.path.join(_REPO_ROOT, "poi-data", "tools", "fastvlm-venv", "bin", "python"),
+    ):
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return sys.executable
+
+
+def _predict_env(submission_dir: Optional[str] = None) -> Dict[str, str]:
+    """Environment for the predict subprocess.
+
+    Import policy (also enforced in ``_predict_runner`` via ``sys.path``):
+
+    * **Allowed:** stdlib + installed site-packages (real packages such as
+      ``json``, and any pip-installed dependency present on the host).
+    * **Allowed:** modules living *inside* the submission directory only.
+    * **Blocked:** repo ``examples/``, ``tools/``, and the checkout root —
+      bare ``import selector_list_fit`` must not resolve to workspace files.
+
+    Parent ``PYTHONPATH`` entries that point at those blocked locations are
+    stripped so a developer shell cannot accidentally re-open the hole.
+
+    Also injects ``POI_DATA_DIR`` (when unset) so live image/VLM code can
+    resolve photo paths and model checkpoints under the active data root.
+    """
+    env = os.environ.copy()
+    blocked = {
+        os.path.abspath(EXAMPLES_DIR),
+        os.path.abspath(_TOOLS_DIR),
+        os.path.abspath(_REPO_ROOT),
+    }
+    kept: List[str] = []
+    if submission_dir:
+        kept.append(os.path.abspath(submission_dir))
+    for part in (env.get("PYTHONPATH") or "").split(os.pathsep):
+        part = part.strip()
+        if not part:
+            continue
+        abs_part = os.path.abspath(part)
+        if abs_part in blocked:
+            continue
+        if abs_part not in kept:
+            kept.append(part)
+    if kept:
+        env["PYTHONPATH"] = os.pathsep.join(kept)
+    else:
+        env.pop("PYTHONPATH", None)
+    # Avoid user-site surprises in weird envs; keep system site-packages.
+    env.setdefault("PYTHONNOUSERSITE", "1")
+    if not (env.get("POI_DATA_DIR") or "").strip():
+        try:
+            env["POI_DATA_DIR"] = ms.resolve_data_root()
+        except Exception:
+            env["POI_DATA_DIR"] = os.path.join(_REPO_ROOT, "poi-data")
+    return env
+
+
+def _default_label_relations_path(csv_path: str,
+                                  explicit: Optional[str] = None) -> str:
+    """Prefer the sidecar next to the eval CSV this run is scoring against.
+
+    Falls back to the active data-root default. Using the CSV's directory keeps
+    UI runs consistent even when match_score was imported before poi-data existed.
+    """
+    if explicit:
+        return explicit
+    if csv_path:
+        beside = os.path.join(os.path.dirname(os.path.abspath(csv_path)),
+                              "eval_label_relations.v1.jsonl")
+        if os.path.isfile(beside):
+            return beside
+    return ms.default_label_relations_path()
+
+
 def _run_subprocess(script_path: str, lang: str, cases: List[Dict[str, Any]]):
     """Run the submission and return (preds, duration_ms).
 
@@ -317,22 +421,39 @@ def _run_subprocess(script_path: str, lang: str, cases: List[Dict[str, Any]]):
     Per-case latency_ms (when present on each pred) is predict-call wall time only.
     """
     if lang == "python":
-        cmd = [sys.executable, RUNNER, script_path]
+        cmd = [_default_predict_python(), RUNNER, script_path]
     else:
         cmd = [script_path]  # non-python: script speaks the JSONL protocol itself
     stdin_data = "".join(json.dumps(c["input"], ensure_ascii=False) + "\n" for c in cases)
+    submission_dir = os.path.dirname(os.path.abspath(script_path))
     t0 = time.perf_counter()
     try:
-        proc = subprocess.run(cmd, input=stdin_data, capture_output=True,
-                              text=True, timeout=RUN_TIMEOUT_S)
+        proc = subprocess.run(
+            cmd, input=stdin_data, capture_output=True, text=True,
+            timeout=RUN_TIMEOUT_S,
+            env=_predict_env(submission_dir) if lang == "python" else None,
+            cwd=submission_dir if lang == "python" else None,
+        )
     except subprocess.TimeoutExpired:
         raise RunError(f"submission timed out after {RUN_TIMEOUT_S:g}s")
     except (PermissionError, OSError) as e:
         raise RunError(f"could not execute submission: {e}")
     duration_ms = round((time.perf_counter() - t0) * 1000.0, 3)
     if proc.returncode != 0:
-        detail = (proc.stderr or "").strip().splitlines()
-        raise RunError("submission failed to load: " + (detail[-1] if detail else f"exit {proc.returncode}"))
+        # Prefer stderr (preflight / case abort). Some runners print to stdout.
+        err_lines = (proc.stderr or "").strip().splitlines()
+        out_lines = (proc.stdout or "").strip().splitlines()
+        detail = err_lines or out_lines
+        msg = detail[-1] if detail else f"exit {proc.returncode}"
+        # Distinguish import preflight from load / per-case failures for UI.
+        lower = msg.lower()
+        if "import preflight failed" in lower:
+            raise RunError("submission import preflight failed: " + msg)
+        if "submission failed on case" in lower:
+            raise RunError(msg)
+        if "syntax error" in lower:
+            raise RunError("submission failed to load: " + msg)
+        raise RunError("submission failed to load: " + msg)
 
     preds: List[Dict[str, Any]] = []
     for line in proc.stdout.splitlines():
@@ -342,7 +463,28 @@ def _run_subprocess(script_path: str, lang: str, cases: List[Dict[str, Any]]):
         try:
             preds.append(json.loads(line))
         except json.JSONDecodeError:
-            preds.append({"prediction": "", "error": "non-JSON line from submission", "latency_ms": None})
+            # Non-JSON stdout is a protocol bug — abort, do not score empties.
+            raise RunError(
+                "submission produced non-JSON output; refusing to score partial results"
+            )
+    # Belt-and-suspenders: runner should already abort on case errors, but if a
+    # custom non-Python binary emits error fields, still refuse a scored run.
+    errored = [
+        (i, p.get("error"))
+        for i, p in enumerate(preds)
+        if isinstance(p, dict) and p.get("error")
+    ]
+    if errored:
+        i, err = errored[0]
+        raise RunError(
+            f"submission failed on case {i}: {err} "
+            f"({len(errored)} case error(s) total; refusing to score)"
+        )
+    if len(preds) != len(cases):
+        raise RunError(
+            f"submission returned {len(preds)} predictions for {len(cases)} cases; "
+            "refusing to score partial results"
+        )
     return preds, duration_ms
 
 
@@ -524,20 +666,31 @@ def run_submission(*, name: str, script_text: str, lang: str, dataset: str, mode
         raise RunError(f"no eligible eval cases for scope '{dataset}' "
                        "(need rows with GT, non-Korea, not non_poi)")
 
-    rel_path = label_relations_path or ms.DEFAULT_LABEL_RELATIONS_PATH
+    rel_path = _default_label_relations_path(csv_path, label_relations_path)
     relations = ms.load_label_relations(rel_path)
 
-    suffix = ".py" if lang == "python" else ""
-    tmp = tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False, encoding="utf-8")
+    # Isolate each run in its own directory so only that tree is importable as
+    # local modules (not a shared /tmp soup, not repo examples/).
+    tmp_dir = tempfile.mkdtemp(prefix="poi-submit-")
+    script_path = os.path.join(
+        tmp_dir, "predict.py" if lang == "python" else "predict"
+    )
     try:
-        tmp.write(script_text)
-        tmp.close()
+        with open(script_path, "w", encoding="utf-8") as fh:
+            fh.write(script_text)
         if lang != "python":
-            os.chmod(tmp.name, 0o755)
-        preds, duration_ms = _run_subprocess(tmp.name, lang, cases)
+            os.chmod(script_path, 0o755)
+        preds, duration_ms = _run_subprocess(script_path, lang, cases)
     finally:
-        if os.path.exists(tmp.name):
-            os.unlink(tmp.name)
+        try:
+            os.unlink(script_path)
+        except OSError:
+            pass
+        try:
+            os.rmdir(tmp_dir)
+        except OSError:
+            # If the submission wrote extra files, best-effort clean.
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     scored = _score(cases, preds, mode or "exact", label_relations=relations)
     metrics = {k: v for k, v in scored.items() if k != "cases"}

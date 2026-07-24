@@ -3336,6 +3336,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 candidate_paths=match_candidate_paths(),
                 runs_dir=RUNS_DIR,
                 candidate_limit=req.get("candidate_limit"),
+                # Always the data-dir sidecar (not match_score import-time path).
+                label_relations_path=os.path.join(
+                    DIRECTORY, "eval_label_relations.v1.jsonl"
+                ),
             )
             self._send_json({"ok": True, **result})
         except RunError as e:

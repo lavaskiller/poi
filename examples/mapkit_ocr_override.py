@@ -7,16 +7,24 @@ distinctive name support in on-device OCR text.
 Contract: ``predict(case) -> str`` (predicted place name), or ``""`` to abstain.
 ``case`` never contains ground truth.
 
-Requires sibling modules:
-  - examples/mapkit_weighted.py
-  - examples/poi_confidence_policy.py
+Harness import policy: repo-local siblings are not on PYTHONPATH. For UI/seed
+re-runs use ``python3 tools/bundle_submission.py ocr_override`` (or curated
+seed script_text). This multi-file source is for development only.
 """
 from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from mapkit_weighted import resolve as bloggo_resolve
-from poi_confidence_policy import ocr_name_support
+try:
+    from mapkit_weighted import resolve as bloggo_resolve
+    from poi_confidence_policy import ocr_name_support
+except ImportError as e:  # pragma: no cover
+    raise ImportError(
+        "mapkit_ocr_override needs mapkit_weighted + poi_confidence_policy. "
+        "Harness blocks repo-local outside imports — use "
+        "`python3 tools/bundle_submission.py ocr_override`. "
+        f"Underlying error: {e}"
+    ) from e
 
 RULE_VERSION = "unique-direct-ocr-name-support-v1-exploratory"
 

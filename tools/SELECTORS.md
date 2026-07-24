@@ -9,7 +9,7 @@ run JSON under `poi-data/generated/runs/`.
 |---|---|---|---|
 | `baseline-nearest` v1 | MapKit distance rank-1 | **38%** (63/166) | `examples/baseline_nearest.py` |
 | `mapkit-baseline` v1 | Bloggo weighted + unique OCR override | **39%** (64/166) | `examples/mapkit_ocr_override.py` (+ weighted/policy) |
-| `mapkit-baseline` v2 | OCR + cascade + free-text VLM ensemble | **48%** / **68%** canonical (80/166) | `examples/mapkit_baseline_v2.py` · offline `stitch_loop70_ensemble.py` |
+| `mapkit-baseline` v2 | Live OCR + FastVLM cascade + free-text residual | **48%** / **68%** canonical (80/166) | `examples/mapkit_baseline_v2.py` + `mapkit_vlm_live.py` (bundle: `ensemble_v2`) |
 
 Rebuild: `python3 tools/pack_seed_bundle.py --clean` (curates these three automatically).
 
@@ -20,10 +20,11 @@ Rebuild: `python3 tools/pack_seed_bundle.py --clean` (curates these three automa
 | `examples/baseline_nearest.py` | Distance rank-1 | `baseline-nearest` |
 | `examples/mapkit_weighted.py` | Category-weighted distance (Bloggo) | (UI / weighted) |
 | `examples/mapkit_ocr_override.py` | Bloggo + unique OCR name override | `mapkit-baseline` v1 |
-| `examples/mapkit_baseline_v2.py` | Ensemble deterministic core (seed ref) | `mapkit-baseline` v2 |
+| `examples/mapkit_baseline_v2.py` | Live ensemble (list_fit + FastVLM cascade + residual) | `mapkit-baseline` v2 |
+| `examples/mapkit_vlm_live.py` | Bundleable FastVLM runtime (place_match / skill) | used by v2 |
 | `examples/selector_access_ocr.py` | Access-point demote + strong OCR | `selector-access-ocr` |
 | `examples/selector_list_fit.py` | OCR v2 + generic demote + structure refine (K=10–20) | `selector-list-fit` / `selector-list-fit-k20` |
-| `stitch_loop70_ensemble.py` | loop70 ensemble helper (OCR + cascade + free-text VLM) | historical `selector-loop70` → seed `mapkit-baseline` v2 |
+| `stitch_loop70_ensemble.py` | Historical offline stitch (cache residual) | `selector-loop70` provenance only |
 | `run_selector_ocr_override.py` | Bloggo + unique OCR name override | `selector-ocr-override` |
 | `run_vlm_topk_rerank.py` | FastVLM Top-K image rerank | `vlm-topk-{style}-k{K}` |
 | `run_selector_photo_match.py` | access_ocr + photo–place VLM cascade | `selector-photo-match` |
@@ -49,7 +50,25 @@ python3 tools/run_vlm_topk_rerank.py --prompt-style skill --candidate-limit 5
 
 # Force choice on top-5 (no UNKNOWN)
 python3 tools/run_vlm_topk_rerank.py --prompt-style skill_force --candidate-limit 5
+
+# Live mapkit-baseline v2 (UI harness or CLI) — uses FastVLM venv automatically
+poi-data/tools/fastvlm-venv/bin/python tools/run_algorithm.py \
+  --name mapkit-baseline --script <(python3 tools/bundle_submission.py ensemble_v2) \
+  --params image,nearby_candidates,ocr_text
+
+# Deterministic core only (no VLM; below published seed)
+POI_VLM_MODE=off python3 tools/run_algorithm.py …
 ```
+
+### Live v2 environment
+
+| Variable | Default | Role |
+|---|---|---|
+| `POI_PREDICT_PYTHON` | auto: `poi-data/tools/fastvlm-venv/bin/python` if present | Interpreter for `predict()` subprocess |
+| `POI_VLM_MODE` | `live` | `live` \| `off` \| `cache_first` |
+| `POI_VLM_CACHE` | `poi-data/generated/mapkit_baseline_v2_live_cache.jsonl` | Write-through cache |
+| `POI_FASTVLM_REPO` / `POI_FASTVLM_MODEL` | under `poi-data/tools/ml-fastvlm/…` | Model paths |
+| `POI_DATA_DIR` | auto | Photo + model root (harness injects if unset) |
 
 ## Historical name map
 

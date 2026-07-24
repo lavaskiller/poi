@@ -166,5 +166,186 @@ class DatasetPreflightTests(unittest.TestCase):
         self.assertEqual(ra.build_cases(rows, {}, {}, "sample", []), [])
 
 
+class PredictEnvTests(unittest.TestCase):
+    def test_examples_dir_not_on_pythonpath(self):
+        """Repo examples/ must not be injectable as an outside dependency."""
+        env = ra._predict_env(submission_dir="/tmp/poi-submit-test")
+        path = env.get("PYTHONPATH", "")
+        parts = [os.path.abspath(p) for p in path.split(os.pathsep) if p]
+        self.assertNotIn(os.path.abspath(ra.EXAMPLES_DIR), parts)
+        self.assertNotIn(os.path.abspath(ra._REPO_ROOT), parts)
+        self.assertNotIn(os.path.abspath(ra._TOOLS_DIR), parts)
+        # Submission dir is allowed (local package root only).
+        self.assertIn(os.path.abspath("/tmp/poi-submit-test"), parts)
+
+    def test_strips_examples_from_parent_pythonpath(self):
+        old = os.environ.get("PYTHONPATH")
+        try:
+            os.environ["PYTHONPATH"] = ra.EXAMPLES_DIR + os.pathsep + "/opt/some-pkg"
+            env = ra._predict_env()
+            parts = [os.path.abspath(p) for p in (env.get("PYTHONPATH") or "").split(os.pathsep) if p]
+            self.assertNotIn(os.path.abspath(ra.EXAMPLES_DIR), parts)
+            self.assertIn(os.path.abspath("/opt/some-pkg"), parts)
+        finally:
+            if old is None:
+                os.environ.pop("PYTHONPATH", None)
+            else:
+                os.environ["PYTHONPATH"] = old
+
+    def test_outside_repo_sibling_import_fails_loud(self):
+        """Bare import of examples modules must not resolve via harness path."""
+        script = (
+            "import selector_list_fit\n"
+            "def predict(case):\n"
+            "    return 'ok'\n"
+        )
+        with tempfile.TemporaryDirectory(prefix="poi-submit-") as td:
+            path = os.path.join(td, "predict.py")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(script)
+            cases = [{"input": {"photo": "x.jpg", "nearby_candidates": []}}]
+            with self.assertRaises(ra.RunError) as ctx:
+                ra._run_subprocess(path, "python", cases)
+            msg = str(ctx.exception).lower()
+            self.assertTrue(
+                "import preflight" in msg or "failed to load" in msg,
+                msg,
+            )
+
+    def test_soft_caught_missing_package_still_fails_preflight(self):
+        """try/except ImportError must not hide missing packages."""
+        script = (
+            "try:\n"
+            "    import this_package_definitely_does_not_exist_xyz\n"
+            "except ImportError:\n"
+            "    pass\n"
+            "def predict(case):\n"
+            "    c = case.get('nearby_candidates') or []\n"
+            "    return (c[0].get('name') if c else '') or ''\n"
+        )
+        with tempfile.TemporaryDirectory(prefix="poi-submit-") as td:
+            path = os.path.join(td, "predict.py")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(script)
+            cases = [{"input": {
+                "photo": "x.jpg",
+                "nearby_candidates": [{"name": "Nearest Wrong", "rank": 1}],
+            }}]
+            with self.assertRaises(ra.RunError) as ctx:
+                ra._run_subprocess(path, "python", cases)
+            self.assertIn("import preflight", str(ctx.exception).lower())
+
+    def test_predict_exception_aborts_whole_run(self):
+        """Per-case raise must not produce a scorable partial run."""
+        script = (
+            "def predict(case):\n"
+            "    raise RuntimeError('boom')\n"
+        )
+        with tempfile.TemporaryDirectory(prefix="poi-submit-") as td:
+            path = os.path.join(td, "predict.py")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(script)
+            cases = [
+                {"input": {"photo": "a.jpg", "nearby_candidates": []}},
+                {"input": {"photo": "b.jpg", "nearby_candidates": []}},
+            ]
+            with self.assertRaises(ra.RunError) as ctx:
+                ra._run_subprocess(path, "python", cases)
+            self.assertIn("failed on case", str(ctx.exception).lower())
+
+    def test_import_inside_predict_fails_preflight(self):
+        """AST preflight walks function bodies — missing pkg never reaches score."""
+        script = (
+            "def predict(case):\n"
+            "    import totally_missing_pkg_zzz\n"
+            "    return 'x'\n"
+        )
+        with tempfile.TemporaryDirectory(prefix="poi-submit-") as td:
+            path = os.path.join(td, "predict.py")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(script)
+            cases = [{"input": {"photo": "a.jpg", "nearby_candidates": []}}]
+            with self.assertRaises(ra.RunError) as ctx:
+                ra._run_subprocess(path, "python", cases)
+            self.assertIn("import preflight", str(ctx.exception).lower())
+
+    def test_dynamic_import_at_runtime_aborts_run(self):
+        """importlib is not static — still must not score when it raises."""
+        script = (
+            "import importlib\n"
+            "def predict(case):\n"
+            "    importlib.import_module('totally_missing_pkg_zzz')\n"
+            "    return 'x'\n"
+        )
+        with tempfile.TemporaryDirectory(prefix="poi-submit-") as td:
+            path = os.path.join(td, "predict.py")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(script)
+            cases = [{"input": {"photo": "a.jpg", "nearby_candidates": []}}]
+            with self.assertRaises(ra.RunError) as ctx:
+                ra._run_subprocess(path, "python", cases)
+            self.assertIn("failed on case", str(ctx.exception).lower())
+
+    def test_stdlib_and_site_packages_still_work(self):
+        script = (
+            "import json, math, re\n"
+            "def predict(case):\n"
+            "    return json.dumps({'ok': True}) and 'ok'\n"
+        )
+        with tempfile.TemporaryDirectory(prefix="poi-submit-") as td:
+            path = os.path.join(td, "predict.py")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(script)
+            cases = [{"input": {"photo": "x.jpg", "nearby_candidates": []}}]
+            preds, _dur = ra._run_subprocess(path, "python", cases)
+            self.assertEqual(len(preds), 1)
+            self.assertEqual(preds[0].get("prediction"), "ok")
+            self.assertIsNone(preds[0].get("error"))
+
+    def test_self_contained_bundle_runs(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+        import bundle_submission as bundle  # noqa: E402
+
+        script = bundle.bundle_example_ensemble_v2()
+        with tempfile.TemporaryDirectory(prefix="poi-submit-") as td:
+            path = os.path.join(td, "predict.py")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(script)
+            cases = [{
+                "input": {
+                    "photo": "x.jpg",
+                    "ocr_text": "",
+                    "nearby_candidates": [
+                        {"name": "Banff Gondola Stop", "distance_m": 10, "rank": 1},
+                        {"name": "Banff Gondola", "distance_m": 40, "rank": 2},
+                    ],
+                }
+            }]
+            preds, _dur = ra._run_subprocess(path, "python", cases)
+            self.assertEqual(len(preds), 1)
+            self.assertIsNone(preds[0].get("error"))
+            # Deterministic core should demote access-point rank-1.
+            self.assertEqual(preds[0].get("prediction"), "Banff Gondola")
+
+
+class LabelRelationsPathTests(unittest.TestCase):
+    def test_prefers_sidecar_beside_csv(self):
+        with tempfile.TemporaryDirectory() as d:
+            csv_path = os.path.join(d, "eval_set_reconciled.csv")
+            rel_path = os.path.join(d, "eval_label_relations.v1.jsonl")
+            with open(csv_path, "w", encoding="utf-8") as f:
+                f.write("photo\n")
+            with open(rel_path, "w", encoding="utf-8") as f:
+                f.write("")
+            got = ra._default_label_relations_path(csv_path)
+            self.assertEqual(os.path.realpath(got), os.path.realpath(rel_path))
+
+    def test_explicit_path_wins(self):
+        got = ra._default_label_relations_path(
+            "/no/such/csv.csv", explicit="/tmp/custom_relations.jsonl"
+        )
+        self.assertEqual(got, "/tmp/custom_relations.jsonl")
+
+
 if __name__ == "__main__":
     unittest.main()
