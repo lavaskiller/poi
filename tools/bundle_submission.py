@@ -122,11 +122,11 @@ def bundle_example_ensemble_v2() -> str:
         ],
         entry="mapkit_baseline_v2",
         banner=[
-            "mapkit-baseline v2 — live loop70 ensemble.",
-            "list_fit@K20 + place_match FastVLM cascade + residual free-text skill.",
-            "Requires FastVLM (MPS) via POI_PREDICT_PYTHON / poi-data/tools/fastvlm-venv.",
-            "POI_VLM_MODE=off → deterministic core only (below published seed).",
-            "Write-through cache: poi-data/generated/mapkit_baseline_v2_live_cache.jsonl",
+            "mapkit-baseline v2 — fully live ensemble (no curated residual list).",
+            "list_fit@K20; on access≈nearest: live FastVLM skill@K5 (high-conf only).",
+            "Write-through memo cache only (same key → same live result).",
+            "Interpreter: POI_PREDICT_PYTHON or poi-data/tools/fastvlm-venv.",
+            "POI_VLM_MODE=off → deterministic core only.",
         ],
     )
 

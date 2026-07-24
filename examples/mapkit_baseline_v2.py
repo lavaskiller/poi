@@ -1,39 +1,33 @@
-"""MapKit baseline v2 — live OCR + cascade + free-text VLM ensemble.
+"""MapKit baseline v2 — fully live OCR + FastVLM ensemble.
 
-Published seed metrics (~48% strict / ~68% canonical on the frozen cohort)
-come from the loop70 ensemble:
+Pipeline (no GT, no cherry-picked residual list, no published prediction caches):
 
-  list_fit@K20  when it disagrees with access_ocr
-  else photo–place FastVLM cascade (place_match) on weak / nearest-tied cases
-  else access_ocr / weighted
-  + structure refine
-  + residual free-text VLM skill name recovery
+  1. list_fit when it disagrees with access_ocr
+  2. else if access_ocr is weak (equals nearest): live FastVLM skill@K
+     — accept only high-confidence parses (number / unique full name);
+       UNKNOWN or ambiguous → keep access_ocr
+  3. structure refine
 
 Contract: ``predict(case) -> str | {prediction, reason}``. Empty prediction
 abstains. No ground truth in case.
 
-Harness import policy
----------------------
-The eval harness does **not** put ``examples/`` on PYTHONPATH. Use::
+Reproducibility
+---------------
+Same code + same model weights + same candidates + same image → same decision.
+Write-through JSONL under ``POI_VLM_CACHE`` is pure memoization of live calls
+(cache key includes model, prompt, candidates, photo) — not a curated residual
+subset. Delete the cache file to force full re-inference.
+
+Harness import policy: repo ``examples/`` is not on PYTHONPATH. Bundle with::
 
     python3 tools/bundle_submission.py ensemble_v2
 
-for a self-contained submission, or the curated seed ``script_text``.
-
-Live FastVLM requirements
--------------------------
-* Apple Silicon MPS + ``poi-data/tools/fastvlm-venv`` (torch) as the predict
-  interpreter (harness auto-selects when present; or set ``POI_PREDICT_PYTHON``).
-* Checkpoint under ``poi-data/tools/ml-fastvlm/checkpoints/…``.
-* Case must include ``photo`` and preferably ``dataset`` (injected by harness)
-  so the image path can be resolved.
-
-``POI_VLM_MODE=off`` forces the deterministic core only (honest reason
-``vlm_mode_off`` / core reason). Missing model/image does **not** silently
-claim published accuracy — reason is ``vlm_unavailable`` / ``vlm_image_missing``.
+Live FastVLM needs MPS + ``poi-data/tools/fastvlm-venv`` (or ``POI_PREDICT_PYTHON``).
+``POI_VLM_MODE=off`` → deterministic core only (honest reason suffix).
 """
 from __future__ import annotations
 
+import os
 import re
 import unicodedata
 from typing import Any, Dict, List, Union
@@ -54,14 +48,14 @@ except ImportError as e:  # pragma: no cover - missing siblings / not bundled
 
 
 DESCRIPTION = (
-    "mapkit-baseline v2 = live loop70 ensemble: list_fit@K20 + photo-match "
-    "FastVLM cascade + residual free-text VLM skill "
-    "(rescored with reviewed label relations)."
+    "mapkit-baseline v2 = fully live ensemble: list_fit@K20 + FastVLM skill@K5 "
+    "on every weak (access≈nearest) case; short non-hedged answers only."
 )
 
-# Cascade uses a shorter shortlist; residual free-text sees up to K=20.
-CASCADE_K = 10
-RESIDUAL_K = 20
+# VLM shortlist size. K=5 matches photo-match stress runs; longer lists dilute
+# FastVLM-0.5B and increase false overrides.
+VLM_K = 5
+VLM_STYLE = "skill"  # allows UNKNOWN → keep core (no forced bad pick)
 
 
 def _norm(s: str) -> str:
@@ -72,6 +66,18 @@ def _norm(s: str) -> str:
 
 def _nearest(cands: List[Dict[str, Any]]) -> str:
     return ((cands[0].get("name") if cands else "") or "").strip()
+
+
+def _canonical_candidate(name: str, cands: List[Dict[str, Any]]) -> str:
+    """Map a free-text / parsed name onto the candidate list spelling."""
+    n = _norm(name)
+    if not n:
+        return ""
+    for c in cands:
+        cn = (c.get("name") or "").strip()
+        if _norm(cn) == n:
+            return cn
+    return ""
 
 
 def _core_pick(case: Dict[str, Any], cands: List[Dict[str, Any]]) -> Dict[str, str]:
@@ -88,17 +94,37 @@ def _core_pick(case: Dict[str, Any], cands: List[Dict[str, Any]]) -> Dict[str, s
         pred_acc = ""
 
     if pred_lf and pred_lf != pred_acc:
-        return {"prediction": pred_lf, "reason": "list_fit", "pred_lf": pred_lf, "pred_acc": pred_acc}
+        return {
+            "prediction": pred_lf,
+            "reason": "list_fit",
+            "pred_lf": pred_lf,
+            "pred_acc": pred_acc,
+        }
     if pred_acc:
-        return {"prediction": pred_acc, "reason": "access_ocr", "pred_lf": pred_lf, "pred_acc": pred_acc}
+        return {
+            "prediction": pred_acc,
+            "reason": "access_ocr",
+            "pred_lf": pred_lf,
+            "pred_acc": pred_acc,
+        }
     if pred_lf:
-        return {"prediction": pred_lf, "reason": "list_fit_only", "pred_lf": pred_lf, "pred_acc": pred_acc}
+        return {
+            "prediction": pred_lf,
+            "reason": "list_fit_only",
+            "pred_lf": pred_lf,
+            "pred_acc": pred_acc,
+        }
     try:
         w = (weighted_predict(case) or "").strip()
     except Exception:
         w = ""
     if w:
-        return {"prediction": w, "reason": "weighted", "pred_lf": pred_lf, "pred_acc": pred_acc}
+        return {
+            "prediction": w,
+            "reason": "weighted",
+            "pred_lf": pred_lf,
+            "pred_acc": pred_acc,
+        }
     return {
         "prediction": _nearest(cands),
         "reason": "nearest",
@@ -107,8 +133,12 @@ def _core_pick(case: Dict[str, Any], cands: List[Dict[str, Any]]) -> Dict[str, s
     }
 
 
-def _should_cascade(pred_acc: str, nearest: str, cands: List[Dict[str, Any]]) -> bool:
-    """Mirror photo-match miss_only: VLM when cheap selector stays on nearest."""
+def _should_call_vlm(pred_acc: str, nearest: str, cands: List[Dict[str, Any]]) -> bool:
+    """Call VLM only when the cheap selector did not leave nearest.
+
+    Deterministic, GT-free, applied uniformly to every case — not a curated
+    residual photo list.
+    """
     if not cands:
         return False
     if not pred_acc:
@@ -116,21 +146,51 @@ def _should_cascade(pred_acc: str, nearest: str, cands: List[Dict[str, Any]]) ->
     return _norm(pred_acc) == _norm(nearest)
 
 
-def _should_residual(pred: str, nearest: str, reason: str) -> bool:
-    """Residual free-text when still weak after cascade / structure refine."""
-    if reason == "list_fit":
-        # Strong OCR / structure list_fit already overrode access — skip residual.
-        return False
-    if not pred:
-        return True
-    return _norm(pred) == _norm(nearest)
+# Long free-text answers from FastVLM-0.5B often hedge then invent a name
+# ("not clearly visible… however closest is X") — net-negative on the cohort.
+_HEDGE_RE = re.compile(
+    r"not clearly|however|closest match|appears to be|likely|"
+    r"based on the context|without a visible|not clearly supported",
+    re.I,
+)
+# Confident skill answers are short (e.g. ``3`` or ``2.``). Cap length so
+# rambling free-text cannot override via a lucky embedded number.
+_MAX_CONFIDENT_RAW_LEN = 16
+
+
+def _high_confidence_vlm_name(
+    raw: str,
+    cands: List[Dict[str, Any]],
+    current: str,
+) -> str:
+    """Accept VLM override only for short, non-hedged, unambiguous picks.
+
+    Applied uniformly to every weak case (access≈nearest) — not a curated
+    residual list. Empirically, short number answers net-help; long free-text
+    recoveries net-hurt on this model.
+    """
+    if not raw or not cands:
+        return ""
+    text = raw.strip()
+    if not text or re.search(r"\bUNKNOWN\b", text, flags=re.IGNORECASE):
+        return ""
+    if _HEDGE_RE.search(text):
+        return ""
+    if len(text) > _MAX_CONFIDENT_RAW_LEN:
+        return ""
+    idx = vlm.parse_selection(text, cands)
+    if idx is None:
+        return ""
+    name = (cands[idx].get("name") or "").strip()
+    if name and _norm(name) != _norm(current):
+        return name
+    return ""
 
 
 def predict(case: Dict[str, Any]) -> Union[str, Dict[str, Any]]:
-    """Live ensemble: deterministic core + FastVLM cascade + free-text residual.
+    """Fully live ensemble: core + uniform weak-case FastVLM.
 
-    Returns a dict with ``prediction`` and ``reason`` so the harness / UI can
-    show whether VLM ran. (String-only return is still accepted by the runner.)
+    Returns ``{prediction, reason}`` for harness visibility.
     """
     candidates: List[Dict[str, Any]] = list(case.get("nearby_candidates") or [])
     if not candidates:
@@ -141,76 +201,42 @@ def predict(case: Dict[str, Any]) -> Union[str, Dict[str, Any]]:
     reason = core["reason"]
     pred_acc = core["pred_acc"]
     nearest = _nearest(candidates)
-    vlm_notes: List[str] = []
 
-    # --- Stage A: list_fit disagreement wins without VLM ---
+    # Strong OCR / list_fit disagreement: do not second-guess with VLM.
     if reason == "list_fit":
         return {"prediction": pred, "reason": reason}
 
-    # --- Stage B: place_match cascade on weak cases ---
-    if _should_cascade(pred_acc, nearest, candidates):
-        cas_cands = candidates[:CASCADE_K]
-        out = vlm.infer(case, cas_cands, style="place_match")
-        if out.get("ok") and (out.get("prediction") or "").strip():
-            cas_pred = (out["prediction"] or "").strip()
-            if cas_pred and _norm(cas_pred) != _norm(pred_acc or pred):
-                pred, reason = cas_pred, "vlm_cascade"
-            elif cas_pred:
-                pred, reason = cas_pred, "vlm_cascade_agree"
-            vlm_notes.append(out.get("reason") or "vlm_cascade")
+    if _should_call_vlm(pred_acc, nearest, candidates):
+        vlm_cands = candidates[:VLM_K]
+        out = vlm.infer(case, vlm_cands, style=VLM_STYLE)
+        note = out.get("reason") or ""
+        if note in (
+            "vlm_unavailable",
+            "vlm_image_missing",
+            "vlm_cache_missing",
+            "vlm_mode_off",
+        ):
+            reason = f"{reason}+{note}"
         else:
-            note = out.get("reason") or "vlm_cascade_failed"
-            vlm_notes.append(note)
-            # Honest degrade: keep core, surface missing VLM in reason.
-            if note in (
-                "vlm_unavailable",
-                "vlm_image_missing",
-                "vlm_cache_missing",
-                "vlm_mode_off",
-            ):
-                reason = f"{reason}+{note}"
+            raw = out.get("raw_output") or ""
+            # Prefer parse on shortlist; fall back to full list for name match only.
+            name = _high_confidence_vlm_name(raw, vlm_cands, pred)
+            if not name and raw:
+                name = _high_confidence_vlm_name(raw, candidates, pred)
+            name = _canonical_candidate(name, candidates) if name else ""
+            if name and _norm(name) != _norm(pred):
+                pred, reason = name, "vlm_skill"
+            elif note == "vlm_cache_hit" and out.get("ok"):
+                # Cache hit that agrees with core or failed parse — keep core.
+                reason = reason
+            # else: UNKNOWN / ambiguous → keep access_ocr (no forced override)
 
-    # --- Stage C: structure refine (same as stitch_loop70) ---
-    if reason != "list_fit" and pred:
+    if pred:
         try:
             refined = lf._refine_structure(candidates, pred)
         except Exception:
             refined = pred
         if refined and refined != pred:
             pred, reason = refined, "structure_refine"
-
-    # --- Stage D: residual free-text skill recovery ---
-    if _should_residual(pred, nearest, reason):
-        res_cands = candidates[:RESIDUAL_K]
-        out = vlm.infer(case, res_cands, style="skill")
-        raw = out.get("raw_output") or ""
-        name = ""
-        if out.get("ok") or raw:
-            name = (out.get("prediction") or "").strip()
-            if not name and raw:
-                name = vlm.recover_name(raw, candidates)
-        if name and _norm(name) != _norm(pred) and len(_norm(name)) >= 5:
-            # Only accept if name maps to a real candidate (canonical spelling).
-            for c in candidates:
-                if _norm(c.get("name") or "") == _norm(name):
-                    name = (c.get("name") or "").strip()
-                    break
-            else:
-                # recover_name already returns candidate names when successful
-                if _norm(name) not in {_norm(c.get("name") or "") for c in candidates}:
-                    name = ""
-            if name:
-                pred, reason = name, "vlm_freetext_recover"
-                vlm_notes.append(out.get("reason") or "vlm_residual")
-        else:
-            note = out.get("reason") or "vlm_residual_noop"
-            vlm_notes.append(note)
-            if note in (
-                "vlm_unavailable",
-                "vlm_image_missing",
-                "vlm_cache_missing",
-                "vlm_mode_off",
-            ) and "+" not in reason:
-                reason = f"{reason}+{note}"
 
     return {"prediction": pred, "reason": reason}

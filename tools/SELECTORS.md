@@ -9,7 +9,7 @@ run JSON under `poi-data/generated/runs/`.
 |---|---|---|---|
 | `baseline-nearest` v1 | MapKit distance rank-1 | **38%** (63/166) | `examples/baseline_nearest.py` |
 | `mapkit-baseline` v1 | Bloggo weighted + unique OCR override | **39%** (64/166) | `examples/mapkit_ocr_override.py` (+ weighted/policy) |
-| `mapkit-baseline` v2 | Live OCR + FastVLM cascade + free-text residual | **48%** / **68%** canonical (80/166) | `examples/mapkit_baseline_v2.py` + `mapkit_vlm_live.py` (bundle: `ensemble_v2`) |
+| `mapkit-baseline` v2 | Fully live list_fit + FastVLM skill on weak cases | seed archive **48%** / **68%**; re-run is live | `examples/mapkit_baseline_v2.py` + `mapkit_vlm_live.py` (bundle: `ensemble_v2`) |
 
 Rebuild: `python3 tools/pack_seed_bundle.py --clean` (curates these three automatically).
 
@@ -66,9 +66,17 @@ POI_VLM_MODE=off python3 tools/run_algorithm.py …
 |---|---|---|
 | `POI_PREDICT_PYTHON` | auto: `poi-data/tools/fastvlm-venv/bin/python` if present | Interpreter for `predict()` subprocess |
 | `POI_VLM_MODE` | `live` | `live` \| `off` \| `cache_first` |
-| `POI_VLM_CACHE` | `poi-data/generated/mapkit_baseline_v2_live_cache.jsonl` | Write-through cache |
+| `POI_VLM_CACHE` | `…/mapkit_baseline_v2_live_cache.jsonl` | Memo of live calls (delete to re-infer) |
 | `POI_FASTVLM_REPO` / `POI_FASTVLM_MODEL` | under `poi-data/tools/ml-fastvlm/…` | Model paths |
 | `POI_DATA_DIR` | auto | Photo + model root (harness injects if unset) |
+
+**Reproducibility contract (v2):** every eligible case uses the same rule —
+list_fit if it disagrees with access_ocr, else live FastVLM skill@K5 when
+access≈nearest. Override only on short, non-hedged, unambiguous answers
+(long free-text / “however closest is…” refused). No curated residual photo
+list and no published prediction JSONL in the decision path. Write-through
+cache is memoization only. Seed JSON 48%/68% is a historical archive; live
+re-run (current 160-eligible) is measured separately.
 
 ## Historical name map
 

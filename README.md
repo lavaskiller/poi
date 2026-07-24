@@ -81,6 +81,7 @@ python3 -m unittest discover -s tests -v
 | `POI_RUN_TIMEOUT_S` | *(none)* | Optional wall-clock timeout for algorithm subprocesses |
 | `POI_PREDICT_PYTHON` | auto (`fastvlm-venv` if present) | Interpreter for `predict()` (needed for live FastVLM) |
 | `POI_VLM_MODE` | `live` | `live` / `off` / `cache_first` for mapkit-baseline v2 |
+| `POI_VLM_CACHE` | auto under `generated/` | Live FastVLM memo (not a curated residual list) |
 | `POI_SKIP_GIT_SYNC_CHECK` | *(empty)* | Set `1` to skip the boot-time “behind origin?” gate |
 | `POI_SKIP_DEPS_CHECK` | *(empty)* | Set `1` to skip requirements / Swift gate (not recommended) |
 | `POI_GIT_STATUS_TTL_S` | `30` | Cache TTL (seconds) for `/api/git-status` |

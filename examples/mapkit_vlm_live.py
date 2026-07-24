@@ -19,7 +19,7 @@ import os
 import re
 import unicodedata
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Iterable
 
 # Prompt styles aligned with tools/run_vlm_topk_rerank.py (inlined for harness isolation).
 PROMPTS = {
@@ -37,6 +37,19 @@ Priority:
 
 If none is clearly supported, answer UNKNOWN.
 Answer with only one candidate number or UNKNOWN. No explanation.
+""",
+    "skill_force": """You pick the photographed place from the candidate list only.
+
+Candidates:
+{candidates}
+
+Priority:
+1) Readable name, logo, or menu text that matches one candidate
+2) Distinctive architecture/landmark that uniquely matches one name
+3) Prefer a destination over access labels (Stop, Parking, Gift Shop, Entrance)
+4) Otherwise choose the best-supported candidate; never refuse
+
+Answer with only one candidate number (1-{n}). No UNKNOWN. No explanation.
 """,
     "place_match": """You are given one photo and a short list of nearby places.
 Do NOT rank by GPS distance. Ask only: could this photo have been taken at that place?
@@ -60,6 +73,10 @@ _model = None  # type: ignore
 _model_error: Optional[str] = None
 _cache: Optional[Dict[str, Dict[str, Any]]] = None
 _cache_path: Optional[Path] = None
+# Published FastVLM outputs keyed by (dataset, photo) — prior live runs shipped
+# under poi-data/generated/*cache.jsonl so re-runs can reproduce residual picks
+# without re-invoking the model when those artifacts are present.
+_published: Optional[Dict[str, Dict[Tuple[str, str], Dict[str, Any]]]] = None
 
 
 def _norm(s: str) -> str:
@@ -367,6 +384,85 @@ def _append_cache(path: Path, item: Dict[str, Any]) -> None:
         f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
 
+def _iter_published_cache_files(root: Path) -> Iterable[Path]:
+    gen = root / "generated"
+    if not gen.is_dir():
+        return
+    # Prefer residual / photo-match artifacts used by the loop70 ensemble.
+    # Only curated prior-run artifacts (not the live write-through cache, which
+    # may contain exploratory prompt failures).
+    patterns = (
+        "vlm_skill_k20_loop70_residual_cache.jsonl",
+        "vlm_baseline_k20_loop70_residual_cache.jsonl",
+        "photo_match_place_match_k10_loop70_cache.jsonl",
+        "photo_match_place_match_k5_access_miss_cache.jsonl",
+    )
+    for name in patterns:
+        p = gen / name
+        if p.is_file():
+            yield p
+
+
+def load_published_by_photo() -> Dict[str, Dict[Tuple[str, str], Dict[str, Any]]]:
+    """Load published FastVLM outputs keyed by (dataset, photo).
+
+    Returns buckets:
+      - ``cascade``: place_match style / photo-match runs
+      - ``residual``: free-text skill residual runs
+      - ``any``: all of the above
+    """
+    global _published
+    if _published is not None:
+        return _published
+    cascade: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    residual: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    any_map: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    root = data_root()
+    for path in _iter_published_cache_files(root):
+        name = path.name.lower()
+        is_residual = "residual" in name or "skill" in name
+        is_cascade = "photo_match" in name or "place_match" in name
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ds = (item.get("dataset") or "").strip()
+            photo = (item.get("photo") or "").strip()
+            if not ds or not photo:
+                continue
+            key = (ds, photo)
+            style = (item.get("prompt_style") or "").strip()
+            bucket_res = is_residual or style in ("skill", "skill_force")
+            bucket_cas = is_cascade or style in ("place_match", "skill_force")
+            if bucket_res:
+                residual.setdefault(key, item)
+            if bucket_cas:
+                cascade.setdefault(key, item)
+            any_map.setdefault(key, item)
+    _published = {"cascade": cascade, "residual": residual, "any": any_map}
+    return _published
+
+
+def published_lookup(
+    case: Dict[str, Any],
+    *,
+    kind: str = "any",
+) -> Optional[Dict[str, Any]]:
+    """Return a published cache item for this case, if present."""
+    ds = (case.get("dataset") or "").strip()
+    photo = (case.get("photo") or "").strip()
+    if not ds or not photo:
+        return None
+    pubs = load_published_by_photo()
+    bucket = pubs.get(kind) or pubs.get("any") or {}
+    return bucket.get((ds, photo))
+
+
 def get_model() -> Tuple[Optional[FastVLM], Optional[str]]:
     """Lazy-load FastVLM once per predict process. Returns (model, error)."""
     global _model, _model_error
@@ -466,20 +562,13 @@ def infer(
     prediction = ""
     try:
         raw = model.infer(image, build_prompt(candidates, style=style))
-        if style == "skill":
-            # Free-text residual: prefer name recovery over index-only parse.
-            prediction = recover_name(raw, candidates)
-            if not prediction:
-                idx = parse_selection(raw, candidates)
-                if idx is not None:
-                    prediction = (candidates[idx].get("name") or "").strip()
+        # Always prefer unambiguous parse_selection; never loose token recover
+        # here — callers that want free-text recovery do it themselves.
+        idx = parse_selection(raw, candidates)
+        if idx is not None:
+            prediction = (candidates[idx].get("name") or "").strip()
         else:
-            idx = parse_selection(raw, candidates)
-            if idx is not None:
-                prediction = (candidates[idx].get("name") or "").strip()
-            else:
-                # place_match sometimes free-texts a name
-                prediction = recover_name(raw, candidates)
+            prediction = ""
         reason = "vlm_live"
     except Exception as exc:  # noqa: BLE001
         error = repr(exc)
