@@ -306,19 +306,24 @@ def _copy_seed_generated(seed_dir, dest_root):
     return n
 
 
-def _apply_seed_bundle(zip_bytes):
+def _apply_seed_bundle(zip_bytes, force=False):
     """Materialize a drag-and-dropped seed-bundle ZIP into the live data root.
 
     Accepts the same shape as poi-data-seed/ (files at the ZIP root or nested
     under a single top folder): eval_set_reconciled.csv (required),
     dashboard_config.json (optional), generated/runs/*.json (optional),
     and photo trees under known photo_dir prefixes (optional, for image
-    display). Safe against zip-slip and zip-bombs; idempotent; never overwrites
-    the tracked repo config template.
+    display). Safe against zip-slip and zip-bombs; never overwrites the
+    tracked repo config template.
+
+    When the live root already has an eval CSV, returns ``already seeded``
+    unless ``force=True`` (re-apply / replace seed data).
+
     Returns a JSON-ready dict with a ``code`` for the HTTP status.
     """
-    if os.path.isfile(CSV_PATH):
-        return {"ok": True, "message": "already seeded", "code": 200}
+    if os.path.isfile(CSV_PATH) and not force:
+        return {"ok": True, "message": "already seeded", "code": 200,
+                "already_seeded": True}
     try:
         zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
     except zipfile.BadZipFile:
@@ -397,14 +402,16 @@ def _apply_seed_bundle(zip_bytes):
             photos += 1
 
     rows, _ = _seed_preset_summary(DIRECTORY)
-    msg = f"seeded from upload ({rows} rows · {runs} baselines"
+    verb = "re-seeded" if force else "seeded"
+    msg = f"{verb} from upload ({rows} rows · {runs} baselines"
     if photos:
         msg += f" · {photos} photos"
     if generated:
         msg += f" · {generated} generated files"
     msg += ")"
     return {"ok": True, "rows": rows, "runs": runs, "photos": photos,
-            "generated_files": generated, "message": msg, "code": 200}
+            "generated_files": generated, "message": msg, "forced": bool(force),
+            "code": 200}
 
 
 def _parse_source_candidate_text(value):
@@ -2957,8 +2964,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._send_api_error("internal_error", 500)
 
     def _handle_seed(self):
-        """Onboarding: materialize the bundled seed (initial dataset + baseline
-        runs) into the data dir when the install is empty. Idempotent."""
+        """Materialize the on-disk seed bundle into the live data root.
+
+        Default is idempotent (no-op when CSV already exists). Pass
+        ``{"force": true}`` to re-apply — overwrites CSV, config, label
+        relations, generated runs/candidates, and seed photos.
+        """
         import shutil
         raw = self._read_body(1024 * 1024)
         if raw is None:
@@ -2968,6 +2979,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception:
             payload = {}
         preset = (payload or {}).get("preset", "default")
+        force = bool((payload or {}).get("force"))
         if not os.path.isdir(SEED_DIR):
             self._send_json(
                 {"ok": False, "message": f"seed bundle not found — place it at {os.path.relpath(SEED_DIR, REPO_DIR)}/"},
@@ -2977,11 +2989,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if seed_dir is None:
             self._send_json({"ok": False, "message": f"unknown or unavailable seed preset '{preset}'"}, code=400)
             return
-        if os.path.isfile(CSV_PATH):
-            self._send_json({"ok": True, "message": "already seeded"}, code=200)
+        if os.path.isfile(CSV_PATH) and not force:
+            self._send_json({
+                "ok": True,
+                "message": "already seeded (pass force:true to re-apply)",
+                "already_seeded": True,
+            }, code=200)
             return
         try:
             os.makedirs(DIRECTORY, exist_ok=True)
+            copied = []
             for name in (
                 "eval_set_reconciled.csv",
                 "dashboard_config.json",
@@ -2995,12 +3012,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     continue
                 if os.path.isfile(src):
                     shutil.copy2(src, dst)
+                    copied.append(name)
             # Runs + MapKit candidate snapshots (Case nearby list / predict).
             n_gen = _copy_seed_generated(seed_dir, DIRECTORY)
             # Photos (optional in older seeds; required for case images).
             n_photos, photo_bytes = _copy_seed_photos(seed_dir, DIRECTORY)
-            msg = f"seeded from {preset}"
+            verb = "re-seeded" if force else "seeded"
+            msg = f"{verb} from {preset}"
             bits = []
+            if copied:
+                bits.append("files: " + ", ".join(copied))
             if n_photos:
                 bits.append(f"{n_photos} photos · {photo_bytes / (1024 * 1024):.1f} MiB")
             else:
@@ -3012,6 +3033,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             msg += " (" + "; ".join(bits) + ")"
             self._send_json({
                 "ok": True, "message": msg,
+                "forced": force,
+                "files": copied,
                 "photos": n_photos, "photos_bytes": photo_bytes,
                 "generated_files": n_gen,
             }, code=200)
@@ -3019,15 +3042,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._send_json({"ok": False, "message": str(e)}, code=500)
 
     def _handle_seed_upload(self):
-        """Onboarding: materialize a drag-and-dropped seed-bundle ZIP.
+        """Materialize a drag-and-dropped seed-bundle ZIP.
 
         The raw request body is the ZIP (mirrors /api/ingest). Extraction is
-        whitelisted and zip-slip/zip-bomb safe (see _apply_seed_bundle)."""
+        whitelisted and zip-slip/zip-bomb safe (see _apply_seed_bundle).
+        Query ``?force=1`` re-applies over an existing install.
+        """
         upload = self._read_body(_SEED_MAX_TOTAL_BYTES)
         if upload is None:
             return
+        from urllib.parse import urlparse, parse_qs
+        q = parse_qs(urlparse(self.path).query)
+        force = (q.get("force", ["0"])[0] or "").strip().lower() in ("1", "true", "yes", "y")
         try:
-            result = _apply_seed_bundle(upload)
+            result = _apply_seed_bundle(upload, force=force)
         except Exception as e:
             self.log_error("seed upload failed: %s", e)
             self._send_json({"ok": False, "message": str(e)}, code=500)

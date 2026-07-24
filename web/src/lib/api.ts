@@ -649,31 +649,62 @@ export const api = {
   },
 
   /**
-   * Onboarding: upload a seed-bundle ZIP (drag-and-drop). The ZIP mirrors
-   * poi-data-seed/ — eval_set_reconciled.csv (required), dashboard_config.json,
-   * generated/runs/*.json. Extraction is whitelisted + zip-slip safe server-side.
+   * Upload a seed-bundle ZIP (drag-and-drop). Mirrors poi-data-seed/:
+   * eval_set_reconciled.csv, dashboard_config.json, eval_label_relations,
+   * generated/runs + MapKit candidates, photos. Whitelisted + zip-slip safe.
+   * ``force`` re-applies over an existing install.
    */
-  async seedUpload(file: File): Promise<{ ok: boolean; message?: string }> {
-    const res = await fetch("/api/seed/upload", {
+  async seedUpload(
+    file: File,
+    opts: { force?: boolean } = {},
+  ): Promise<{ ok: boolean; message?: string; forced?: boolean; already_seeded?: boolean }> {
+    const qs = opts.force ? "?force=1" : "";
+    const res = await fetch(`/api/seed/upload${qs}`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/zip" }),
       body: file,
     });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      message?: string;
+      forced?: boolean;
+      already_seeded?: boolean;
+    };
     if (!res.ok) throw new Error(data.message || `/api/seed/upload → HTTP ${res.status}`);
-    return { ok: data.ok ?? true, message: data.message };
+    return {
+      ok: data.ok ?? true,
+      message: data.message,
+      forced: data.forced,
+      already_seeded: data.already_seeded,
+    };
   },
 
-  /** Inject the bundled onboarding seed (initial dataset + baseline runs). */
-  async seed(preset: string): Promise<{ ok: boolean; message?: string }> {
+  /**
+   * Apply the on-disk seed bundle (repo ``poi-data-seed/``).
+   * ``force: true`` overwrites live eval data (CSV, relations, runs, photos).
+   */
+  async seed(
+    preset: string,
+    opts: { force?: boolean } = {},
+  ): Promise<{ ok: boolean; message?: string; forced?: boolean; already_seeded?: boolean }> {
     const res = await fetch("/api/seed", {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ preset }),
+      body: JSON.stringify({ preset, force: !!opts.force }),
     });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      message?: string;
+      forced?: boolean;
+      already_seeded?: boolean;
+    };
     if (!res.ok) throw new Error(data.message || `/api/seed → HTTP ${res.status}`);
-    return { ok: data.ok ?? true, message: data.message };
+    return {
+      ok: data.ok ?? true,
+      message: data.message,
+      forced: data.forced,
+      already_seeded: data.already_seeded,
+    };
   },
 
   /** Submit a predict() script and score it. May take minutes for full cohorts. */

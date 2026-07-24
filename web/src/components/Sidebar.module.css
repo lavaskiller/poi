@@ -86,6 +86,140 @@
 
 .spacer {
   flex: 1 0 0;
+  min-height: 8px;
+}
+
+/* re-apply seed (bottom-left) */
+.seedPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+.seedToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--text-secondary);
+}
+.seedToggle:hover {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+.seedToggleTitle {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.seedToggleHint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.seedBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--border-default);
+  padding-top: 10px;
+}
+.seedDesc {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+}
+.seedConfirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--warning-fg, var(--text-secondary));
+  cursor: pointer;
+}
+.seedConfirm input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.seedLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.seedSelect {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+}
+.seedBtn,
+.seedBtnSecondary {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+}
+.seedBtn {
+  background: var(--accent-default);
+  color: var(--text-on-accent, #fff);
+}
+.seedBtn:disabled,
+.seedBtnSecondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.seedBtnSecondary {
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+}
+.seedPath {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--text-tertiary);
+}
+.seedPath code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.seedOr {
+  font-size: 10px;
+  text-align: center;
+  color: var(--text-tertiary);
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+}
+.seedMsg {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--success-fg);
+}
+.seedErr {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--danger-fg);
 }
 
 /* status */
