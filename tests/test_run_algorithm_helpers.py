@@ -328,6 +328,31 @@ class PredictEnvTests(unittest.TestCase):
             self.assertEqual(preds[0].get("prediction"), "Banff Gondola")
 
 
+class SeedOcrPackTests(unittest.TestCase):
+    def test_backfill_and_write_ocr_tsv(self):
+        from pathlib import Path
+
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+        import pack_seed_bundle as pack  # noqa: E402
+
+        with tempfile.TemporaryDirectory() as td:
+            csv_path = os.path.join(td, "eval_set_reconciled.csv")
+            with open(csv_path, "w", encoding="utf-8", newline="") as f:
+                f.write("dataset,photo,caption_ondevice,gt_mapkit\n")
+                f.write("vancouver,a.jpg,,Place A\n")
+                f.write("vancouver,b.jpg,already here,Place B\n")
+            ocr_map = {"a.jpg": "HELLO SIGN", "b.jpg": "ignored"}
+            stats = pack.backfill_caption_ondevice(Path(csv_path), ocr_map)
+            self.assertEqual(stats["ocr_backfilled"], 1)
+            self.assertEqual(stats["ocr_filled_after"], 2)
+            n = pack.write_ocr_tsv(Path(csv_path), Path(td) / "ocr_text.tsv")
+            self.assertEqual(n, 2)
+            with open(os.path.join(td, "ocr_text.tsv"), encoding="utf-8") as fh:
+                body = fh.read()
+            self.assertIn("HELLO SIGN", body)
+            self.assertIn("already here", body)
+
+
 class LiveStreamingRunTests(unittest.TestCase):
     def test_on_pred_called_per_case(self):
         script = (
