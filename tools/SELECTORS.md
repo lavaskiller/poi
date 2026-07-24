@@ -3,6 +3,10 @@
 Role-based names (preferred). Old exploratory names remain only in historical
 run JSON under `poi-data/generated/runs/`.
 
+**How the current best ensemble works (readable walkthrough):**
+[`docs/best-algorithm-loop70.md`](../docs/best-algorithm-loop70.md)
+— offline `selector-loop70` (highest scored) and live twin `mapkit-baseline` v2.
+
 ## Seed baselines (default `pack_seed_bundle.py`)
 
 | Run | Role | Published metrics (166 eligible) | Code |

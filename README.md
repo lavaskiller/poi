@@ -6,7 +6,8 @@ Internal tool for **evaluating POI (point-of-interest) prediction algorithms**.
 - **Frontend:** `web/` (React + Vite) → UI on port **5173** (proxies `/api` → backend)
 
 This README is the **onboarding path** for a new machine. Deeper notes:
-[`docs/onboarding.md`](docs/onboarding.md) · algorithm details: [`tools/SELECTORS.md`](tools/SELECTORS.md).
+[`docs/onboarding.md`](docs/onboarding.md) · algorithm details: [`tools/SELECTORS.md`](tools/SELECTORS.md) ·
+**best ensemble explained:** [`docs/best-algorithm-loop70.md`](docs/best-algorithm-loop70.md).
 
 ---
 
