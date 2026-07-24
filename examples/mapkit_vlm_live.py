@@ -118,10 +118,20 @@ def check_live_ready() -> Optional[str]:
         import torch  # type: ignore
     except ImportError:
         py = sys.executable
+        prefix = getattr(sys, "prefix", "")
+        data = data_root()
+        expected = data / "tools" / "fastvlm-venv" / "bin" / "python"
         return (
-            f"torch is not importable in this predict interpreter ({py}). "
-            "Point POI_PREDICT_PYTHON at poi-data/tools/fastvlm-venv/bin/python "
-            "(or install torch+MPS there). Or set POI_VLM_MODE=off for deterministic core only."
+            f"torch is not importable in this predict interpreter "
+            f"(executable={py}, prefix={prefix}). "
+            f"Harness auto-selects $POI_DATA_DIR/tools/fastvlm-venv when that "
+            f"venv exists and contains torch; looked under POI_DATA_DIR={data}. "
+            f"Expected venv python: {expected} "
+            f"(exists={expected.is_file()}). "
+            "Fix: from THIS checkout run `bash tools/setup_fastvlm.sh`, "
+            "or `export POI_PREDICT_PYTHON=/path/to/fastvlm-venv/bin/python` "
+            "pointing at a venv that has torch+MPS, then restart the server. "
+            "Or POI_VLM_MODE=off for deterministic core only."
         )
     if not getattr(torch.backends, "mps", None) or not torch.backends.mps.is_available():
         return (

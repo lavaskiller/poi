@@ -202,16 +202,31 @@ export interface CaseCandidate {
   /** true when rank is within the linked run's candidate_limit */
   in_run_window?: boolean;
 }
+export interface LabelRelationState {
+  accepted_aliases: string[];
+  relations: { name?: string; relation?: string; credit?: number }[];
+  gt_canonical_name: string;
+  evidence: string;
+}
+
 export interface CaseDetail {
   dataset: string;
   photo: string;
   image: string;
   gt: string;
   gt_mapkit: string;
+  /** Provider GT used for scoring (live). */
+  score_gt?: string;
   prediction: string;
   reason: string;
   match_kind: string;
   correct: boolean;
+  correct_canonical?: boolean;
+  matched_label?: string;
+  run_match_kind?: string;
+  run_correct?: boolean;
+  provider?: string;
+  label_relation?: LabelRelationState;
   run: { name: string; version: number } | null;
   /** Run's nearby top-K window (what predict() saw), when known */
   candidate_limit?: number | null;
@@ -222,6 +237,21 @@ export interface CaseDetail {
   lon: string;
   signals: { gps: string; ocr: string; nearby: string; category: string };
   candidates: CaseCandidate[];
+}
+
+export interface LabelRelationsResult {
+  ok: boolean;
+  action?: string;
+  message?: string;
+  removed_alias?: boolean;
+  removed_related?: boolean;
+  record?: Record<string, unknown> | null;
+  live_match?: {
+    correct_strict?: boolean;
+    correct_canonical?: boolean;
+    match_kind?: string;
+    matched_label?: string;
+  };
 }
 
 export interface SignalCoverageMetric {
@@ -612,6 +642,35 @@ export const api = {
     if (runName) qs.set("run_name", runName);
     if (version != null) qs.set("version", String(version));
     return getJSON<CaseDetail>(`/api/case?${qs.toString()}`);
+  },
+
+  /**
+   * Review canonical scoring credit for one case (writes eval_label_relations.v1.jsonl).
+   * action: alias | related | remove
+   */
+  async labelRelations(body: {
+    action: "alias" | "related" | "remove";
+    dataset: string;
+    photo: string;
+    name: string;
+    provider?: string;
+    gt_canonical_name?: string;
+    score_gt?: string;
+    prediction?: string;
+    relation?: string;
+    credit?: number;
+    kind?: "alias" | "related" | "auto";
+  }): Promise<LabelRelationsResult> {
+    const res = await fetch("/api/label-relations", {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json()) as LabelRelationsResult & { message?: string };
+    if (!res.ok) {
+      throw new Error(data.message || `/api/label-relations → HTTP ${res.status}`);
+    }
+    return data;
   },
 
   /**

@@ -321,31 +321,98 @@ def _host_runtime_info() -> Dict[str, Any]:
     }
 
 
-def _default_predict_python() -> str:
-    """Interpreter for predict subprocesses.
+def _python_has_torch(py_path: str) -> bool:
+    """True if *py_path* can import torch (venv site-packages or probe).
 
-    Preference:
-      1. ``POI_PREDICT_PYTHON`` if set and executable
-      2. ``poi-data/tools/fastvlm-venv/bin/python`` when present (torch+MPS)
-      3. ``sys.executable`` (server / host Python)
-
-    Live mapkit-baseline v2 FastVLM needs the FastVLM venv; deterministic
-    algorithms still run correctly under that interpreter.
+    Prefer a cheap filesystem check for venvs; fall back to a short subprocess
+    for non-venv interpreters (or broken layout).
     """
-    explicit = (os.environ.get("POI_PREDICT_PYTHON") or "").strip()
-    if explicit and os.path.isfile(explicit) and os.access(explicit, os.X_OK):
-        return explicit
+    if not py_path or not os.path.isfile(py_path):
+        return False
+    # Standard venv layout: <venv>/bin/python → <venv>/lib/pythonX.Y/site-packages
+    venv_root = os.path.dirname(os.path.dirname(os.path.abspath(py_path)))
+    try:
+        import glob as _glob
+        if _glob.glob(os.path.join(venv_root, "lib", "python*", "site-packages", "torch", "__init__.py")):
+            return True
+        # Also homebrew / framework installs sometimes put torch next to the binary.
+        if _glob.glob(os.path.join(venv_root, "lib", "python*", "site-packages", "torch", "__init__.py")):
+            return True
+    except Exception:
+        pass
+    try:
+        probe = subprocess.run(
+            [py_path, "-c", "import torch"],
+            capture_output=True,
+            timeout=20,
+            env={**os.environ, "PYTHONNOUSERSITE": "1"},
+        )
+        return probe.returncode == 0
+    except Exception:
+        return False
+
+
+def _fastvlm_python_candidates() -> List[str]:
+    """Ordered interpreter paths that might host FastVLM (torch+MPS)."""
     try:
         data_root = ms.resolve_data_root()
     except Exception:
         data_root = os.path.join(_REPO_ROOT, "poi-data")
-    for cand in (
-        os.path.join(data_root, "tools", "fastvlm-venv", "bin", "python"),
-        os.path.join(_REPO_ROOT, "poi-data", "tools", "fastvlm-venv", "bin", "python"),
-    ):
-        if os.path.isfile(cand) and os.access(cand, os.X_OK):
-            return cand
-    return sys.executable
+    explicit = (os.environ.get("POI_PREDICT_PYTHON") or "").strip()
+    cands: List[str] = []
+    if explicit:
+        cands.append(explicit)
+    for root in (data_root, os.path.join(_REPO_ROOT, "poi-data")):
+        cands.append(os.path.join(root, "tools", "fastvlm-venv", "bin", "python"))
+        cands.append(os.path.join(root, "tools", "fastvlm-venv", "bin", "python3"))
+    cands.append(sys.executable)
+    # De-dupe while preserving order.
+    seen = set()
+    out: List[str] = []
+    for c in cands:
+        if not c:
+            continue
+        key = os.path.abspath(c)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(c)
+    return out
+
+
+def _default_predict_python() -> str:
+    """Interpreter for predict subprocesses.
+
+    Preference:
+      1. ``POI_PREDICT_PYTHON`` if set, executable, and (when possible) has torch
+      2. ``$POI_DATA_DIR/tools/fastvlm-venv/bin/python`` with torch installed
+      3. repo ``poi-data/tools/fastvlm-venv`` with torch
+      4. ``sys.executable`` (server Python) — last resort; live VLM will fail-loud
+         if torch is missing
+
+    Important: the venv must live under **this checkout's** data root (or be
+    pointed at via ``POI_PREDICT_PYTHON``). A server started from another clone
+    will not magically find a sibling checkout's venv.
+    """
+    cands = _fastvlm_python_candidates()
+    executable = [
+        c for c in cands
+        if os.path.isfile(c) and os.access(c, os.X_OK)
+    ]
+    if not executable:
+        return sys.executable
+
+    # Prefer an interpreter that actually has torch (real FastVLM host).
+    for c in executable:
+        if _python_has_torch(c):
+            return c
+
+    # Explicit POI_PREDICT_PYTHON always wins as a path even without torch so
+    # misconfiguration is visible; otherwise first existing path / system.
+    explicit = (os.environ.get("POI_PREDICT_PYTHON") or "").strip()
+    if explicit and os.path.isfile(explicit) and os.access(explicit, os.X_OK):
+        return explicit
+    return executable[0]
 
 
 def _predict_env(submission_dir: Optional[str] = None) -> Dict[str, str]:

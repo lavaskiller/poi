@@ -36,6 +36,7 @@ API_FEATURES = (
     "overview",
     "case",
     "mapkit-probe",
+    "label-relations",
 )
 
 # Data root. Resolution order:
@@ -850,15 +851,56 @@ def case_detail(dataset, photo, run_name=None, version=None):
     nearby_signal = (row.get("app_nearby_n_wide") or "").strip()
     if not nearby_signal and cand_meta.get("total"):
         nearby_signal = str(cand_meta["total"])
+    gt_input = (row.get("input_place_name") or "").strip()
+    gt_mapkit = (row.get("gt_mapkit") or "").strip()
+    prediction = (pred.get("prediction") or "").strip()
+    provider = provider_for_row(row, match_score.load_config(config_read_path()))
+    # Scoring GT = provider resolution (same as algorithm harness).
+    score_gt, _gt_status = gt_resolution(row, provider)
+    if not score_gt:
+        score_gt = gt_mapkit if gt_mapkit and gt_mapkit != "NON_MAPKIT" else gt_input
+    # Live re-score against current label-relations sidecar so UI credit
+    # updates immediately after Accept alias / Related (run JSON stays frozen).
+    rels = match_score.load_label_relations()
+    live = match_score.match_prediction(
+        score_gt,
+        prediction,
+        dataset=dataset,
+        photo=photo,
+        provider=provider or "mapkit",
+        mode="exact",
+        relations=rels,
+    )
+    rel_rec = match_score.get_label_relation_record(
+        dataset, photo, provider or "mapkit"
+    )
     return {
         "dataset": dataset, "photo": photo,
         "image": f"/api/poi-case-photo?dataset={urllib.parse.quote(dataset)}&photo={urllib.parse.quote(photo)}",
-        "gt": (row.get("input_place_name") or "").strip(),
-        "gt_mapkit": (row.get("gt_mapkit") or "").strip(),
-        "prediction": pred.get("prediction", ""),
+        "gt": gt_input,
+        "gt_mapkit": gt_mapkit,
+        "score_gt": score_gt,
+        "prediction": prediction,
         "reason": pred.get("reason", ""),
-        "match_kind": pred.get("match_kind", ""),
-        "correct": bool(pred.get("correct")),
+        # Prefer live match_kind so credit actions refresh without re-running.
+        "match_kind": live.get("match_kind") or pred.get("match_kind", ""),
+        "correct": bool(live.get("correct_strict")),
+        "correct_canonical": bool(live.get("correct_canonical")),
+        "matched_label": live.get("matched_label") or "",
+        "run_match_kind": pred.get("match_kind", ""),
+        "run_correct": bool(pred.get("correct")),
+        "provider": provider or "mapkit",
+        "label_relation": {
+            "accepted_aliases": list((rel_rec or {}).get("accepted_aliases") or []),
+            "relations": list((rel_rec or {}).get("relations") or []),
+            "gt_canonical_name": (rel_rec or {}).get("gt_canonical_name") or "",
+            "evidence": (rel_rec or {}).get("evidence") or "",
+        } if rel_rec else {
+            "accepted_aliases": [],
+            "relations": [],
+            "gt_canonical_name": "",
+            "evidence": "",
+        },
         "run": chosen,
         "candidate_limit": run_limit,
         "candidate_total": cand_meta.get("total", len(cand)),
@@ -3144,6 +3186,113 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         code = result.pop("code", 200 if result.get("ok") else 400)
         self._send_json(result, code=code)
 
+    def _handle_label_relations(self):
+        """Upsert/remove reviewed alias or related credit for canonical scoring.
+
+        Body JSON:
+          action: "alias" | "related" | "remove"
+          dataset, photo, name (required)
+          provider (default mapkit)
+          gt_canonical_name (optional, stored when creating a record)
+          relation (related only, default same_complex)
+          credit (related only, default 1.0)
+          kind (remove only: alias | related | auto)
+        """
+        raw = self._read_body(64 * 1024)
+        if raw is None:
+            raw = b"{}"
+        try:
+            payload = json.loads(raw or b"{}")
+        except Exception:
+            self._send_json({"ok": False, "message": "invalid JSON body"}, code=400)
+            return
+        if not isinstance(payload, dict):
+            self._send_json({"ok": False, "message": "body must be an object"}, code=400)
+            return
+        action = str(payload.get("action") or "").strip().lower()
+        dataset = str(payload.get("dataset") or "").strip()
+        photo = str(payload.get("photo") or "").strip()
+        name = str(payload.get("name") or "").strip()
+        provider = str(payload.get("provider") or "mapkit").strip() or "mapkit"
+        gt_canon = str(
+            payload.get("gt_canonical_name")
+            or payload.get("gt")
+            or payload.get("score_gt")
+            or ""
+        ).strip()
+        if action not in ("alias", "related", "remove"):
+            self._send_json(
+                {"ok": False, "message": "action must be alias, related, or remove"},
+                code=400,
+            )
+            return
+        if not dataset or not photo:
+            self._send_json({"ok": False, "message": "dataset and photo required"}, code=400)
+            return
+        if not name:
+            self._send_json({"ok": False, "message": "name required"}, code=400)
+            return
+        path = match_score.default_label_relations_path()
+        try:
+            if action == "alias":
+                rec = match_score.upsert_label_alias(
+                    dataset=dataset,
+                    photo=photo,
+                    alias=name,
+                    gt_canonical_name=gt_canon,
+                    provider=provider,
+                    path=path,
+                )
+                result = {"ok": True, "action": "alias", "record": rec}
+            elif action == "related":
+                relation = str(payload.get("relation") or "same_complex").strip() or "same_complex"
+                try:
+                    credit = float(payload.get("credit", 1.0))
+                except (TypeError, ValueError):
+                    credit = 1.0
+                rec = match_score.upsert_label_related(
+                    dataset=dataset,
+                    photo=photo,
+                    name=name,
+                    relation=relation,
+                    credit=credit,
+                    gt_canonical_name=gt_canon,
+                    provider=provider,
+                    path=path,
+                )
+                result = {"ok": True, "action": "related", "record": rec}
+            else:
+                kind = str(payload.get("kind") or "auto").strip().lower() or "auto"
+                result = match_score.remove_label_credit(
+                    dataset=dataset,
+                    photo=photo,
+                    name=name,
+                    kind=kind,
+                    provider=provider,
+                    path=path,
+                )
+                result = {"action": "remove", **result}
+            # Live match summary for the current prediction (optional).
+            pred = str(payload.get("prediction") or name).strip()
+            score_gt = gt_canon or str(payload.get("score_gt") or "").strip()
+            if score_gt and pred:
+                rels = match_score.load_label_relations(path)
+                live = match_score.match_prediction(
+                    score_gt,
+                    pred,
+                    dataset=dataset,
+                    photo=photo,
+                    provider=provider,
+                    mode="exact",
+                    relations=rels,
+                )
+                result["live_match"] = live
+            self._send_json(result)
+        except ValueError as e:
+            self._send_json({"ok": False, "message": str(e)}, code=400)
+        except Exception as e:
+            self._send_json({"ok": False, "message": str(e)}, code=500)
+
     def _handle_gt_reconcile_save(self):
         """Persist a manual GT↔MapKit match chosen in the reconciliation UI."""
         raw = self._read_body(1024 * 1024)
@@ -3226,6 +3375,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         route = self.path.split("?")[0]
         if route == "/api/gt/reconcile":
             self._handle_gt_reconcile_save()
+            return
+        if route == "/api/label-relations":
+            self._handle_label_relations()
             return
         if route == "/api/mapkit/probe":
             raw = self._read_body(64 * 1024) or b"{}"

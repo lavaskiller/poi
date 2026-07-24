@@ -136,12 +136,29 @@ export default function CaseInspector() {
   const [probeCands, setProbeCands] = useState<ProbeCand[] | null>(null);
   const [probeRadius, setProbeRadius] = useState<number | null>(null);
 
+  // Canonical credit review (writes eval_label_relations.v1.jsonl).
+  const [creditBusy, setCreditBusy] = useState(false);
+  const [creditMsg, setCreditMsg] = useState<string | null>(null);
+  const [creditErr, setCreditErr] = useState<string | null>(null);
+  const [relationType, setRelationType] = useState("same_complex");
+  /** Local overlay after accept/undo so pills update without full reload race. */
+  const [liveOverlay, setLiveOverlay] = useState<{
+    match_kind?: string;
+    correct?: boolean;
+    correct_canonical?: boolean;
+    matched_label?: string;
+  } | null>(null);
+
   // Drop expand results when navigating to another case.
   useEffect(() => {
     setProbeCands(null);
     setProbeRadius(null);
     setProbeMsg(null);
     setProbing(false);
+    setCreditMsg(null);
+    setCreditErr(null);
+    setLiveOverlay(null);
+    setRelationType("same_complex");
   }, [dataset, photo, runName, version]);
 
   if (!dataset || !photo) {
@@ -163,6 +180,11 @@ export default function CaseInspector() {
     );
 
   const c = state.data;
+  const matchKind = liveOverlay?.match_kind ?? c.match_kind;
+  const isStrictCorrect = liveOverlay?.correct ?? c.correct;
+  const isCanonical =
+    liveOverlay?.correct_canonical ?? c.correct_canonical ?? isStrictCorrect;
+  const matchedLabel = liveOverlay?.matched_label ?? c.matched_label ?? "";
   const candTotal = c.candidate_total ?? c.candidates.length;
   const runLimit = c.candidate_limit ?? null;
   const sparse = candTotal <= SPARSE_CANDIDATE_THRESHOLD;
@@ -170,8 +192,73 @@ export default function CaseInspector() {
     Number.isFinite(parseFloat(c.lat)) && Number.isFinite(parseFloat(c.lon));
   const photoLat = parseFloat(c.lat);
   const photoLon = parseFloat(c.lon);
+  const scoreGt = (c.score_gt || c.gt_mapkit || c.gt || "").trim();
+  const prediction = (c.prediction || "").trim();
+  const canCredit =
+    !!prediction &&
+    !!scoreGt &&
+    normName(prediction) !== normName(scoreGt) &&
+    !isStrictCorrect;
+  const hasPredictionCredit =
+    !!prediction &&
+    ((c.label_relation?.accepted_aliases || []).some(
+      (a) => normName(a) === normName(prediction),
+    ) ||
+      (c.label_relation?.relations || []).some(
+        (r) => normName(r.name || "") === normName(prediction),
+      ) ||
+      ["alias", "related_credit"].includes(matchKind || ""));
 
-  const gtNames = new Set([c.gt_mapkit, c.gt].map(normName).filter(Boolean));
+  async function applyCredit(action: "alias" | "related" | "remove") {
+    if (!prediction || creditBusy) return;
+    setCreditBusy(true);
+    setCreditErr(null);
+    setCreditMsg(null);
+    try {
+      const res = await api.labelRelations({
+        action,
+        dataset: c.dataset,
+        photo: c.photo,
+        name: prediction,
+        provider: c.provider || "mapkit",
+        gt_canonical_name: scoreGt,
+        score_gt: scoreGt,
+        prediction,
+        relation: relationType,
+        credit: 1,
+        kind: "auto",
+      });
+      if (res.live_match) {
+        setLiveOverlay({
+          match_kind: res.live_match.match_kind,
+          correct: !!res.live_match.correct_strict,
+          correct_canonical: !!res.live_match.correct_canonical,
+          matched_label: res.live_match.matched_label || "",
+        });
+      }
+      if (action === "remove") {
+        setCreditMsg(
+          res.ok
+            ? "Removed scoring credit for this prediction."
+            : res.message || "Nothing to remove.",
+        );
+      } else {
+        setCreditMsg(
+          action === "alias"
+            ? "Saved as accepted alias (canonical ✓, strict still counts separately)."
+            : `Saved as related · ${relationType} (canonical credit).`,
+        );
+      }
+      // Soft reload so label_relation lists refresh without a full-page flash.
+      state.softReload();
+    } catch (e) {
+      setCreditErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreditBusy(false);
+    }
+  }
+
+  const gtNames = new Set([c.gt_mapkit, c.gt, scoreGt].map(normName).filter(Boolean));
   const baselineNames = new Set(
     c.candidates.map((x) => normName(x.name)).filter(Boolean),
   );
@@ -203,7 +290,7 @@ export default function CaseInspector() {
   const baseRows = toRowData(c.candidates, {
     gtNames,
     prediction: c.prediction,
-    correct: c.correct,
+    correct: isStrictCorrect,
     runLimit,
   });
 
@@ -213,14 +300,14 @@ export default function CaseInspector() {
       ? toRowData(probeCands, {
           gtNames,
           prediction: c.prediction,
-          correct: c.correct,
+          correct: isStrictCorrect,
           runLimit: null,
           baselineNames,
           appWideM: MAPKIT_WIDE_RADIUS_M,
         })
       : baseRows;
 
-  const mapCands = toMapCands(displayCands, gtNames, c.prediction, c.correct);
+  const mapCands = toMapCands(displayCands, gtNames, c.prediction, isStrictCorrect);
   const mapOuterR = probeRadius ?? MAPKIT_WIDE_RADIUS_M;
   const mapInnerR =
     probeRadius != null ? MAPKIT_WIDE_RADIUS_M : MAPKIT_STRICT_RADIUS_M;
@@ -282,19 +369,28 @@ export default function CaseInspector() {
             <h1 className={styles.h1}>
               {c.dataset} — {c.gt || c.photo}
             </h1>
-            {!c.correct ? (
-              <span className={styles.missPill}>{c.match_kind || "MISS"}</span>
-            ) : (
+            {isStrictCorrect ? (
               <span
                 className={styles.missPill}
                 style={{ background: "var(--success-bg)", color: "var(--success-fg)" }}
               >
-                CORRECT
+                STRICT
+              </span>
+            ) : isCanonical ? (
+              <span
+                className={styles.missPill}
+                style={{ background: "var(--accent-bg, var(--bg-subtle))", color: "var(--accent-default)" }}
+              >
+                CANONICAL · {(matchKind || "alias").toUpperCase()}
+              </span>
+            ) : (
+              <span className={styles.missPill}>
+                {(matchKind || "MISS").toUpperCase()}
               </span>
             )}
           </div>
           <p className={styles.sub}>
-            dataset {c.dataset} · gt_mapkit {c.gt_mapkit || "—"} · photo {c.photo}
+            dataset {c.dataset} · score_gt {scoreGt || "—"} · photo {c.photo}
           </p>
         </div>
         <Link className={styles.navBtn} to="/results">
@@ -401,18 +497,32 @@ export default function CaseInspector() {
         <div className={styles.detailCol}>
           <div
             className={styles.verdict}
-            style={c.correct ? { background: "var(--success-bg)" } : undefined}
+            style={
+              isStrictCorrect || isCanonical
+                ? { background: "var(--success-bg)" }
+                : undefined
+            }
           >
             <p
               className={styles.verdictTitle}
-              style={c.correct ? { color: "var(--success-fg)" } : undefined}
+              style={
+                isStrictCorrect || isCanonical
+                  ? { color: "var(--success-fg)" }
+                  : undefined
+              }
             >
-              {c.correct ? "Correct — prediction matched ground truth" : "Wrong pick"}
+              {isStrictCorrect
+                ? "Correct — strict GT match"
+                : isCanonical
+                  ? "Canonical credit — not strict"
+                  : "Wrong pick"}
             </p>
             <p className={styles.verdictBody}>
-              {c.correct
-                ? `Matched as ${c.match_kind || "exact"}.`
-                : `Predicted “${c.prediction || "— nothing"}” · match kind ${c.match_kind || "—"}.`}
+              {isStrictCorrect
+                ? `Matched as ${matchKind || "exact"}.`
+                : isCanonical
+                  ? `Canonical via ${matchKind || "alias"}${matchedLabel ? ` · “${matchedLabel}”` : ""}. Strict still false until GT string matches.`
+                  : `Predicted “${prediction || "— nothing"}” · match kind ${matchKind || "—"}.`}
             </p>
           </div>
 
@@ -420,17 +530,92 @@ export default function CaseInspector() {
             <div className={styles.pvgRow}>
               <span className={styles.pvgLabel}>PREDICTED</span>
               <span
-                className={`${styles.pvgName} ${c.correct ? styles.success : styles.danger}`}
+                className={`${styles.pvgName} ${isStrictCorrect || isCanonical ? styles.success : styles.danger}`}
               >
-                {c.prediction || "— no candidate"}
+                {prediction || "— no candidate"}
               </span>
             </div>
             <div className={styles.pvgRow}>
-              <span className={styles.pvgLabel}>GROUND TRUTH</span>
-              <span className={`${styles.pvgName} ${styles.success}`}>{c.gt || "—"}</span>
-              <span className={styles.gtSrc}>src · mapkit ({c.gt_mapkit || "—"})</span>
+              <span className={styles.pvgLabel}>SCORE GT</span>
+              <span className={`${styles.pvgName} ${styles.success}`}>{scoreGt || "—"}</span>
+              <span className={styles.gtSrc}>
+                mapkit {c.gt_mapkit || "—"} · input {c.gt || "—"}
+              </span>
             </div>
           </div>
+
+          {/* Compact canonical review — only when there is a non-strict prediction */}
+          {(canCredit || hasPredictionCredit) && prediction && (
+            <div className={styles.creditCard}>
+              <p className={styles.miniLabel}>Canonical scoring credit</p>
+              <p className={styles.creditBody}>
+                Treat this prediction as the same destination for{" "}
+                <strong>canonical</strong> accuracy (writes{" "}
+                <code>eval_label_relations.v1.jsonl</code>). Does not change strict
+                accuracy or re-run the algorithm.
+              </p>
+              <div className={styles.creditActions}>
+                <button
+                  type="button"
+                  className={styles.creditBtn}
+                  disabled={creditBusy || isStrictCorrect}
+                  onClick={() => void applyCredit("alias")}
+                  title="Same place, different name string"
+                >
+                  Accept as alias
+                </button>
+                <select
+                  className={styles.creditSelect}
+                  value={relationType}
+                  disabled={creditBusy}
+                  onChange={(e) => setRelationType(e.target.value)}
+                  aria-label="Related type"
+                >
+                  <option value="same_complex">same_complex</option>
+                  <option value="in_facility">in_facility</option>
+                  <option value="in_mall">in_mall</option>
+                  <option value="campus_building">campus_building</option>
+                  <option value="in_park">in_park</option>
+                  <option value="access_point">access_point</option>
+                </select>
+                <button
+                  type="button"
+                  className={styles.creditBtn}
+                  disabled={creditBusy || isStrictCorrect}
+                  onClick={() => void applyCredit("related")}
+                  title="Related place with credit 1.0"
+                >
+                  Accept as related
+                </button>
+                <button
+                  type="button"
+                  className={styles.creditBtnGhost}
+                  disabled={creditBusy || !hasPredictionCredit}
+                  onClick={() => void applyCredit("remove")}
+                  title="Remove alias/related credit for this prediction"
+                >
+                  Undo credit
+                </button>
+              </div>
+              {creditMsg && <p className={styles.creditOk}>{creditMsg}</p>}
+              {creditErr && <p className={styles.creditErr}>{creditErr}</p>}
+              {(c.label_relation?.accepted_aliases?.length ||
+                c.label_relation?.relations?.length) ? (
+                <p className={styles.creditMeta}>
+                  Stored:{" "}
+                  {(c.label_relation?.accepted_aliases || [])
+                    .map((a) => `alias “${a}”`)
+                    .concat(
+                      (c.label_relation?.relations || []).map(
+                        (r) =>
+                          `related “${r.name}” (${r.relation || "?"} credit=${r.credit ?? 0})`,
+                      ),
+                    )
+                    .join(" · ") || "—"}
+                </p>
+              ) : null}
+            </div>
+          )}
 
           {/* Sparse list → optional wider re-search (investigate only) */}
           {sparse && hasCoord && (

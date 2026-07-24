@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import datetime
 import json
 import os
 import re
@@ -449,6 +450,306 @@ def load_label_relations(path: Optional[str] = None) -> Dict[Tuple[str, str, str
                 "evidence": rec.get("evidence") or "",
             }
     return out
+
+
+def _label_relations_raw_records(path: str) -> List[Dict[str, Any]]:
+    """Load full JSONL records (preserves reviewer / evidence fields)."""
+    if not path or not os.path.isfile(path):
+        return []
+    out: List[Dict[str, Any]] = []
+    with open(path, encoding="utf-8") as f:
+        for line_no, line in enumerate(f, 1):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"invalid JSONL in {path}:{line_no}: {e}") from e
+            if not isinstance(rec, dict):
+                raise ValueError(f"{path}:{line_no}: record must be an object")
+            out.append(rec)
+    return out
+
+
+def _write_label_relations_raw(path: str, records: List[Dict[str, Any]]) -> None:
+    """Atomically rewrite the sidecar (locked)."""
+    from file_ops import atomic_write_text, file_lock
+
+    lines = []
+    for rec in records:
+        lines.append(json.dumps(rec, ensure_ascii=False))
+    text = "\n".join(lines) + ("\n" if lines else "")
+    parent = os.path.dirname(path) or "."
+    os.makedirs(parent, exist_ok=True)
+    with file_lock(path):
+        atomic_write_text(path, text)
+
+
+def get_label_relation_record(
+    dataset: str,
+    photo: str,
+    provider: str = "mapkit",
+    path: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Return the raw sidecar record for one case, or None."""
+    path = path or default_label_relations_path()
+    ds = (dataset or "").strip()
+    ph = (photo or "").strip()
+    prov = (provider or "mapkit").strip()
+    for rec in _label_relations_raw_records(path):
+        if (
+            (rec.get("dataset") or "").strip() == ds
+            and (rec.get("photo") or "").strip() == ph
+            and (rec.get("provider") or "mapkit").strip() == prov
+        ):
+            return rec
+    return None
+
+
+def upsert_label_alias(
+    *,
+    dataset: str,
+    photo: str,
+    alias: str,
+    gt_canonical_name: str = "",
+    provider: str = "mapkit",
+    evidence: str = "ui:case-inspector",
+    reviewer: str = "ui",
+    path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Add ``alias`` to accepted_aliases for this case (idempotent)."""
+    path = path or default_label_relations_path()
+    ds = (dataset or "").strip()
+    ph = (photo or "").strip()
+    prov = (provider or "mapkit").strip()
+    name = (alias or "").strip()
+    if not ds or not ph:
+        raise ValueError("dataset and photo are required")
+    if not name:
+        raise ValueError("alias name is required")
+
+    records = _label_relations_raw_records(path)
+    found = None
+    for rec in records:
+        if (
+            (rec.get("dataset") or "").strip() == ds
+            and (rec.get("photo") or "").strip() == ph
+            and (rec.get("provider") or "mapkit").strip() == prov
+        ):
+            found = rec
+            break
+    if found is None:
+        found = {
+            "dataset": ds,
+            "photo": ph,
+            "provider": prov,
+            "gt_canonical_name": (gt_canonical_name or "").strip(),
+            "accepted_aliases": [],
+            "relations": [],
+            "review_status": "reviewed",
+            "evidence": evidence,
+            "reviewer": reviewer,
+            "reviewed_at": datetime.date.today().isoformat(),
+        }
+        records.append(found)
+    else:
+        if gt_canonical_name and not (found.get("gt_canonical_name") or "").strip():
+            found["gt_canonical_name"] = gt_canonical_name.strip()
+        found["review_status"] = "reviewed"
+        found["reviewer"] = reviewer
+        found["reviewed_at"] = datetime.date.today().isoformat()
+        if evidence:
+            prev = (found.get("evidence") or "").strip()
+            if evidence not in prev:
+                found["evidence"] = f"{prev}; {evidence}".strip("; ") if prev else evidence
+
+    aliases = list(found.get("accepted_aliases") or [])
+    if not any(exact_equal(a, name) or normalized_equal(a, name) for a in aliases):
+        aliases.append(name)
+    found["accepted_aliases"] = aliases
+    _write_label_relations_raw(path, records)
+    return found
+
+
+def upsert_label_related(
+    *,
+    dataset: str,
+    photo: str,
+    name: str,
+    relation: str = "same_complex",
+    credit: float = 1.0,
+    gt_canonical_name: str = "",
+    provider: str = "mapkit",
+    evidence: str = "ui:case-inspector",
+    reviewer: str = "ui",
+    path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Add or update a related label with credit (default 1.0 → canonical)."""
+    path = path or default_label_relations_path()
+    ds = (dataset or "").strip()
+    ph = (photo or "").strip()
+    prov = (provider or "mapkit").strip()
+    rname = (name or "").strip()
+    rel = (relation or "same_complex").strip() or "same_complex"
+    if not ds or not ph:
+        raise ValueError("dataset and photo are required")
+    if not rname:
+        raise ValueError("related name is required")
+    try:
+        cred = float(credit)
+    except (TypeError, ValueError) as e:
+        raise ValueError("credit must be a number") from e
+
+    records = _label_relations_raw_records(path)
+    found = None
+    for rec in records:
+        if (
+            (rec.get("dataset") or "").strip() == ds
+            and (rec.get("photo") or "").strip() == ph
+            and (rec.get("provider") or "mapkit").strip() == prov
+        ):
+            found = rec
+            break
+    if found is None:
+        found = {
+            "dataset": ds,
+            "photo": ph,
+            "provider": prov,
+            "gt_canonical_name": (gt_canonical_name or "").strip(),
+            "accepted_aliases": [],
+            "relations": [],
+            "review_status": "reviewed",
+            "evidence": evidence,
+            "reviewer": reviewer,
+            "reviewed_at": datetime.date.today().isoformat(),
+        }
+        records.append(found)
+    else:
+        if gt_canonical_name and not (found.get("gt_canonical_name") or "").strip():
+            found["gt_canonical_name"] = gt_canonical_name.strip()
+        found["review_status"] = "reviewed"
+        found["reviewer"] = reviewer
+        found["reviewed_at"] = datetime.date.today().isoformat()
+        if evidence:
+            prev = (found.get("evidence") or "").strip()
+            if evidence not in prev:
+                found["evidence"] = f"{prev}; {evidence}".strip("; ") if prev else evidence
+
+    relations = list(found.get("relations") or [])
+    updated = False
+    for rel_obj in relations:
+        if not isinstance(rel_obj, dict):
+            continue
+        existing = (rel_obj.get("name") or "").strip()
+        if exact_equal(existing, rname) or normalized_equal(existing, rname):
+            rel_obj["name"] = rname
+            rel_obj["relation"] = rel
+            rel_obj["credit"] = cred
+            updated = True
+            break
+    if not updated:
+        relations.append({"name": rname, "relation": rel, "credit": cred})
+    found["relations"] = relations
+    _write_label_relations_raw(path, records)
+    return found
+
+
+def remove_label_credit(
+    *,
+    dataset: str,
+    photo: str,
+    name: str,
+    kind: str = "auto",
+    provider: str = "mapkit",
+    path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Remove an alias and/or related entry matching ``name``.
+
+    ``kind``: ``alias`` | ``related`` | ``auto`` (try both).
+    Returns ``{ok, removed_alias, removed_related, record}``.
+    """
+    path = path or default_label_relations_path()
+    ds = (dataset or "").strip()
+    ph = (photo or "").strip()
+    prov = (provider or "mapkit").strip()
+    target = (name or "").strip()
+    kind = (kind or "auto").strip().lower()
+    if not ds or not ph:
+        raise ValueError("dataset and photo are required")
+    if not target:
+        raise ValueError("name is required")
+    if kind not in ("alias", "related", "auto"):
+        raise ValueError("kind must be alias, related, or auto")
+
+    records = _label_relations_raw_records(path)
+    found = None
+    found_i = -1
+    for i, rec in enumerate(records):
+        if (
+            (rec.get("dataset") or "").strip() == ds
+            and (rec.get("photo") or "").strip() == ph
+            and (rec.get("provider") or "mapkit").strip() == prov
+        ):
+            found = rec
+            found_i = i
+            break
+    if found is None:
+        return {
+            "ok": False,
+            "removed_alias": False,
+            "removed_related": False,
+            "record": None,
+            "message": "no label-relation record for this case",
+        }
+
+    removed_alias = False
+    removed_related = False
+    if kind in ("alias", "auto"):
+        aliases = list(found.get("accepted_aliases") or [])
+        kept = [
+            a for a in aliases
+            if not (exact_equal(a, target) or normalized_equal(a, target))
+        ]
+        if len(kept) != len(aliases):
+            removed_alias = True
+            found["accepted_aliases"] = kept
+    if kind in ("related", "auto"):
+        relations = list(found.get("relations") or [])
+        kept_r = []
+        for rel_obj in relations:
+            if not isinstance(rel_obj, dict):
+                continue
+            existing = (rel_obj.get("name") or "").strip()
+            if exact_equal(existing, target) or normalized_equal(existing, target):
+                removed_related = True
+                continue
+            kept_r.append(rel_obj)
+        if removed_related:
+            found["relations"] = kept_r
+
+    # Drop empty records to keep the sidecar lean.
+    aliases_left = found.get("accepted_aliases") or []
+    relations_left = found.get("relations") or []
+    if not aliases_left and not relations_left:
+        records.pop(found_i)
+        found = None
+    else:
+        records[found_i] = found
+
+    if removed_alias or removed_related:
+        _write_label_relations_raw(path, records)
+    return {
+        "ok": bool(removed_alias or removed_related),
+        "removed_alias": removed_alias,
+        "removed_related": removed_related,
+        "record": found,
+        "message": (
+            "removed"
+            if (removed_alias or removed_related)
+            else "name not found on this case's aliases/relations"
+        ),
+    }
 
 
 def accepted_gt_names(gt: str, dataset: str, photo: str, provider: str = "mapkit",
