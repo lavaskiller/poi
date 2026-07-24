@@ -1027,6 +1027,146 @@ def upsert_mapkit_candidates_from_tsv(tsv_path: str, out_path: Optional[str] = N
     _write_candidate_records(target, [*kept, *updates])
     return len(updates)
 
+
+def _normalize_candidate_record(rec: Dict[str, Any]) -> Dict[str, Any]:
+    """Split ``dataset/photo`` probe keys into versioned snapshot fields."""
+    out = dict(rec)
+    photo = str(out.get("photo") or "").strip()
+    dataset = str(out.get("dataset") or "").strip()
+    if not dataset and "/" in photo:
+        dataset, photo = photo.split("/", 1)
+        dataset, photo = dataset.strip(), photo.strip()
+    out["dataset"] = dataset
+    out["photo"] = photo
+    out["provider"] = (str(out.get("provider") or "mapkit").strip() or "mapkit")
+    return out
+
+
+def _candidate_case_key(rec: Dict[str, Any]) -> Tuple[str, str, str]:
+    r = _normalize_candidate_record(rec)
+    return (r["provider"], r["dataset"], r["photo"])
+
+
+def publish_probe_tsv_as_active_snapshot(
+    tsv_path: str,
+    *,
+    data_root: Optional[str] = None,
+    snapshot_id: Optional[str] = None,
+    allow_lossy_top3: bool = False,
+) -> Dict[str, Any]:
+    """Merge a probe TSV into a *new* immutable snapshot and activate it.
+
+    Why this exists
+    ---------------
+    ``rerun_mapkit_nearby`` used to upsert only the legacy
+    ``generated/mapkit_candidates.jsonl``. When an active snapshot pointer is
+    set, scoring/preflight ignore that legacy file — so re-collecting nearby
+    appeared to do nothing for "artifacts missing" warnings.
+
+    This keeps old snapshots immutable, writes a new
+    ``candidate-snapshots/<id>/``, and rewrites the active pointer.
+
+    Merge policy: keep every case from the previous active artifact that was
+    not in the TSV; replace/add every case present in the TSV.
+    """
+    import hashlib
+
+    root = data_root or resolve_data_root()
+    generated = os.path.join(root, "generated")
+    os.makedirs(generated, exist_ok=True)
+
+    # Previous artifact (active snapshot if valid, else legacy).
+    prev_path: Optional[str] = None
+    pointer_path = os.path.join(generated, ACTIVE_MAPKIT_SNAPSHOT_POINTER)
+    legacy_path = os.path.join(generated, "mapkit_candidates.jsonl")
+    if os.path.isfile(pointer_path):
+        try:
+            prev_path = active_mapkit_candidate_file(root)
+        except RuntimeError:
+            prev_path = legacy_path if os.path.isfile(legacy_path) else None
+    elif os.path.isfile(legacy_path):
+        prev_path = legacy_path
+
+    prev_records: List[Dict[str, Any]] = []
+    if prev_path and os.path.isfile(prev_path):
+        with open(prev_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if isinstance(rec, dict):
+                    prev_records.append(_normalize_candidate_record(rec))
+
+    updates_raw = parse_mapkit_tsv_records(tsv_path, allow_lossy_top3)
+    updates = [_normalize_candidate_record(r) for r in updates_raw]
+    updated_keys = {_candidate_case_key(r) for r in updates}
+    kept = [r for r in prev_records if _candidate_case_key(r) not in updated_keys]
+    merged = [*kept, *updates]
+
+    sid = (snapshot_id or datetime.datetime.now(datetime.timezone.utc).strftime(
+        "mapkit-merge-%Y%m%dT%H%M%SZ"
+    )).strip()
+    if not sid.replace("-", "").replace("_", "").isalnum():
+        raise ValueError(f"invalid snapshot_id: {sid!r}")
+
+    dest = os.path.join(generated, "candidate-snapshots", sid)
+    os.makedirs(dest, exist_ok=True)
+    artifact_path = os.path.join(dest, "mapkit_candidates.jsonl")
+    n_lines = _write_candidate_records(artifact_path, merged)
+
+    digest = hashlib.sha256()
+    with open(artifact_path, "rb") as f:
+        for block in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(block)
+    sha = digest.hexdigest()
+
+    unique_cases = len({_candidate_case_key(r) for r in merged})
+    metadata = {
+        "snapshot_id": sid,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "kind": "merged_mapkit_probe_snapshot",
+        "status": "complete",
+        "source_probe_tsv": os.path.basename(tsv_path),
+        "merged_from": os.path.relpath(prev_path, root) if prev_path else None,
+        "candidate_artifact": "mapkit_candidates.jsonl",
+        "candidate_records": n_lines,
+        "unique_cases": unique_cases,
+        "updated_cases": len(updated_keys),
+        "candidate_artifact_sha256": sha,
+        "selection_reason": (
+            "Auto-activated after MapKit nearby re-probe so scoring reads the "
+            "updated candidate lists (previous immutable snapshot retained)."
+        ),
+    }
+    meta_path = os.path.join(dest, "metadata.json")
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+    pointer = {
+        "snapshot_id": sid,
+        "candidate_artifact": "mapkit_candidates.jsonl",
+        "selected_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "selection_reason": metadata["selection_reason"],
+    }
+    from file_ops import atomic_write_json
+
+    atomic_write_json(pointer_path, pointer)
+    return {
+        "ok": True,
+        "snapshot_id": sid,
+        "snapshot_dir": dest,
+        "artifact_path": artifact_path,
+        "candidate_records": n_lines,
+        "unique_cases": unique_cases,
+        "updated_cases": len(updated_keys),
+        "pointer_path": pointer_path,
+    }
+
 def load_candidates(paths: Optional[Iterable[str]] = None) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
     """Load candidates, resolving the active snapshot now when paths are omitted."""
     grouped: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)

@@ -91,3 +91,65 @@ class MapKitCandidatePipelineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ActiveSnapshotPromoteTests(unittest.TestCase):
+    def test_publish_probe_merges_and_activates(self):
+        import hashlib
+        import json
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as td:
+            gen = Path(td) / "generated"
+            snap = gen / "candidate-snapshots" / "old-snap"
+            snap.mkdir(parents=True)
+            art = snap / "mapkit_candidates.jsonl"
+            art.write_text(
+                json.dumps(
+                    {
+                        "dataset": "vancouver",
+                        "photo": "a.jpg",
+                        "provider": "mapkit",
+                        "name": "Old Place",
+                        "rank": 1,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            digest = hashlib.sha256(art.read_bytes()).hexdigest()
+            (snap / "metadata.json").write_text(
+                json.dumps(
+                    {
+                        "snapshot_id": "old-snap",
+                        "status": "complete",
+                        "candidate_artifact": "mapkit_candidates.jsonl",
+                        "candidate_artifact_sha256": digest,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (gen / "active-mapkit-candidate-snapshot.json").write_text(
+                json.dumps(
+                    {
+                        "snapshot_id": "old-snap",
+                        "candidate_artifact": "mapkit_candidates.jsonl",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            tsv = Path(td) / "probe.tsv"
+            cands = json.dumps([{"name": "New Cafe", "rank": 1, "distance_m": 10}])
+            tsv.write_text(
+                "photo\twide_n\ttop3_wide\twide_candidates_json\n"
+                f"union-city/new.jpg\t1\tNew Cafe@10m\t{cands}\n",
+                encoding="utf-8",
+            )
+            res = ms.publish_probe_tsv_as_active_snapshot(
+                str(tsv), data_root=td, snapshot_id="merge-test"
+            )
+            self.assertTrue(res["ok"])
+            active = ms.active_mapkit_candidate_file(td)
+            loaded = ms.load_candidates([active])
+            self.assertIn(("mapkit", "vancouver/a.jpg"), loaded)
+            self.assertIn(("mapkit", "union-city/new.jpg"), loaded)

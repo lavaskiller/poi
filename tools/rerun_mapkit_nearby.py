@@ -195,12 +195,26 @@ def main() -> int:
     run_candidates_path = os.path.join(dd, "generated", "mapkit_candidates.jsonl")
     n_run_lines = rc.ms.upsert_mapkit_candidates_from_tsv(out_tsv, run_candidates_path)
     print(f"[mapkit_nearby] upserted run candidates {run_candidates_path} (+{n_run_lines} lines)")
-    active_pointer = os.path.join(dd, "generated", rc.ms.ACTIVE_MAPKIT_SNAPSHOT_POINTER)
-    if os.path.isfile(active_pointer):
+    # Scoring/preflight read the *active* immutable snapshot, not the legacy
+    # JSONL. Promote this probe into a new snapshot + switch the pointer so
+    # "re-collect nearby" actually clears missing-artifact warnings.
+    snapshot_info = None
+    try:
+        snapshot_info = rc.ms.publish_probe_tsv_as_active_snapshot(
+            out_tsv, data_root=dd
+        )
         print(
-            "[mapkit_nearby] WARNING: an active immutable MapKit snapshot is selected; "
-            "runs will use it instead of the updated legacy JSONL. Rebaseline or "
-            "remove the pointer intentionally before testing these candidates.",
+            "[mapkit_nearby] activated merged snapshot "
+            f"{snapshot_info.get('snapshot_id')} "
+            f"(updated_cases={snapshot_info.get('updated_cases')}, "
+            f"unique_cases={snapshot_info.get('unique_cases')})",
+            flush=True,
+        )
+    except Exception as exc:
+        print(
+            f"[mapkit_nearby] WARNING: could not activate merged snapshot: {exc!r}. "
+            "Legacy JSONL was updated; scoring may still use the previous active "
+            "snapshot until you rebaseline or fix the pointer.",
             file=sys.stderr,
         )
 
@@ -244,6 +258,7 @@ def main() -> int:
         "candidate_lines_written": n_cand_lines,
         "run_candidates_path": run_candidates_path,
         "run_candidate_lines_upserted": n_run_lines,
+        "active_snapshot": snapshot_info,
         "backup": backup,
     })
     return 0
