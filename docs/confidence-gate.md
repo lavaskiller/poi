@@ -165,6 +165,7 @@ preset reproduces the current `decide()` behavior.
 ```
 s =  w_m·margin_term  +  w_o·ocr_term  +  w_s·spatial_term  +  w_d·dist_term
    − w_ρ·density_penalty  −  w_g·generic_penalty  +  w_v·vlm_term(cap)  +  w_cat·scene_term(cap)
+   +  w_catprior·category_prior_term
 
 margin_term     = clip(gap_m / M_ref, 0, 1)                  M_ref = 60 m
 ocr_term        = full 1.0 / tokens 0.7 / none 0
@@ -174,7 +175,29 @@ density_penalty = clip((n_R − 1) / K, 0, 1)   n_R = #candidates within R   R =
 generic_penalty = generic-only name 1 / else 0
 vlm_term        = corroborates 1 / else 0,  cap 0.3   (only when FastVLM present)
 scene_term      = scene_agreement [0,1],    cap w_cat (faithful 0 · explore 0.3)
+category_prior_term = clip(shrunk_rate(pick_category) − global_rate, −1, 1)   (signed; explore only)
 ```
+
+**Per-category prior (`category_prior_term`).** A *signed* prior learned from
+TRAIN GT: below-average categories subtract confidence, above-average add — the
+"많이 틀린 카테고리는 나쁘게, 많이 맞춘 카테고리는 좋게" behavior. The pick's
+category is a-priori (known at runtime without GT); only the *rates* are a
+learned parameter, so this is a train-time prior, **not** a runtime GT input.
+
+- **Empirical-Bayes shrinkage.** Each category's hit-rate is pulled toward the
+  global rate with pseudo-count `α`: `shrunk = (hits + α·global)/(n + α)`, so a
+  2-sample category can't swing to an extreme. `α` is the `α shrink` slider.
+- **Min support.** Categories with fewer than `min support` train cases get **no
+  adjustment** (regress fully to global) — a hard df floor on top of shrinkage.
+- **Fit discipline.** The Lab table/score fit on the **full cohort** (in-sample,
+  optimistic). The honest number is **Cross-validate ×2**: 5-fold CV that refits
+  the prior on each fold's train split and scores the held-out fold — no case is
+  ever scored against a prior built from itself. It reports prior-off vs
+  prior-on val coverage ± std, so a lucky split can't pass for generalization.
+- **Scope.** Explore-only (faithful stays pure `decide()`); `w_catprior=0`
+  disables it. On the current cohort (global 35.6%) the active categories are
+  e.g. `restaurant +0.44`, `store −0.20`, `(none) −0.26`, and the leak-free CV
+  delta at a 5% budget is ≈ +11 pt held-out coverage (≈ −1 pt at a tight 2%).
 
 Single-candidate cases have no `gap_m` → `margin_term = 0`; they rely on OCR/VLM.
 

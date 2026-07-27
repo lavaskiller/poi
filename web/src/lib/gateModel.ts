@@ -34,6 +34,18 @@ export interface Params {
   wG: number;
   wV: number; // VLM contribution cap when corroborates
   wCat: number; // photo scene↔pick agreement cap (corroborates, cannot open alone)
+  /**
+   * Per-category correctness prior weight. Scales a signed adjustment learned
+   * from TRAIN GT (empirical-Bayes shrunk hit-rate per pick category, centered
+   * on the global rate) — below-average categories subtract confidence,
+   * above-average add. 0 disables. See `catPrior` for the fitted table.
+   */
+  wCatPrior: number;
+  /**
+   * Fitted per-category prior table. Must be fit on a train set only (never the
+   * case being scored — that leaks GT). null → the wCatPrior term is inert.
+   */
+  catPrior: CatPrior | null;
 }
 
 export type Preset = "faithful" | "explore";
@@ -59,6 +71,8 @@ export const FAITHFUL: Params = {
   wG: 0.5,
   wV: 0.3,
   wCat: 0,
+  wCatPrior: 0,
+  catPrior: null,
 };
 
 /** explore: fold density / distance into the search for a better gate. */
@@ -77,6 +91,8 @@ export const EXPLORE: Params = {
   wG: 0.5,
   wV: 0.3,
   wCat: 0.3,
+  wCatPrior: 0,
+  catPrior: null,
 };
 
 export function ocrTermValue(strength: OcrStrength | undefined): number {
@@ -106,6 +122,78 @@ export function withCorrectMode(cases: ConfSimCase[], mode: CorrectMode): ConfSi
   return cases.map((c) => ({ ...c, correct: caseIsCorrect(c, mode) }));
 }
 
+/* ------------------------------------------------------------------ */
+/* Per-category correctness prior (empirical-Bayes shrinkage)          */
+/* ------------------------------------------------------------------ */
+
+export interface CatStat {
+  n: number; // train support for this category
+  correct: number; // train correct count
+  raw: number; // raw correct rate (n>0)
+  shrunk: number; // empirical-Bayes shrunk rate (pulled toward global)
+  adj: number; // shrunk − global (0 when below min-support)
+  active: boolean; // met min-support → contributes a nonzero adjustment
+}
+
+export interface CatPrior {
+  global: number; // train global correct rate
+  alpha: number; // EB shrinkage pseudo-count (prior strength)
+  minSupport: number; // categories below this get no adjustment (df control)
+  n: number; // train size the prior was fit on
+  stats: Record<string, CatStat>;
+}
+
+/** Normalize a pick category into a stable bucket key ("(none)" when absent). */
+export function catKey(c: ConfSimCase): string {
+  const k = (c.pick_category || "").trim().toLowerCase();
+  return k || "(none)";
+}
+
+/**
+ * Fit a per-category correctness prior from TRAIN GT only. Empirical-Bayes:
+ * each category's rate is pulled toward the global rate with pseudo-count
+ * `alpha` (Beta-Binomial posterior mean), so low-support categories regress to
+ * global instead of trusting 1–2 samples. Categories with fewer than
+ * `minSupport` train cases get no adjustment at all (a harder df floor). The
+ * result is a fixed lookup applied out-of-sample — never to the case it was fit
+ * on (that would leak GT). `mode` selects exact vs relations correctness.
+ */
+export function fitCatPrior(
+  train: ConfSimCase[],
+  mode: CorrectMode,
+  alpha = 8,
+  minSupport = 8,
+): CatPrior {
+  const n = train.length;
+  let gCorrect = 0;
+  const agg: Record<string, { n: number; c: number }> = {};
+  for (const c of train) {
+    const ok = caseIsCorrect(c, mode);
+    if (ok) gCorrect++;
+    const k = catKey(c);
+    const a = (agg[k] ||= { n: 0, c: 0 });
+    a.n++;
+    if (ok) a.c++;
+  }
+  const global = n ? gCorrect / n : 0;
+  const stats: Record<string, CatStat> = {};
+  for (const [k, a] of Object.entries(agg)) {
+    const raw = a.n ? a.c / a.n : global;
+    const shrunk = (a.c + alpha * global) / (a.n + alpha);
+    const active = a.n >= minSupport;
+    stats[k] = { n: a.n, correct: a.c, raw, shrunk, adj: active ? shrunk - global : 0, active };
+  }
+  return { global, alpha, minSupport, n, stats };
+}
+
+/** Signed confidence adjustment for a case from the fitted prior ([-1,1]). */
+export function catAdjust(c: ConfSimCase, prior: CatPrior | null | undefined): number {
+  if (!prior) return 0;
+  const s = prior.stats[catKey(c)];
+  if (!s) return 0; // category unseen in train → global → no deviation
+  return Math.min(Math.max(s.adj, -1), 1);
+}
+
 export interface TermBreakdown {
   margin: number;
   ocr: number;
@@ -115,6 +203,7 @@ export interface TermBreakdown {
   generic: number;
   vlm: number;
   scene: number;
+  catPrior: number;
   total: number;
 }
 
@@ -144,9 +233,13 @@ export function breakdown(c: ConfSimCase, p: Params): TermBreakdown {
   const vlm = p.wV >= 0 ? Math.min(p.wV * vlmRaw, p.wV) : p.wV * vlmRaw;
   // Scene corroborates like VLM: capped at w_cat, cannot open the gate alone.
   const scene = p.wCat >= 0 ? Math.min(p.wCat * sceneRaw, p.wCat) : p.wCat * sceneRaw;
+  // Per-category prior: signed. Below-average categories subtract confidence,
+  // above-average add. Fit on train GT only (p.catPrior) — a-priori at runtime
+  // (the pick's category is known without GT); the rates are a learned prior.
+  const catPrior = p.wCatPrior * catAdjust(c, p.catPrior);
 
-  const total = margin + ocr + spatial + dist - density - generic + vlm + scene;
-  return { margin, ocr, spatial, dist, density, generic, vlm, scene, total };
+  const total = margin + ocr + spatial + dist - density - generic + vlm + scene + catPrior;
+  return { margin, ocr, spatial, dist, density, generic, vlm, scene, catPrior, total };
 }
 
 export function score(c: ConfSimCase, p: Params): number {
@@ -225,7 +318,8 @@ export function isFaithfulCore(p: Params): boolean {
     p.wRho === FAITHFUL.wRho &&
     p.wG === FAITHFUL.wG &&
     p.wV === FAITHFUL.wV &&
-    p.wCat === FAITHFUL.wCat
+    p.wCat === FAITHFUL.wCat &&
+    p.wCatPrior === FAITHFUL.wCatPrior
   );
 }
 
@@ -253,6 +347,7 @@ export function nearReason(c: ConfSimCase, p: Params): string {
   }
   if (b.density > 1e-9) deficits.push({ name: "DENSITY_CROWDING", value: b.density });
   if (b.generic > 1e-9) deficits.push({ name: "GENERIC_NAME", value: b.generic });
+  if (b.catPrior < -1e-9) deficits.push({ name: "CATEGORY_PRIOR_LOW", value: -b.catPrior });
   if (b.dist < p.wD * 0.5 && p.wD > 0) {
     deficits.push({ name: "FAR_NEAREST", value: p.wD - b.dist });
   }
@@ -417,11 +512,23 @@ function foldOf(c: ConfSimCase, k: number, seed: number): number {
   return hashStr(`${seed}:cv:${c.dataset}/${c.photo}`) % k;
 }
 
+/** Refit the per-category prior on each fold's train split (leak-free CV). */
+export interface CatCvConfig {
+  mode: CorrectMode;
+  alpha: number;
+  minSupport: number;
+}
+
 /**
  * K-fold CV of a *fixed* weight direction: each fold is held out as val, τ is
  * refit on the other k−1 folds at `budget`, then val is scored. Reports mean ±
  * std of val coverage / wrong-leak so a single lucky split can't pass for
  * generalization. Only the weights are fixed — τ is refit per fold (correct CV).
+ *
+ * When `catCfg` is given, the per-category prior is *also* refit on each fold's
+ * train split (ignoring any incoming `weights.catPrior`), so the held-out fold
+ * never sees a prior estimated from its own cases. This is the only trustworthy
+ * generalization number for the category prior — an in-sample fit inflates it.
  */
 export function crossValidate(
   cases: ConfSimCase[],
@@ -429,6 +536,7 @@ export function crossValidate(
   budget: number,
   k = 5,
   seed = 0,
+  catCfg: CatCvConfig | null = null,
 ): CrossVal {
   const folds: FoldResult[] = [];
   const covs: number[] = [];
@@ -442,9 +550,13 @@ export function crossValidate(
       folds.push({ fold: f, n: val.length, tau: weights.tau, valCov: 0, valWrong: 0, feasible: false });
       continue;
     }
-    const sMax = scoreCeiling(train, weights);
-    const fit = fitTau(train, weights, budget, sMax);
-    const va = evaluate(val, { ...weights, tau: fit.tau });
+    // Refit the category prior on this fold's train only, so val stays held-out.
+    const fw: Params = catCfg
+      ? { ...weights, catPrior: fitCatPrior(train, catCfg.mode, catCfg.alpha, catCfg.minSupport) }
+      : weights;
+    const sMax = scoreCeiling(train, fw);
+    const fit = fitTau(train, fw, budget, sMax);
+    const va = evaluate(val, { ...fw, tau: fit.tau });
     if (fit.feasible) feasibleFolds++;
     folds.push({
       fold: f,
@@ -508,6 +620,8 @@ export const LEARN_BASE: Params = {
   spatialStrict: false,
   requireDecisiveEvidence: false,
   wO: 0,
+  wCatPrior: 0,
+  catPrior: null,
 };
 
 export interface LearnConfig {

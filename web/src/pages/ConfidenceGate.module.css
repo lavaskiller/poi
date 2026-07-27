@@ -1104,3 +1104,116 @@
 .cvFoldBar[data-bad="1"] {
   background: var(--warning-fg);
 }
+
+/* --- Per-category prior panel ------------------------------------- */
+.catBox {
+  margin-top: 10px;
+  border-top: 1px solid var(--border-default);
+  padding-top: 10px;
+}
+.catToggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--text-primary);
+  padding: 0;
+}
+.catToggleSub {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.catBody {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.catTable {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.catRow {
+  display: grid;
+  grid-template-columns: 1fr 34px 42px 48px 48px;
+  gap: 6px;
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  align-items: center;
+}
+.catRow > span:not(.catName) {
+  text-align: right;
+}
+.catRowHead {
+  position: sticky;
+  top: 0;
+  background: var(--bg-subtle);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.catRowDim {
+  opacity: 0.5;
+}
+.catName {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.catAdjPos {
+  color: var(--success-fg);
+  font-weight: 600;
+}
+.catAdjNeg {
+  color: var(--danger-fg);
+  font-weight: 600;
+}
+.catAdjZero {
+  color: var(--text-tertiary);
+}
+.catCvRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.catCvOut {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+.catCvLine {
+  display: grid;
+  grid-template-columns: 60px 1fr 1fr;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.catCvLine b {
+  color: var(--text-primary);
+}
+.catCvDelta {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.catCvDelta[data-good="1"] {
+  color: var(--success-fg);
+}

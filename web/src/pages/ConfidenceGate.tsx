@@ -4,10 +4,13 @@ import { useAsync } from "../lib/useAsync";
 import {
   breakdown,
   bucketOf,
+  type CatPrior,
+  catKey,
   type CorrectMode,
   type CrossVal,
   crossValidate,
   EXPLORE,
+  fitCatPrior,
   evaluate,
   FAITHFUL,
   fitTau,
@@ -39,6 +42,24 @@ function setNum(p: Params, key: keyof Params, v: number): Params {
   return { ...p, [key]: v };
 }
 
+/** Flatten params for a snapshot: drop the fitted prior table (stays fresh via
+ *  its recipe), keep scalars, and append the prior recipe so it round-trips. */
+function saveParams(
+  p: Params,
+  extra: Record<string, number>,
+): Record<string, number | boolean> {
+  const { catPrior: _drop, ...flat } = p;
+  return { ...(flat as unknown as Record<string, number | boolean>), ...extra };
+}
+
+/** Human-readable per-category adjustment for a raw pick category. */
+function catAdjustLabel(prior: CatPrior, cat: string | undefined): string {
+  const key = (cat || "").trim().toLowerCase() || "(none)";
+  const s = prior.stats[key];
+  if (!s || !s.active) return "0 (below min support → global)";
+  return `${s.adj >= 0 ? "+" : ""}${s.adj.toFixed(2)}`;
+}
+
 type Filter = "wrongPOI" | "wrongNear" | "correctNear" | "correctPOI";
 type Mode = "lab" | "auto" | "learn";
 
@@ -53,6 +74,15 @@ export default function ConfidenceGate() {
   const [filter, setFilter] = useState<Filter>("wrongPOI");
   /** Exact vs product (aliases / credit≥1) — eval only, never a gate input. */
   const [correctMode, setCorrectMode] = useState<CorrectMode>("exact");
+
+  // --- Per-category prior (explore only) ------------------------------
+  const [catOpen, setCatOpen] = useState(false);
+  const [catW, setCatW] = useState(0); // wCatPrior weight (0 = off)
+  const [catAlpha, setCatAlpha] = useState(8); // EB shrinkage pseudo-count
+  const [catMinSup, setCatMinSup] = useState(8); // min train support for a nonzero adj
+  const [catBudget, setCatBudget] = useState(2); // wrong-budget for the prior CV
+  // base (prior off) vs prior (refit per fold) k-fold CV — the honest delta.
+  const [catCv, setCatCv] = useState<{ base: CrossVal; prior: CrossVal } | null>(null);
 
   // Base pick source: live decide() policy, or a scored Results run.
   const [baseKind, setBaseKind] = useState<BaseKind>("policy");
@@ -119,6 +149,14 @@ export default function ConfidenceGate() {
   const cases = useMemo(() => withCorrectMode(rawCases, correctMode), [rawCases, correctMode]);
   const n = cases.length;
 
+  // Per-category prior fit on the full cohort — DESCRIPTIVE (the table below) and
+  // for the interactive Lab score. This is in-sample; the honest generalization
+  // number is the leak-free k-fold CV (refit per fold) in the panel.
+  const labPrior = useMemo(
+    () => fitCatPrior(cases, correctMode, catAlpha, catMinSup),
+    [cases, correctMode, catAlpha, catMinSup],
+  );
+
   const split = useMemo(() => splitCases(cases, valFrac, seed), [cases, valFrac, seed]);
   const cfg = useMemo(
     () => ({ budget: learnBudget, lambda, valFrac, seed }),
@@ -131,6 +169,11 @@ export default function ConfidenceGate() {
     setRunning(false);
     setCv(null);
   }, [split, cfg]);
+
+  // Category-prior CV is stale whenever its inputs move.
+  useEffect(() => {
+    setCatCv(null);
+  }, [cases, correctMode, catAlpha, catMinSup, catBudget, catW, seed]);
 
   // Timer-driven coordinate ascent; each tick re-renders every panel.
   useEffect(() => {
@@ -177,7 +220,12 @@ export default function ConfidenceGate() {
   }, [mode, allowedWrong, cases, n, p, sMax]);
 
   const autoTau = autoFit.tau;
-  const active: Params = mode === "auto" ? { ...p, tau: autoTau } : p;
+  // Category prior is an explore-only add-on (faithful = pure decide()).
+  const catActive = !faithfulLocked && catW > 0;
+  const active: Params = useMemo(() => {
+    const base = mode === "auto" ? { ...p, tau: autoTau } : p;
+    return catActive ? { ...base, wCatPrior: catW, catPrior: labPrior } : base;
+  }, [mode, p, autoTau, catActive, catW, labPrior]);
 
   const stats = useMemo(() => {
     let correct = 0,
@@ -203,6 +251,28 @@ export default function ConfidenceGate() {
   // Product decide() AUTO_PICK vs gate labeled — only meaningful for policy base.
   const agreement = useMemo(() => policyAgreement(cases, active), [cases, active]);
   const agreementOk = agreement.n > 0 && agreement.disagree.length === 0;
+
+  // Leak-free k-fold delta: prior OFF vs prior refit-per-fold, same τ budget.
+  const runCatCv = () => {
+    const w0: Params = { ...active, wCatPrior: 0, catPrior: null };
+    const w1: Params = { ...active, wCatPrior: catW, catPrior: labPrior };
+    const base = crossValidate(cases, w0, catBudget, 5, seed, null);
+    const prior = crossValidate(cases, w1, catBudget, 5, seed, {
+      mode: correctMode,
+      alpha: catAlpha,
+      minSupport: catMinSup,
+    });
+    setCatCv({ base, prior });
+  };
+
+  // Categories sorted by adjustment magnitude for the inspection table.
+  const catRows = useMemo(
+    () =>
+      Object.entries(labPrior.stats)
+        .map(([k, s]) => ({ key: k, ...s }))
+        .sort((a, b) => Math.abs(b.adj) - Math.abs(a.adj) || b.n - a.n),
+    [labPrior],
+  );
 
   const frontier = useMemo(() => {
     const pts: { coverage: number; precision: number }[] = [];
@@ -327,7 +397,7 @@ export default function ConfidenceGate() {
         preset,
         mode,
         budget: mode === "auto" ? allowedWrong : null,
-        params: active as unknown as Record<string, number | boolean>,
+        params: saveParams(active, catActive ? { catAlpha, catMinSup } : {}),
         kpis: {
           n,
           coverage: cov,
@@ -364,7 +434,14 @@ export default function ConfidenceGate() {
       }
       if (snap.eval_mode) setCorrectMode(snap.eval_mode);
       if (snap.params) {
-        setP({ ...(snap.params as unknown as Params) });
+        const sp = snap.params as unknown as Record<string, number>;
+        // Merge onto defaults so older snapshots gain new fields; the category
+        // prior is driven by its own controls, so keep p.wCatPrior inert.
+        setP({ ...FAITHFUL, ...(snap.params as unknown as Params), wCatPrior: 0, catPrior: null });
+        if (typeof sp.wCatPrior === "number") setCatW(sp.wCatPrior);
+        if (typeof sp.catAlpha === "number") setCatAlpha(sp.catAlpha);
+        if (typeof sp.catMinSup === "number") setCatMinSup(sp.catMinSup);
+        if (sp.wCatPrior > 0) setCatOpen(true);
         const pr = snap.preset ?? "explore";
         setPreset(pr);
         setShowWeights(pr === "explore");
@@ -417,7 +494,7 @@ export default function ConfidenceGate() {
         preset: "explore",
         mode: "learn",
         budget: learnBudget,
-        params: best as unknown as Record<string, number | boolean>,
+        params: saveParams(best, {}),
         kpis: {
           n: full.n,
           coverage: full.coverage,
@@ -933,6 +1010,173 @@ export default function ConfidenceGate() {
                     ))}
                   </div>
                 )}
+                {!faithfulLocked && (
+                  <div className={styles.catBox}>
+                    <button
+                      type="button"
+                      className={styles.catToggle}
+                      onClick={() => setCatOpen((v) => !v)}
+                    >
+                      {catOpen ? "▾" : "▸"} Category prior{" "}
+                      <span className={styles.catToggleSub}>
+                        learned per-category hit-rate · EB shrinkage
+                        {catActive ? ` · on (w ${catW.toFixed(2)})` : " · off"}
+                      </span>
+                    </button>
+                    {catOpen && (
+                      <div className={styles.catBody}>
+                        <div className={styles.weights}>
+                          <label className={styles.knob}>
+                            w_catprior
+                            <input
+                              type="range"
+                              min={0}
+                              max={1}
+                              step={0.05}
+                              value={catW}
+                              onChange={(e) => setCatW(Number(e.target.value))}
+                            />
+                            <b>{catW.toFixed(2)}</b>
+                          </label>
+                          <label className={styles.knob}>
+                            α shrink
+                            <input
+                              type="range"
+                              min={0}
+                              max={30}
+                              step={1}
+                              value={catAlpha}
+                              onChange={(e) => setCatAlpha(Number(e.target.value))}
+                            />
+                            <b>{catAlpha}</b>
+                          </label>
+                          <label className={styles.knob}>
+                            min support
+                            <input
+                              type="range"
+                              min={1}
+                              max={20}
+                              step={1}
+                              value={catMinSup}
+                              onChange={(e) => setCatMinSup(Number(e.target.value))}
+                            />
+                            <b>{catMinSup}</b>
+                          </label>
+                        </div>
+                        <div className={styles.catTable}>
+                          <div className={`${styles.catRow} ${styles.catRowHead}`}>
+                            <span>category</span>
+                            <span>n</span>
+                            <span>raw</span>
+                            <span>shrunk</span>
+                            <span>adj</span>
+                          </div>
+                          {catRows.map((r) => (
+                            <div
+                              key={r.key}
+                              className={`${styles.catRow} ${r.active ? "" : styles.catRowDim}`}
+                              title={
+                                r.active
+                                  ? `${r.correct}/${r.n} correct → shrunk ${(r.shrunk * 100).toFixed(0)}% vs global ${(labPrior.global * 100).toFixed(0)}%`
+                                  : `n=${r.n} < min support ${catMinSup} → no adjustment (regressed to global)`
+                              }
+                            >
+                              <span className={styles.catName}>{r.key}</span>
+                              <span>{r.n}</span>
+                              <span>{(r.raw * 100).toFixed(0)}%</span>
+                              <span>{(r.shrunk * 100).toFixed(0)}%</span>
+                              <span
+                                className={
+                                  !r.active
+                                    ? styles.catAdjZero
+                                    : r.adj >= 0
+                                      ? styles.catAdjPos
+                                      : styles.catAdjNeg
+                                }
+                              >
+                                {r.active ? `${r.adj >= 0 ? "+" : ""}${r.adj.toFixed(2)}` : "0"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className={styles.catCvRow}>
+                          <label className={styles.knob}>
+                            CV budget ≤
+                            <input
+                              type="range"
+                              min={0}
+                              max={10}
+                              step={0.5}
+                              value={catBudget}
+                              onChange={(e) => setCatBudget(Number(e.target.value))}
+                            />
+                            <b>{catBudget}%</b>
+                          </label>
+                          <button
+                            type="button"
+                            className={styles.weightsToggle}
+                            disabled={catW <= 0}
+                            title={
+                              catW <= 0
+                                ? "Raise w_catprior above 0 to test its held-out effect"
+                                : "5-fold CV: prior refit per fold vs prior off — the honest delta"
+                            }
+                            onClick={runCatCv}
+                          >
+                            Cross-validate ×2
+                          </button>
+                        </div>
+                        {catCv && (
+                          <div className={styles.catCvOut}>
+                            <div className={styles.catCvLine}>
+                              <span>off</span>
+                              <b>
+                                cov {Math.round(catCv.base.meanCov * 100)}±
+                                {Math.round(catCv.base.stdCov * 100)}%
+                              </b>
+                              <span>
+                                leak {catCv.base.meanWrong.toFixed(1)}±
+                                {catCv.base.stdWrong.toFixed(1)}%
+                              </span>
+                            </div>
+                            <div className={styles.catCvLine}>
+                              <span>+prior</span>
+                              <b>
+                                cov {Math.round(catCv.prior.meanCov * 100)}±
+                                {Math.round(catCv.prior.stdCov * 100)}%
+                              </b>
+                              <span>
+                                leak {catCv.prior.meanWrong.toFixed(1)}±
+                                {catCv.prior.stdWrong.toFixed(1)}%
+                              </span>
+                            </div>
+                            <div
+                              className={styles.catCvDelta}
+                              data-good={
+                                catCv.prior.meanCov > catCv.base.meanCov + 1e-9 ? "1" : undefined
+                              }
+                            >
+                              Δ held-out coverage{" "}
+                              {(catCv.prior.meanCov - catCv.base.meanCov >= 0 ? "+" : "") +
+                                Math.round(
+                                  (catCv.prior.meanCov - catCv.base.meanCov) * 100,
+                                )}
+                              pt at ≤{catBudget}% leak · prior refit per fold (leak-free)
+                            </div>
+                          </div>
+                        )}
+                        <p className={styles.strip}>
+                          Rates fit on TRAIN GT only (empirical-Bayes: shrunk toward the{" "}
+                          {(labPrior.global * 100).toFixed(0)}% global with α={catAlpha};
+                          categories under {catMinSup} cases regress to global → no adjustment).
+                          The score/gallery here use a full-cohort fit (in-sample, optimistic) —
+                          trust the <b>Cross-validate</b> delta, which refits per fold so no case
+                          scores against a prior built from itself.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -1205,6 +1449,14 @@ export default function ConfidenceGate() {
                           {(c.scene_agreement ?? 0) >= 0.35 ? " ✓" : ""}
                         </span>
                       )}
+                      {catActive && (
+                        <span
+                          className={styles.metaChip}
+                          title={`category prior adj ${catAdjustLabel(labPrior, c.pick_category)}`}
+                        >
+                          cat {catKey(c)}
+                        </span>
+                      )}
                       <span className={styles.metaChip}>{c.n_cand} cand</span>
                       {!galleryIsPOI && (
                         <span className={styles.metaChip}>{hard ?? nearReason(c, active)}</span>
@@ -1220,7 +1472,9 @@ export default function ConfidenceGate() {
                         {b.density < -1e-9 && <span>+ρ {(-b.density).toFixed(2)}</span>}
                         {b.generic > 0 && <span>−g {b.generic.toFixed(2)}</span>}
                         {b.vlm > 0 && <span>v {b.vlm.toFixed(2)}</span>}
-                        {b.scene > 1e-9 && <span>cat {b.scene.toFixed(2)}</span>}
+                        {b.scene > 1e-9 && <span>scn {b.scene.toFixed(2)}</span>}
+                        {b.catPrior > 1e-9 && <span>cat +{b.catPrior.toFixed(2)}</span>}
+                        {b.catPrior < -1e-9 && <span>cat {b.catPrior.toFixed(2)}</span>}
                       </div>
                     )}
                   </div>
