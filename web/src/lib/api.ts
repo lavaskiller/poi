@@ -75,6 +75,48 @@ export interface Readiness {
   };
 }
 
+/** One case's a-priori signals + GT correctness for the Confidence Gate. */
+/** OCR name-support strength — docs/confidence-gate.md (full / tokens / none). */
+export type OcrStrength = "full" | "tokens" | "none";
+
+export interface ConfSimCase {
+  dataset: string;
+  photo: string;
+  pred: string;
+  gt: string;
+  correct: boolean;
+  action: string; // fixed-policy AUTO_PICK | SHOW_PICKER | NONE
+  margin_m: number | null;
+  decision: string;
+  n_cand: number;
+  /** Per-candidate distances (m) for density at any client-side R. */
+  cand_dists: number[];
+  /** Nearest-candidate distance (a-priori); valid gate input. */
+  app_poi_dist_m: number | null;
+  /** Graded OCR support: full=1.0 · tokens=0.7 · none=0. */
+  ocr_strength: OcrStrength;
+  /** True when ocr_strength is full or tokens. */
+  ocr_supported: boolean;
+  /** Selected name is only a generic category word (cafe, park, …). */
+  generic_name: boolean;
+  /** Weighted pick == physical nearest. */
+  spatial_agreement: boolean;
+  /** Inverse of spatial_agreement when candidates exist. */
+  spatial_conflict: boolean;
+  single_candidate: boolean;
+  no_candidates: boolean;
+  vlm_support: boolean;
+  reason_codes: string[];
+  image: string;
+}
+export interface ConfSim {
+  metrics: Record<string, unknown>;
+  policy: Record<string, unknown>;
+  n: number;
+  dataset: string;
+  cases: ConfSimCase[];
+}
+
 export interface Overview {
   data_state: string; // "ready" | "empty" | ...
   csv_present: boolean;
@@ -811,6 +853,15 @@ export const api = {
   /** Onboarding seed presets discovered on disk (disk-bundle path; UI uses upload). */
   async seedPresets(): Promise<SeedPresets> {
     return getJSON<SeedPresets>("/api/seed/presets");
+  },
+
+  /**
+   * Per-case a-priori signals + GT correctness for the Confidence Gate page.
+   * The gate (tau / weights / radius) is applied client-side over these, so
+   * sliders re-aggregate instantly. GT is used for scoring only, never as input.
+   */
+  async confidenceSim(dataset = "all"): Promise<ConfSim> {
+    return getJSON<ConfSim>(`/api/confidence-sim?dataset=${encodeURIComponent(dataset)}`);
   },
 
   /**

@@ -11,6 +11,7 @@ const WORKFLOW = [
   { to: "/results", label: "Results" },
   { to: "/compare", label: "Compare" },
   { to: "/retrieval", label: "Retrieval" },
+  { to: "/confidence-gate", label: "Confidence gate" },
 ];
 
 const DATA = [

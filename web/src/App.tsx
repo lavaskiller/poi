@@ -8,6 +8,7 @@ import CaseInspector from "./pages/CaseInspector";
 import Compare from "./pages/Compare";
 import Datasets from "./pages/Datasets";
 import RetrievalDiagnostics from "./pages/RetrievalDiagnostics";
+import ConfidenceGate from "./pages/ConfidenceGate";
 import ReconcileMapKit from "./pages/ReconcileMapKit";
 import Onboarding from "./pages/Onboarding";
 import Jobs from "./pages/Jobs";
@@ -42,6 +43,7 @@ function AppRoutes() {
         <Route path="datasets" element={<Datasets />} />
         <Route path="reconcile" element={<ReconcileMapKit />} />
         <Route path="retrieval" element={<RetrievalDiagnostics />} />
+        <Route path="confidence-gate" element={<ConfidenceGate />} />
         <Route path="jobs" element={<Jobs />} />
       </Route>
     </Routes>
