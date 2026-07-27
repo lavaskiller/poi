@@ -210,16 +210,30 @@ export default function ConfidenceGate() {
     setPreset("explore");
   };
 
+  // Score ceiling for the τ range. Under explore weights a case's additive
+  // score can exceed 2, so a fixed τ_max=2 would (a) truncate the frontier and
+  // (b) let Auto report a τ that still leaks wrong labels because it cannot
+  // tighten past the ceiling. Span τ up to the max score among τ-gated cases
+  // (hard-blocked cases are Near regardless, so they don't set the range);
+  // floor at 2 so the default faithful range stays stable.
+  const sMax = useMemo(() => {
+    let m = 1;
+    for (const c of cases) if (!hardBlockReason(c, p)) m = Math.max(m, score(c, p));
+    return Math.max(2, Math.ceil(m * 20) / 20);
+  }, [cases, p]);
+
   const autoTau = useMemo(() => {
     if (mode !== "auto" || !n) return p.tau;
-    let best = 2.0;
-    for (let t = 2.0; t >= 0; t -= 0.05) {
+    // Start at the strictest τ (≈0 coverage, 0 wrong → always within budget)
+    // and loosen while the wrong-labeled share stays within the budget.
+    let best = sMax;
+    for (let t = sMax; t >= -1e-9; t -= 0.05) {
       const wrong = cases.filter((c) => labeled(c, { ...p, tau: t }) && !c.correct).length;
       if ((100 * wrong) / n <= allowedWrong) best = t;
       else break;
     }
     return Math.round(best * 100) / 100;
-  }, [mode, allowedWrong, cases, n, p]);
+  }, [mode, allowedWrong, cases, n, p, sMax]);
 
   const active: Params = mode === "auto" ? { ...p, tau: autoTau } : p;
 
@@ -243,7 +257,9 @@ export default function ConfidenceGate() {
 
   const frontier = useMemo(() => {
     const pts: { coverage: number; precision: number }[] = [];
-    for (let t = 0; t <= 2.0001; t += 0.1) {
+    const steps = 24;
+    for (let i = 0; i <= steps; i++) {
+      const t = (i / steps) * sMax;
       let lc = 0,
         lw = 0;
       for (const c of cases) if (labeled(c, { ...active, tau: t })) c.correct ? lc++ : lw++;
@@ -251,7 +267,7 @@ export default function ConfidenceGate() {
       pts.push({ coverage: n ? lab / n : 0, precision: lab ? lc / lab : 1 });
     }
     return pts;
-  }, [cases, active, n]);
+  }, [cases, active, n, sMax]);
 
   const reasons = useMemo(() => {
     const m = new Map<string, { total: number; wrong: number; correct: number }>();
@@ -386,9 +402,9 @@ export default function ConfidenceGate() {
               className={styles.slider}
               type="range"
               min={0}
-              max={2}
+              max={sMax}
               step={0.05}
-              value={p.tau}
+              value={Math.min(p.tau, sMax)}
               onChange={(e) => touch(setNum(p, "tau", Number(e.target.value)))}
             />
             <div className={styles.ends}>
@@ -569,7 +585,7 @@ export default function ConfidenceGate() {
         <div className={styles.chartPanel}>
           <div className={styles.chartHead}>
             <b>Tradeoff frontier</b>
-            <span>τ sweep 0→2</span>
+            <span>τ sweep 0→{sMax.toFixed(1)}</span>
           </div>
           <p className={styles.chartCaption}>
             Each point is a τ setting. Y = precision among shown POI · X = coverage. Pick the knee.

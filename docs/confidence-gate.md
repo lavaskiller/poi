@@ -131,7 +131,7 @@ Faithful preset reproduces `decide()`:
 - full-name OCR → `ocr_term=1` → POI (`OCR_NAME_SUPPORT`)
 - `gap 20`, no OCR → `s=0.33 < τ` → Near (`AMBIGUOUS_MARGIN` + `NO_STRONG_OCR`)
 - spatial conflict → hard Near (`WEIGHTED_NEAREST_CONFLICT`)
-- VLM alone (`0.15`) → cannot cross `τ` ("VLM never auto-picks alone")
+- VLM alone (`0.3` cap) → cannot cross `τ` ("VLM never auto-picks alone")
 
 ### Worked example
 
