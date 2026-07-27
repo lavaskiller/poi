@@ -172,17 +172,32 @@ def main() -> int:
     if not cases:
         raise SystemExit("no eligible cases: need provider-canonical non-Korea GT")
 
-    ocr_path = Path(args.ocr_tsv) if args.ocr_tsv else data_dir / "ls_ocr_text.tsv"
     vlm_path = Path(args.vlm_tsv) if args.vlm_tsv else data_dir / "fastvlm_results.tsv"
+    # Prefer explicit --ocr-tsv; otherwise merge ls_ocr_text + ocr_text (non-empty wins).
+    if args.ocr_tsv:
+        ocr_paths = [Path(args.ocr_tsv)]
+        ocr_by_photo = _read_tsv_by_photo(ocr_paths[0], ("ocr_text",))
+    else:
+        ocr_paths = [data_dir / "ls_ocr_text.tsv", data_dir / "ocr_text.tsv"]
+        ocr_by_photo = {}
+        for path in ocr_paths:
+            side = _read_tsv_by_photo(path, ("ocr_text",))
+            for photo, vals in side.items():
+                text = (vals.get("ocr_text") or "").strip()
+                prev = (ocr_by_photo.get(photo) or {}).get("ocr_text") or ""
+                if text and (not prev or len(text) > len(prev)):
+                    ocr_by_photo[photo] = {"ocr_text": text}
+                elif photo not in ocr_by_photo:
+                    ocr_by_photo[photo] = {"ocr_text": text}
     report = simulate(
         cases,
-        _read_tsv_by_photo(ocr_path, ("ocr_text",)),
+        ocr_by_photo,
         _read_tsv_by_photo(vlm_path, ("prediction", "decision")),
         args.picker_limit,
     )
     report["inputs"] = {
         "csv": csv_path, "config": config_path, "candidate_paths": candidate_paths,
-        "ocr_tsv": str(ocr_path) if ocr_path.is_file() else None,
+        "ocr_tsv": [str(p) for p in ocr_paths if p.is_file()],
         "vlm_tsv": str(vlm_path) if vlm_path.is_file() else None,
         "evaluation_set_sha256": ra.evaluation_set_sha256(cases),
         "data_snapshot_sha256": ra.data_snapshot_sha256([csv_path, config_path, *candidate_paths]),

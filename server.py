@@ -1778,6 +1778,138 @@ def tsv_datarows(path):
         return max(0, sum(1 for _ in f) - 1)
 
 
+def build_confidence_sim(dataset="all"):
+    """Per-case a-priori signals + GT correctness for the Confidence Gate page.
+
+    Wraps tools/simulate_confidence_policy.py (GT used for eval only, never as a
+    gate input). The frontend applies the tunable gate (tau / weights / radius R)
+    client-side over these signals, so sliders re-aggregate instantly without a
+    server round-trip. ``cand_dists`` lets the client recompute density for any R.
+
+    Payload fields match docs/confidence-gate.md: margin, OCR strength
+    (full/tokens/none), spatial agreement, nearest distance, generic-name flag,
+    VLM corroboration, and candidate distances for density at any R.
+    """
+    import simulate_confidence_policy as confsim
+    from pathlib import Path as _P
+    policy = confsim.policy
+    cfg = match_score.load_config(config_read_path())
+    rows = match_score.read_rows(CSV_PATH)
+    candidates = load_match_candidates(match_candidate_paths())
+    # Include ocr_text so caption_ondevice lands on case input (a-priori signal).
+    cases = algorithm.build_cases(
+        rows, cfg, candidates, dataset, ["nearby_candidates", "ocr_text"]
+    )
+    gt_by = {(it.get("_dataset"), it.get("_photo")): it.get("_gt") for it in cases}
+
+    # Merge OCR side files + case caption. Prefer non-empty text.
+    # (overview already unions ls_ocr_text.tsv | ocr_text.tsv.)
+    ocr = {}
+    for name in ("ls_ocr_text.tsv", "ocr_text.tsv"):
+        side = confsim._read_tsv_by_photo(_P(DIRECTORY) / name, ("ocr_text",))
+        for photo, vals in side.items():
+            text = (vals.get("ocr_text") or "").strip()
+            prev = (ocr.get(photo) or {}).get("ocr_text") or ""
+            if text and (not prev or len(text) > len(prev)):
+                ocr[photo] = {"ocr_text": text}
+            elif photo not in ocr:
+                ocr[photo] = {"ocr_text": text}
+    for it in cases:
+        ph = it.get("_photo")
+        cap = ((it.get("input") or {}).get("ocr_text") or "").strip()
+        if not ph or not cap:
+            continue
+        prev = (ocr.get(ph) or {}).get("ocr_text") or ""
+        if not prev or len(cap) > len(prev):
+            ocr[ph] = {"ocr_text": cap}
+        # Keep case input in sync so decide() sees the same OCR as the score.
+        it["input"]["ocr_text"] = (ocr.get(ph) or {}).get("ocr_text") or cap
+
+    vlm = confsim._read_tsv_by_photo(
+        _P(DIRECTORY) / "fastvlm_results.tsv", ("prediction", "decision")
+    )
+    report = confsim.simulate(cases, ocr, vlm, 5)
+    out = []
+    for c in report["cases"]:
+        ds, ph = c.get("dataset"), c.get("photo")
+        cands = c.get("candidates") or []
+        dists = [x.get("distance_m") for x in cands if isinstance(x.get("distance_m"), (int, float))]
+        rc = list(c.get("reason_codes") or [])
+        sel = c.get("selected") or ""
+        no_cands = ("NO_USABLE_CANDIDATES" in rc) or (not cands)
+
+        # OCR strength (full / tokens / none) — recompute so SHOW_PICKER / Near
+        # cases still carry graded support, not only AUTO reason codes.
+        ocr_text = (ocr.get(ph) or {}).get("ocr_text", "")
+        ocr_info = policy.ocr_name_support(sel, ocr_text) if sel else {
+            "supported": False, "strength": "none",
+        }
+        strength_raw = ocr_info.get("strength") or "none"
+        if strength_raw == "full_name":
+            ocr_strength = "full"
+        elif strength_raw == "all_meaningful_tokens":
+            ocr_strength = "tokens"
+        else:
+            ocr_strength = "none"
+        ocr_supported = bool(ocr_info.get("supported"))
+
+        # Generic-only name: no meaningful (non-category) tokens remain.
+        meaningful = policy._meaningful_name_tokens(sel) if sel else set()
+        generic_name = bool(sel) and not meaningful
+
+        # Nearest candidate distance + spatial agreement (weighted pick vs physical nearest).
+        nearest_name = None
+        app_poi_dist_m = None
+        if cands:
+            def _dist_key(item):
+                d = item.get("distance_m")
+                return (d is None, d if isinstance(d, (int, float)) else float("inf"))
+            nearest = min(cands, key=_dist_key)
+            nearest_name = nearest.get("name") or ""
+            nd = nearest.get("distance_m")
+            if isinstance(nd, (int, float)):
+                app_poi_dist_m = float(nd)
+        spatial_agreement = bool(
+            sel and nearest_name and policy._same_name(sel, nearest_name)
+        )
+        spatial_conflict = bool(cands) and not spatial_agreement
+
+        # VLM corroboration — recompute so non-AUTO paths still surface support.
+        vlm_row = vlm.get(ph) or {}
+        vlm_pred = vlm_row.get("prediction", "")
+        vlm_dec = (vlm_row.get("decision") or "").strip()
+        vlm_support = bool(
+            sel
+            and policy._same_name(sel, vlm_pred)
+            and vlm_dec in {"vlm_override", "vlm_agrees_nearest"}
+        )
+
+        out.append({
+            "dataset": ds, "photo": ph, "pred": sel,
+            "gt": gt_by.get((ds, ph)) or "",
+            "correct": bool(c.get("selected_correct")),
+            "action": c.get("action"),
+            "margin_m": c.get("margin_m"),
+            "decision": c.get("weighted_decision"),
+            "n_cand": len(cands),
+            "cand_dists": dists,
+            "app_poi_dist_m": app_poi_dist_m,
+            "ocr_strength": ocr_strength,
+            "ocr_supported": ocr_supported,
+            "generic_name": generic_name,
+            "spatial_agreement": spatial_agreement,
+            "spatial_conflict": spatial_conflict,
+            "single_candidate": len(cands) == 1,
+            "no_candidates": no_cands,
+            "vlm_support": vlm_support,
+            "reason_codes": rc,
+            "image": "/api/poi-case-photo?dataset=%s&photo=%s&thumb=1&w=240" % (
+                urllib.parse.quote(ds or ""), urllib.parse.quote(ph or "")),
+        })
+    return {"metrics": report.get("metrics", {}), "policy": report.get("policy", {}),
+            "n": len(out), "dataset": dataset, "cases": out}
+
+
 def build_overview():
     cfg = load_config()
     cols, rows = read_eval_csv()
@@ -3347,6 +3479,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 pass
             except Exception as e:
                 self.log_error("seed download failed: %s", e)
+                self._send_api_error("internal_error", 500)
+            return
+        if route == "/api/confidence-sim":
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            ds = (q.get("dataset", ["all"])[0]).strip() or "all"
+            try:
+                self._send_json(build_confidence_sim(ds))
+            except Exception as e:
+                self.log_error("API request failed: %s", e)
                 self._send_api_error("internal_error", 500)
             return
         if route == "/api/overview":
