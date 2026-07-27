@@ -7,7 +7,60 @@ signals* (never ground truth), so wrong picks are not surfaced to the user.
 The gate is a tunable, retraining-free version of `examples/poi_confidence_policy.py`
 (`decide()`) driven by `tools/simulate_confidence_policy.py`. This doc covers
 **(1) which signals exist** and which may feed the gate, and **(2) how the
-confidence score is defined**. The Lab/Auto simulator UI is specified separately.
+confidence score is defined**.
+
+### Where this sits in the app
+
+| Step | Page | Role |
+|---|---|---|
+| 1 | Datasets / Reconcile | Cohort + GT |
+| 2 | New run → Results / Compare | **Which selector** picks the POI (accuracy) |
+| 3 | **Confidence gate** | Given one base pick, **show POI vs Near** (product safety) |
+
+The gate judges a **pick** (show POI vs Near), not which selector to train.
+
+| Base pick | Source | Use |
+|---|---|---|
+| **Policy** | Live `mapkit_weighted` + `poi_confidence_policy.decide()` | Match product AUTO policy; AUTO ≡ labeled diagnostic |
+| **Results run** | Saved run JSON `prediction` per case | Product path: pick a Result, then tune the gate on those picks |
+
+For a Results run, the selector is **not** re-executed. Gate signals (OCR on the
+run prediction, spatial vs physical nearest, list margin when the pick is
+weighted top, density) are recomputed against MapKit candidates.
+
+### UI modes (Lab / Auto / Learn)
+
+| Mode | Use when | What moves |
+|---|---|---|
+| **Lab** | Understanding the frontier; matching `decide()` via **faithful** preset | **faithful:** τ only (hard gates + weights locked). **explore:** R, M_ref, D_ref, hard gates, weights |
+| **Auto** | One-knob operating point on the **full** cohort | τ only (wrong-budget → max coverage) |
+| **Learn** | Searching margin/dist/spatial/VLM/density/scene weights with a **held-out** split | weights (+ fitted τ); Apply → Lab |
+
+**Faithful is not “score alone.”** `decide()` equivalence needs hard gates
+(`spatialStrict` + `requireDecisiveEvidence`). The UI locks those under the
+faithful preset and shows a live **AUTO ≡ labeled** diagnostic (case-level
+agreement with `action === AUTO_PICK` from the policy simulator). Turning hard
+gates or weights off switches the preset to **explore**.
+
+Eval toggle **exact** vs **relations** only changes how “correct” is counted
+after the fact — never a gate input.
+
+**Saving an operating point.** Lab/Auto expose **＋ Save current**; Learn exposes
+**💾 Save best**. A snapshot records the tuned τ / weights / hard gates, the base
+(policy or a Results run), the eval mode + budget, the headline KPIs, and the
+per-case labeled/Near decisions — so it is both a reproducible operating point
+and an offline audit dump. Snapshots persist server-side under
+`generated/confidence-snapshots/` (named — re-saving a name updates in place) via
+`GET/POST /api/confidence-snapshot[s]`; the saved-points bar lists them and loads
+one back into Lab. Nothing is lost on refresh.
+
+**k-fold cross-validation (Learn).** The live search uses one held-out split,
+which a lucky partition can flatter. **Cross-validate** runs *k*-fold CV of the
+learned weight direction — τ is refit per fold, val is scored per fold — and
+reports val coverage / wrong-leak as **mean ± std** plus how many folds were
+feasible at the budget. Wide std or `< k` feasible folds means the weights do not
+generalize; trust the mean, not the best split. Saving from Learn embeds this CV
+summary in the snapshot KPIs.
 
 Outcome is a 3-bucket partition of the cohort, scored post-hoc with GT:
 
@@ -51,7 +104,20 @@ count) is the fallback when per-candidate distances are unavailable.)*
 | `category` / normalized | selected candidate category (landmark, restaurant…) | **Lab-only, default off** |
 | `app_nearby_top1` | nearest candidate name | display / context only |
 | VLM `prediction` + `decision` | FastVLM prediction + `vlm_override` / `vlm_agrees_nearest` | corroboration only; conditional on FastVLM |
+| `scene_agreement` | photo scene (`VNClassifyImageRequest`) ↔ pick category/name agreement, [0,1] | corroboration only, cap `w_cat` (explore 0.3); cannot open the gate alone |
 | `caption_ondevice` | on-device OCR text | source of `ocr_name_support` |
+
+**Photo scene (`scene_agreement`).** An on-device Vision classifier
+(`tools/swift/scene_classify.swift` → `scene_labels.tsv`) reads top-k scene
+labels from the pixels (e.g. `outdoor 0.96 · food 0.8 · structure`). It is
+a-priori (no GT), so it is a valid gate input. `tools/scene_agreement.py` maps
+the strongest label to the selected pick's MapKit category / name tokens →
+continuous `[0,1]`. It corroborates like the VLM term (capped at `w_cat`,
+default 0 in faithful) and is a **searched** signal in Learn. On the current
+160-case cohort it is the **strongest continuous signal** (AUC ≈ 0.65, above
+`margin` 0.61 and `dist` 0.60); when agreement ≥ 0.35 fires (31 cases) precision
+rises 0.36 → 0.71. A confident scene that maps to a *different* family than the
+pick is exposed as `scene_conflict` (soft diagnostic, not a hard pre-filter).
 
 ### B. Eval-only — never a gate input (GT-derived)
 
@@ -98,7 +164,7 @@ preset reproduces the current `decide()` behavior.
 
 ```
 s =  w_m·margin_term  +  w_o·ocr_term  +  w_s·spatial_term  +  w_d·dist_term
-   − w_ρ·density_penalty  −  w_g·generic_penalty  +  w_v·vlm_term(cap)
+   − w_ρ·density_penalty  −  w_g·generic_penalty  +  w_v·vlm_term(cap)  +  w_cat·scene_term(cap)
 
 margin_term     = clip(gap_m / M_ref, 0, 1)                  M_ref = 60 m
 ocr_term        = full 1.0 / tokens 0.7 / none 0
@@ -107,6 +173,7 @@ dist_term       = clip(1 − app_poi_dist_m / D_ref, 0, 1)     D_ref = 100 m
 density_penalty = clip((n_R − 1) / K, 0, 1)   n_R = #candidates within R   R = 80 m, K = 4
 generic_penalty = generic-only name 1 / else 0
 vlm_term        = corroborates 1 / else 0,  cap 0.3   (only when FastVLM present)
+scene_term      = scene_agreement [0,1],    cap w_cat (faithful 0 · explore 0.3)
 ```
 
 Single-candidate cases have no `gap_m` → `margin_term = 0`; they rely on OCR/VLM.

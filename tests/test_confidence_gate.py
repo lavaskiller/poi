@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import importlib.util
-import os
 import sys
 import unittest
 from pathlib import Path
@@ -28,6 +27,45 @@ def _ocr_strength(name: str, ocr_text: str) -> str:
     if raw == "all_meaningful_tokens":
         return "tokens"
     return "none"
+
+
+import scene_agreement as scene_mod  # noqa: E402
+
+
+class SceneAgreementTests(unittest.TestCase):
+    """Photo scene ↔ pick agreement (a-priori gate signal, never GT)."""
+
+    def test_category_match(self):
+        # restaurant pick + food/restaurant scene → strong agreement
+        a = scene_mod.scene_agreement(
+            "restaurant:0.9|food:0.8", pick_category="restaurant", pick_name="Mai's Kitchen"
+        )
+        self.assertGreater(a, 0.5)
+
+    def test_name_cue_is_weaker_than_category(self):
+        cat = scene_mod.scene_agreement("cafe:0.9", pick_category="cafe", pick_name="X")
+        name = scene_mod.scene_agreement("cafe:0.9", pick_category="", pick_name="Blue Coffee")
+        self.assertGreater(cat, name)
+        self.assertGreater(name, 0.0)
+
+    def test_no_scene_or_no_pick_is_zero(self):
+        self.assertEqual(scene_mod.scene_agreement("", pick_category="restaurant"), 0.0)
+        self.assertEqual(scene_mod.scene_agreement("restaurant:0.9", pick_category="", pick_name=""), 0.0)
+
+    def test_agreement_clamped_unit_interval(self):
+        a = scene_mod.scene_agreement("restaurant:1.0", pick_category="restaurant", pick_name="Grill")
+        self.assertGreaterEqual(a, 0.0)
+        self.assertLessEqual(a, 1.0)
+
+    def test_low_confidence_scene_ignored(self):
+        # Below min_conf → no agreement.
+        a = scene_mod.scene_agreement("restaurant:0.05", pick_category="restaurant", min_conf=0.12)
+        self.assertEqual(a, 0.0)
+
+    def test_parse_scene_labels(self):
+        pairs = scene_mod.parse_scene_labels("outdoor:0.96|sky:0.88")
+        self.assertEqual(pairs[0][0], "outdoor")
+        self.assertAlmostEqual(pairs[0][1], 0.96, places=2)
 
 
 class OcrStrengthTests(unittest.TestCase):
@@ -77,12 +115,32 @@ class BuildConfidenceSimTests(unittest.TestCase):
             "vlm_support",
             "margin_m",
             "correct",
+            "correct_exact",
+            "correct_relations",
+            "match_kind",
+            "scene_top1",
+            "scene_agreement",
+            "scene_conflict",
         ):
             self.assertIn(key, case)
         self.assertIn(case["ocr_strength"], ("full", "tokens", "none"))
-        # Faithful hard gates should not disagree with AUTO_PICK on this cohort.
-        auto = { (c["dataset"], c["photo"]) for c in report["cases"] if c["action"] == "AUTO_PICK" }
-        self.assertGreaterEqual(len(auto), 0)
+        # scene_agreement is an a-priori [0,1] additive input (never GT).
+        for c in report["cases"]:
+            self.assertGreaterEqual(c["scene_agreement"], 0.0)
+            self.assertLessEqual(c["scene_agreement"], 1.0)
+        self.assertIn("signals", report)
+        sig = report["signals"]
+        self.assertEqual(sig["n"], report["n"])
+        self.assertEqual(
+            sig["ocr_full"] + sig["ocr_tokens"] + sig["ocr_none"],
+            report["n"],
+        )
+        # correct back-compat default is exact
+        for c in report["cases"]:
+            self.assertEqual(c["correct"], c["correct_exact"])
+            # relations is a superset of exact (canonical credit never revokes exact)
+            if c["correct_exact"]:
+                self.assertTrue(c["correct_relations"])
 
 
 if __name__ == "__main__":

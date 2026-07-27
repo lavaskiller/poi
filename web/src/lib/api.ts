@@ -84,7 +84,16 @@ export interface ConfSimCase {
   photo: string;
   pred: string;
   gt: string;
+  /**
+   * Default correctness (exact match). Prefer correct_exact / correct_relations
+   * with the Lab toggle — this field mirrors correct_exact for back-compat.
+   */
   correct: boolean;
+  /** Exact string match against GT (strict). */
+  correct_exact: boolean;
+  /** Product metric: exact + reviewed aliases / credit≥1 relations. */
+  correct_relations: boolean;
+  match_kind?: string;
   action: string; // fixed-policy AUTO_PICK | SHOW_PICKER | NONE
   margin_m: number | null;
   decision: string;
@@ -106,15 +115,137 @@ export interface ConfSimCase {
   single_candidate: boolean;
   no_candidates: boolean;
   vlm_support: boolean;
+  /** MapKit category of the selected pick (context for scene↔pick agreement). */
+  pick_category?: string;
+  /** Top-1 photo scene label (VNClassifyImageRequest); "" when no scene data. */
+  scene_top1?: string;
+  /** Top-1 scene confidence [0,1]. */
+  scene_top1_conf?: number;
+  /** Raw `id:conf|id:conf` scene labels (top-k). */
+  scene_labels?: string;
+  /** Scene↔pick category agreement [0,1]; a-priori additive gate input. */
+  scene_agreement?: number;
+  /** Confident scene maps to a different family than the pick (soft diagnostic). */
+  scene_conflict?: boolean;
   reason_codes: string[];
   image: string;
 }
+
+/** Cohort-level a-priori signal coverage (for empty-signal banners). */
+export interface ConfSimSignals {
+  n: number;
+  ocr_full: number;
+  ocr_tokens: number;
+  ocr_none: number;
+  ocr_supported: number;
+  ocr_supported_pct: number;
+  vlm_support: number;
+  generic_name: number;
+  spatial_agreement: number;
+  single_candidate: number;
+  no_candidates: number;
+  label_relations_n: number;
+  /** Photos with any scene label (VNClassifyImageRequest coverage). */
+  scene_labeled?: number;
+  scene_labeled_pct?: number;
+  /** Cases whose scene agrees with the pick (agreement ≥ 0.35). */
+  scene_agree?: number;
+}
+
+export interface ConfSimBase {
+  kind: "policy" | "run" | string;
+  label: string;
+  run?: {
+    name: string;
+    version: number;
+    n_run_cases?: number;
+    n_overlap?: number;
+    accuracy_pct?: number | null;
+    accuracy_canonical_pct?: number | null;
+    evaluation_set_sha256?: string | null;
+  } | null;
+}
+
 export interface ConfSim {
   metrics: Record<string, unknown>;
   policy: Record<string, unknown>;
   n: number;
   dataset: string;
   cases: ConfSimCase[];
+  signals?: ConfSimSignals;
+  /** Which pick source the gate is judging (policy decide vs Results run). */
+  base?: ConfSimBase;
+}
+
+/** A tuned gate operating point KPIs, saved for reproduction / audit. */
+export interface ConfSnapshotKpis {
+  n?: number;
+  coverage?: number;
+  precision?: number;
+  correct?: number;
+  wrong?: number;
+  near?: number;
+  wrongPct?: number;
+  labeledN?: number;
+  agree?: number;
+  autoN?: number;
+  /** k-fold cross-val summary if it was run before saving. */
+  cvMeanCov?: number;
+  cvStdCov?: number;
+  cvMeanWrong?: number;
+  cvStdWrong?: number;
+  cvK?: number;
+  cvFeasibleFolds?: number;
+}
+
+/** Per-case decision this operating point produced (audit / offline export). */
+export interface ConfSnapshotCase {
+  dataset: string;
+  photo: string;
+  bucket: "correct" | "wrong" | "near";
+  correct: boolean;
+  score: number;
+  near_reason: string | null;
+}
+
+/** Snapshot metadata (list view — no per-case bodies). */
+export interface ConfSnapshotMeta {
+  id: string;
+  name: string;
+  base?: string | null;
+  run_name?: string | null;
+  run_version?: number | null;
+  dataset?: string | null;
+  eval_mode?: "exact" | "relations" | null;
+  preset?: "faithful" | "explore" | null;
+  mode?: string | null;
+  budget?: number | null;
+  kpis?: ConfSnapshotKpis;
+  note?: string | null;
+  created?: string;
+  updated?: string;
+}
+
+/** Full snapshot: metadata + tuned params + per-case decisions. */
+export interface ConfSnapshot extends ConfSnapshotMeta {
+  params?: Record<string, number | boolean>;
+  cases?: ConfSnapshotCase[];
+}
+
+export interface ConfSnapshotSaveRequest {
+  name: string;
+  base?: string | null;
+  run_name?: string | null;
+  run_version?: number | null;
+  dataset?: string | null;
+  eval_mode?: "exact" | "relations";
+  preset?: "faithful" | "explore";
+  mode?: string;
+  budget?: number | null;
+  params?: Record<string, number | boolean>;
+  kpis?: ConfSnapshotKpis;
+  cases?: ConfSnapshotCase[];
+  note?: string;
 }
 
 export interface Overview {
@@ -859,9 +990,60 @@ export const api = {
    * Per-case a-priori signals + GT correctness for the Confidence Gate page.
    * The gate (tau / weights / radius) is applied client-side over these, so
    * sliders re-aggregate instantly. GT is used for scoring only, never as input.
+   *
+   * `base`:
+   *   - `policy` (default) — live mapkit-weighted + decide()
+   *   - `run` — Results run pick (`run` + `version` required)
    */
-  async confidenceSim(dataset = "all"): Promise<ConfSim> {
-    return getJSON<ConfSim>(`/api/confidence-sim?dataset=${encodeURIComponent(dataset)}`);
+  async confidenceSim(
+    dataset = "all",
+    opts: { base?: "policy" | "run"; run?: string; version?: number } = {},
+  ): Promise<ConfSim> {
+    const qs = new URLSearchParams();
+    qs.set("dataset", dataset);
+    qs.set("base", opts.base || "policy");
+    if (opts.base === "run" && opts.run != null && opts.version != null) {
+      qs.set("run", opts.run);
+      qs.set("version", String(opts.version));
+    }
+    return getJSON<ConfSim>(`/api/confidence-sim?${qs.toString()}`);
+  },
+
+  /** List saved gate operating points (metadata only), newest first. */
+  async confSnapshots(): Promise<{ snapshots: ConfSnapshotMeta[] }> {
+    return getJSON<{ snapshots: ConfSnapshotMeta[] }>("/api/confidence-snapshots");
+  },
+
+  /** Load one saved operating point in full (params + per-case decisions). */
+  async confSnapshot(id: string): Promise<ConfSnapshot> {
+    const r = await getJSON<{ snapshot: ConfSnapshot }>(
+      `/api/confidence-snapshot?id=${encodeURIComponent(id)}`,
+    );
+    return r.snapshot;
+  },
+
+  /** Persist the current operating point. Same name → update in place. */
+  async saveConfSnapshot(
+    req: ConfSnapshotSaveRequest,
+  ): Promise<{ ok: boolean; id: string; created: string; updated: string }> {
+    const res = await fetch("/api/confidence-snapshot", {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) throw new Error(await readError(res, "/api/confidence-snapshot"));
+    return (await res.json()) as { ok: boolean; id: string; created: string; updated: string };
+  },
+
+  /** Delete a saved operating point by id. */
+  async deleteConfSnapshot(id: string): Promise<{ ok: boolean; deleted: boolean }> {
+    const res = await fetch("/api/confidence-snapshot", {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ action: "delete", id }),
+    });
+    if (!res.ok) throw new Error(await readError(res, "/api/confidence-snapshot"));
+    return (await res.json()) as { ok: boolean; deleted: boolean };
   },
 
   /**

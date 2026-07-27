@@ -1,5 +1,5 @@
 import http.server, socketserver, functools, json, csv, os, sys, tempfile, urllib.parse
-import threading, subprocess, uuid, time, math, shutil, queue, statistics, io, zipfile
+import threading, subprocess, uuid, time, math, shutil, queue, statistics, io, zipfile, re
 from collections import Counter, defaultdict
 from pathlib import Path, PurePosixPath
 
@@ -97,6 +97,112 @@ def match_candidate_paths():
     """Resolve the active candidate snapshot at request/run time."""
     return match_score.default_candidate_files(DIRECTORY)
 RUNS_DIR = os.path.join(DIRECTORY, "generated", "runs")
+
+# Saved confidence-gate operating points (τ / weights / hard gates + the KPIs
+# and per-case decisions they produced). The gate is computed client-side, so a
+# snapshot is an opaque-ish record the browser POSTs; the server only persists,
+# lists, loads, and deletes it. Named — re-saving the same name updates in place.
+CONF_SNAP_DIR = os.path.join(DIRECTORY, "generated", "confidence-snapshots")
+
+_CONF_SNAP_META_KEYS = (
+    "id", "name", "base", "run_name", "run_version", "dataset",
+    "eval_mode", "preset", "mode", "budget", "kpis", "note",
+    "created", "updated",
+)
+
+
+def _conf_snap_slug(name):
+    """Stable filesystem id for a snapshot name (kebab, ascii, capped)."""
+    s = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
+    return s[:60] or "snapshot"
+
+
+def list_conf_snapshots():
+    """Metadata for every saved operating point, newest first (no case bodies)."""
+    out = []
+    if not os.path.isdir(CONF_SNAP_DIR):
+        return out
+    for fn in os.listdir(CONF_SNAP_DIR):
+        if not fn.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(CONF_SNAP_DIR, fn), encoding="utf-8") as f:
+                d = json.load(f)
+        except Exception:
+            continue
+        if not isinstance(d, dict):
+            continue
+        out.append({k: d.get(k) for k in _CONF_SNAP_META_KEYS})
+    out.sort(key=lambda d: (d.get("updated") or d.get("created") or ""), reverse=True)
+    return out
+
+
+def get_conf_snapshot(sid):
+    """Full saved snapshot (incl. per-case decisions) or None if missing."""
+    path = os.path.join(CONF_SNAP_DIR, _conf_snap_slug(sid) + ".json")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def save_conf_snapshot(payload):
+    """Persist an operating point. Same name → update (keeps original created)."""
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object")
+    name = str(payload.get("name", "") or "").strip()
+    if not name:
+        raise ValueError("name required")
+    sid = _conf_snap_slug(name)
+    os.makedirs(CONF_SNAP_DIR, exist_ok=True)
+    path = os.path.join(CONF_SNAP_DIR, sid + ".json")
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    created = now
+    if os.path.isfile(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                created = (json.load(f) or {}).get("created", now)
+        except Exception:
+            pass
+    cases = payload.get("cases")
+    if not isinstance(cases, list):
+        cases = []
+    rec = {
+        "id": sid,
+        "name": name,
+        "base": payload.get("base"),
+        "run_name": payload.get("run_name"),
+        "run_version": payload.get("run_version"),
+        "dataset": payload.get("dataset"),
+        "eval_mode": payload.get("eval_mode"),
+        "preset": payload.get("preset"),
+        "mode": payload.get("mode"),
+        "budget": payload.get("budget"),
+        "params": payload.get("params") if isinstance(payload.get("params"), dict) else {},
+        "kpis": payload.get("kpis") if isinstance(payload.get("kpis"), dict) else {},
+        "cases": cases[:2000],
+        "note": str(payload.get("note", "") or "")[:500],
+        "created": created,
+        "updated": now,
+    }
+    from file_ops import file_lock
+    with file_lock(path):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(rec, f, ensure_ascii=False, indent=2)
+    return {"id": sid, "created": created, "updated": now}
+
+
+def delete_conf_snapshot(sid):
+    """Remove a saved snapshot; True if it existed."""
+    path = os.path.join(CONF_SNAP_DIR, _conf_snap_slug(sid) + ".json")
+    if os.path.isfile(path):
+        os.remove(path)
+        return True
+    return False
+
 
 # Onboarding seed bundle. Lives at the repo root and is gitignored (real user
 # data, shared privately). Onboarding discovers what is on disk here and offers
@@ -1778,17 +1884,19 @@ def tsv_datarows(path):
         return max(0, sum(1 for _ in f) - 1)
 
 
-def build_confidence_sim(dataset="all"):
+def build_confidence_sim(dataset="all", base="policy", run_name=None, run_version=None):
     """Per-case a-priori signals + GT correctness for the Confidence Gate page.
 
-    Wraps tools/simulate_confidence_policy.py (GT used for eval only, never as a
-    gate input). The frontend applies the tunable gate (tau / weights / radius R)
-    client-side over these signals, so sliders re-aggregate instantly without a
-    server round-trip. ``cand_dists`` lets the client recompute density for any R.
+    Two bases (product judgment is always over a *pick*, then the gate):
 
-    Payload fields match docs/confidence-gate.md: margin, OCR strength
-    (full/tokens/none), spatial agreement, nearest distance, generic-name flag,
-    VLM corroboration, and candidate distances for density at any R.
+    * ``base=policy`` (default) — live ``poi_confidence_policy.decide()`` on
+      mapkit-weighted resolution (AUTO ≡ labeled diagnostic applies).
+    * ``base=run`` — use a scored Results run's ``prediction`` as the pick, then
+      recompute gate signals against MapKit candidates (OCR / spatial / margin
+      relative to that pick). This is the product path: pick a Result, then tune
+      show-POI vs Near.
+
+    GT is eval-only. Client applies τ / weights over the signal payload.
     """
     import simulate_confidence_policy as confsim
     from pathlib import Path as _P
@@ -1796,14 +1904,16 @@ def build_confidence_sim(dataset="all"):
     cfg = match_score.load_config(config_read_path())
     rows = match_score.read_rows(CSV_PATH)
     candidates = load_match_candidates(match_candidate_paths())
-    # Include ocr_text so caption_ondevice lands on case input (a-priori signal).
     cases = algorithm.build_cases(
         rows, cfg, candidates, dataset, ["nearby_candidates", "ocr_text"]
     )
     gt_by = {(it.get("_dataset"), it.get("_photo")): it.get("_gt") for it in cases}
+    provider_by = {
+        (it.get("_dataset"), it.get("_photo")): (it.get("_provider") or "mapkit")
+        for it in cases
+    }
 
-    # Merge OCR side files + case caption. Prefer non-empty text.
-    # (overview already unions ls_ocr_text.tsv | ocr_text.tsv.)
+    # Merge OCR side files + case caption.
     ocr = {}
     for name in ("ls_ocr_text.tsv", "ocr_text.tsv"):
         side = confsim._read_tsv_by_photo(_P(DIRECTORY) / name, ("ocr_text",))
@@ -1822,24 +1932,150 @@ def build_confidence_sim(dataset="all"):
         prev = (ocr.get(ph) or {}).get("ocr_text") or ""
         if not prev or len(cap) > len(prev):
             ocr[ph] = {"ocr_text": cap}
-        # Keep case input in sync so decide() sees the same OCR as the score.
         it["input"]["ocr_text"] = (ocr.get(ph) or {}).get("ocr_text") or cap
 
     vlm = confsim._read_tsv_by_photo(
         _P(DIRECTORY) / "fastvlm_results.tsv", ("prediction", "decision")
     )
-    report = confsim.simulate(cases, ocr, vlm, 5)
+    relations = match_score.load_label_relations(
+        match_score.default_label_relations_path(DIRECTORY)
+    )
+    # Photo scene labels (VNClassifyImageRequest) — optional seed/precompute artifact.
+    sys.path.insert(0, os.path.join(REPO_DIR, "tools"))
+    import scene_agreement as scene_mod  # noqa: E402
+    scene_by_photo = scene_mod.read_scene_tsv(os.path.join(DIRECTORY, "scene_labels.tsv"))
+
+    base = (base or "policy").strip().lower()
+    base_meta = {"kind": "policy", "label": "mapkit-weighted · decide()", "run": None}
+    report_metrics = {}
+    report_policy = {
+        "module": "examples/poi_confidence_policy.py",
+        "note": "Policy base: action tiers from decide(). Run base: pick from Results.",
+    }
+
+    # ---- Build per-case picks + optional policy actions --------------------
+    # Keyed by (dataset, photo).
+    pick_rows = []  # list of dicts ready for signal packing
+
+    if base == "run":
+        if not run_name:
+            raise ValueError("base=run requires run name (and version)")
+        try:
+            ver = int(run_version)
+        except (TypeError, ValueError):
+            raise ValueError("base=run requires integer version") from None
+        run = get_run(RUNS_DIR, run_name, ver)
+        pred_by = {}
+        for rc in run.get("cases") or []:
+            ds = (rc.get("dataset") or "").strip()
+            ph = (rc.get("photo") or "").strip()
+            if not ph:
+                continue
+            pred_by[(ds, ph)] = (rc.get("prediction") or "").strip()
+        eligible = {(it.get("_dataset"), it.get("_photo")): it for it in cases}
+        # Intersection: only cases present in both the run and the eligible cohort.
+        keys = [k for k in pred_by if k in eligible]
+        if not keys:
+            raise ValueError(
+                "run %s v%s has no overlap with the eligible gate cohort "
+                "(check evaluation set / dataset filter)" % (run_name, ver)
+            )
+        base_meta = {
+            "kind": "run",
+            "label": "%s · v%s" % (run.get("name") or run_name, ver),
+            "run": {
+                "name": run.get("name") or run_name,
+                "version": ver,
+                "n_run_cases": len(run.get("cases") or []),
+                "n_overlap": len(keys),
+                "accuracy_pct": (run.get("metrics") or {}).get("accuracy_pct"),
+                "accuracy_canonical_pct": (run.get("metrics") or {}).get(
+                    "accuracy_canonical_pct"
+                ),
+                "evaluation_set_sha256": run.get("evaluation_set_sha256"),
+            },
+        }
+        report_metrics = {
+            "n_eligible": len(keys),
+            "source": "results_run",
+            "run_name": run.get("name") or run_name,
+            "run_version": ver,
+        }
+        for key in keys:
+            it = eligible[key]
+            ds, ph = key
+            public = dict(it["input"])
+            if ph in ocr:
+                public["ocr_text"] = ocr[ph].get("ocr_text", "")
+            if ph in vlm:
+                public["vlm_prediction"] = vlm[ph].get("prediction", "")
+                public["vlm_decision"] = vlm[ph].get("decision", "")
+            # Rank candidates with the same weighted resolver used by the policy
+            # (margin/decision are list properties; pick itself comes from the run).
+            from mapkit_weighted import resolve as weighted_resolve
+            resolution = weighted_resolve(public)
+            ranked = resolution.get("candidates") or []
+            sel = pred_by[key]
+            # Margin/decision relative to whether this pick is weighted #1.
+            margin_m = None
+            decision = resolution.get("decision") or "none"
+            if not sel:
+                action = "NONE"
+                reason_codes = ["RUN_ABSTAIN"]
+            else:
+                action = "RUN_PICK"
+                reason_codes = ["RUN_PREDICTION"]
+                top = ranked[0] if ranked else None
+                if top and policy._same_name(sel, top.get("name")):
+                    margin_m = resolution.get("gap_m")
+                    decision = resolution.get("decision") or decision
+                    reason_codes.append("PICK_IS_WEIGHTED_TOP")
+                else:
+                    # Not the weighted top — treat as non-decisive for hard gates.
+                    decision = "ambiguous" if ranked else "none"
+                    margin_m = resolution.get("gap_m")  # still expose list gap for explore
+                    reason_codes.append("PICK_NOT_WEIGHTED_TOP")
+            slim = [
+                {
+                    "name": c.get("name", ""),
+                    "distance_m": c.get("physical_distance_m", c.get("distance_m")),
+                    "category": c.get("normalized_category") or c.get("category") or "",
+                }
+                for c in ranked
+            ]
+            pick_rows.append({
+                "dataset": ds, "photo": ph, "selected": sel, "action": action,
+                "reason_codes": reason_codes, "margin_m": margin_m,
+                "weighted_decision": decision, "candidates": slim,
+                "selected_correct": match_score.exact_equal(sel, gt_by.get(key) or ""),
+            })
+    else:
+        # Default: live policy simulation (decide()).
+        report = confsim.simulate(cases, ocr, vlm, 5)
+        report_metrics = report.get("metrics", {})
+        report_policy = report.get("policy", report_policy)
+        pick_rows = report.get("cases") or []
+        base_meta = {
+            "kind": "policy",
+            "label": "mapkit-weighted · decide()",
+            "run": None,
+        }
+
     out = []
-    for c in report["cases"]:
+    for c in pick_rows:
         ds, ph = c.get("dataset"), c.get("photo")
         cands = c.get("candidates") or []
-        dists = [x.get("distance_m") for x in cands if isinstance(x.get("distance_m"), (int, float))]
+        dists = [
+            x.get("distance_m") for x in cands
+            if isinstance(x.get("distance_m"), (int, float))
+        ]
         rc = list(c.get("reason_codes") or [])
         sel = c.get("selected") or ""
-        no_cands = ("NO_USABLE_CANDIDATES" in rc) or (not cands)
+        no_cands = ("NO_USABLE_CANDIDATES" in rc) or (not cands and not sel)
+        if base == "run" and not sel and not cands:
+            no_cands = True
+        gt = gt_by.get((ds, ph)) or ""
 
-        # OCR strength (full / tokens / none) — recompute so SHOW_PICKER / Near
-        # cases still carry graded support, not only AUTO reason codes.
         ocr_text = (ocr.get(ph) or {}).get("ocr_text", "")
         ocr_info = policy.ocr_name_support(sel, ocr_text) if sel else {
             "supported": False, "strength": "none",
@@ -1853,11 +2089,9 @@ def build_confidence_sim(dataset="all"):
             ocr_strength = "none"
         ocr_supported = bool(ocr_info.get("supported"))
 
-        # Generic-only name: no meaningful (non-category) tokens remain.
         meaningful = policy._meaningful_name_tokens(sel) if sel else set()
         generic_name = bool(sel) and not meaningful
 
-        # Nearest candidate distance + spatial agreement (weighted pick vs physical nearest).
         nearest_name = None
         app_poi_dist_m = None
         if cands:
@@ -1872,9 +2106,8 @@ def build_confidence_sim(dataset="all"):
         spatial_agreement = bool(
             sel and nearest_name and policy._same_name(sel, nearest_name)
         )
-        spatial_conflict = bool(cands) and not spatial_agreement
+        spatial_conflict = bool(cands) and bool(sel) and not spatial_agreement
 
-        # VLM corroboration — recompute so non-AUTO paths still surface support.
         vlm_row = vlm.get(ph) or {}
         vlm_pred = vlm_row.get("prediction", "")
         vlm_dec = (vlm_row.get("decision") or "").strip()
@@ -1884,14 +2117,60 @@ def build_confidence_sim(dataset="all"):
             and vlm_dec in {"vlm_override", "vlm_agrees_nearest"}
         )
 
+        # Pick category from candidate list (MapKit), for scene↔pick agreement.
+        pick_category = ""
+        if sel and cands:
+            for cand in cands:
+                if policy._same_name(sel, cand.get("name")):
+                    pick_category = (
+                        cand.get("category")
+                        or cand.get("normalized_category")
+                        or ""
+                    )
+                    break
+
+        # Photo scene (VNClassifyImageRequest) — a-priori; missing TSV → zeros.
+        scene_row = scene_by_photo.get(ph) or scene_by_photo.get(
+            (ph or "").split("/")[-1]
+        ) or {}
+        scene_top1 = scene_row.get("scene_top1") or ""
+        try:
+            scene_top1_conf = float(scene_row.get("scene_top1_conf") or 0)
+        except (TypeError, ValueError):
+            scene_top1_conf = 0.0
+        scene_labels = scene_row.get("scene_labels") or ""
+        scene_pairs = scene_row.get("pairs") or scene_mod.parse_scene_labels(scene_labels)
+        scene_agree = scene_mod.scene_agreement(
+            scene_pairs, pick_category, sel
+        ) if sel else 0.0
+        scene_conflict = bool(
+            sel and scene_mod.scene_conflict(scene_pairs, pick_category, sel)
+        )
+
+        provider = provider_by.get((ds, ph), "mapkit")
+        match = match_score.match_prediction(
+            gt, sel, dataset=ds or "", photo=ph or "",
+            provider=provider, mode="exact", relations=relations,
+        )
+        correct_exact = bool(match.get("correct_strict"))
+        correct_relations = bool(match.get("correct_canonical"))
+        match_kind = match.get("match_kind") or ("wrong" if sel else "abstain")
+
+        # Single-candidate relative to list; also treat missing-from-list pick as multi-weak.
+        n_cand = len(cands)
+        single_candidate = n_cand == 1
+
         out.append({
             "dataset": ds, "photo": ph, "pred": sel,
-            "gt": gt_by.get((ds, ph)) or "",
-            "correct": bool(c.get("selected_correct")),
+            "gt": gt,
+            "correct": correct_exact,
+            "correct_exact": correct_exact,
+            "correct_relations": correct_relations,
+            "match_kind": match_kind,
             "action": c.get("action"),
             "margin_m": c.get("margin_m"),
             "decision": c.get("weighted_decision"),
-            "n_cand": len(cands),
+            "n_cand": n_cand,
             "cand_dists": dists,
             "app_poi_dist_m": app_poi_dist_m,
             "ocr_strength": ocr_strength,
@@ -1899,15 +2178,53 @@ def build_confidence_sim(dataset="all"):
             "generic_name": generic_name,
             "spatial_agreement": spatial_agreement,
             "spatial_conflict": spatial_conflict,
-            "single_candidate": len(cands) == 1,
-            "no_candidates": no_cands,
+            "single_candidate": single_candidate,
+            "no_candidates": no_cands or (base == "run" and not sel),
             "vlm_support": vlm_support,
+            "pick_category": pick_category or "",
+            "scene_top1": scene_top1,
+            "scene_top1_conf": scene_top1_conf,
+            "scene_labels": scene_labels,
+            "scene_agreement": float(scene_agree),
+            "scene_conflict": scene_conflict,
             "reason_codes": rc,
             "image": "/api/poi-case-photo?dataset=%s&photo=%s&thumb=1&w=240" % (
                 urllib.parse.quote(ds or ""), urllib.parse.quote(ph or "")),
         })
-    return {"metrics": report.get("metrics", {}), "policy": report.get("policy", {}),
-            "n": len(out), "dataset": dataset, "cases": out}
+
+    n_out = len(out)
+    ocr_full = sum(1 for x in out if x["ocr_strength"] == "full")
+    ocr_tokens = sum(1 for x in out if x["ocr_strength"] == "tokens")
+    ocr_none = sum(1 for x in out if x["ocr_strength"] == "none")
+    ocr_supported_n = ocr_full + ocr_tokens
+    scene_n = sum(1 for x in out if (x.get("scene_top1") or x.get("scene_labels")))
+    scene_agree_n = sum(1 for x in out if (x.get("scene_agreement") or 0) >= 0.35)
+    signals = {
+        "n": n_out,
+        "ocr_full": ocr_full,
+        "ocr_tokens": ocr_tokens,
+        "ocr_none": ocr_none,
+        "ocr_supported": ocr_supported_n,
+        "ocr_supported_pct": (100.0 * ocr_supported_n / n_out) if n_out else 0.0,
+        "vlm_support": sum(1 for x in out if x["vlm_support"]),
+        "generic_name": sum(1 for x in out if x["generic_name"]),
+        "spatial_agreement": sum(1 for x in out if x["spatial_agreement"]),
+        "single_candidate": sum(1 for x in out if x["single_candidate"]),
+        "no_candidates": sum(1 for x in out if x["no_candidates"]),
+        "label_relations_n": len(relations),
+        "scene_labeled": scene_n,
+        "scene_labeled_pct": (100.0 * scene_n / n_out) if n_out else 0.0,
+        "scene_agree": scene_agree_n,
+    }
+    return {
+        "metrics": report_metrics,
+        "policy": report_policy,
+        "base": base_meta,
+        "n": n_out,
+        "dataset": dataset,
+        "cases": out,
+        "signals": signals,
+    }
 
 
 def build_overview():
@@ -3485,11 +3802,41 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             from urllib.parse import urlparse, parse_qs
             q = parse_qs(urlparse(self.path).query)
             ds = (q.get("dataset", ["all"])[0]).strip() or "all"
+            base = (q.get("base", ["policy"])[0]).strip() or "policy"
+            run_name = (q.get("run", [""])[0]).strip() or None
+            run_ver = (q.get("version", [""])[0]).strip() or None
             try:
-                self._send_json(build_confidence_sim(ds))
+                self._send_json(build_confidence_sim(
+                    ds, base=base, run_name=run_name, run_version=run_ver,
+                ))
+            except ValueError as e:
+                self._send_api_error("invalid_request", 400, detail=e)
+            except FileNotFoundError as e:
+                self._send_api_error("not_found", 404, detail=e)
             except Exception as e:
                 self.log_error("API request failed: %s", e)
                 self._send_api_error("internal_error", 500)
+            return
+        if route == "/api/confidence-snapshots":
+            # List saved operating points (metadata only — no per-case bodies).
+            try:
+                self._send_json({"snapshots": list_conf_snapshots()})
+            except Exception as e:
+                self.log_error("API request failed: %s", e)
+                self._send_api_error("internal_error", 500)
+            return
+        if route == "/api/confidence-snapshot":
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            sid = (q.get("id", [""])[0]).strip()
+            if not sid:
+                self._send_api_error("invalid_request", 400, detail="id required")
+                return
+            snap = get_conf_snapshot(sid)
+            if snap is None:
+                self._send_api_error("not_found", 404, detail="snapshot not found")
+                return
+            self._send_json({"snapshot": snap})
             return
         if route == "/api/overview":
             try:
@@ -3979,6 +4326,31 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if route == "/api/seed/upload":
             self._handle_seed_upload()
+            return
+        if route == "/api/confidence-snapshot":
+            # Save (or, with action=delete, remove) a gate operating point.
+            raw = self._read_body(8 * 1024 * 1024) or b"{}"
+            try:
+                body = json.loads(raw or b"{}")
+                if not isinstance(body, dict):
+                    body = {}
+            except Exception:
+                body = {}
+            if str(body.get("action", "")).strip() == "delete":
+                sid = str(body.get("id", "") or "").strip()
+                if not sid:
+                    self._send_api_error("invalid_request", 400, detail="id required")
+                    return
+                self._send_json({"ok": True, "deleted": delete_conf_snapshot(sid)})
+                return
+            try:
+                res = save_conf_snapshot(body)
+                self._send_json({"ok": True, **res})
+            except ValueError as e:
+                self._send_api_error("invalid_request", 400, detail=e)
+            except Exception as e:
+                self.log_error("API request failed: %s", e)
+                self._send_api_error("internal_error", 500)
             return
         if route != "/api/validate-upload-package":
             self.send_error(404)
