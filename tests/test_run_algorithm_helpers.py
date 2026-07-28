@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import run_algorithm as ra  # noqa: E402
@@ -321,10 +322,15 @@ class PredictEnvTests(unittest.TestCase):
                     ],
                 }
             }]
-            preds, _dur = ra._run_subprocess(path, "python", cases)
+            # This assertion is a deterministic-core property (demote access-point
+            # rank-1), so pin POI_VLM_MODE=off. That keeps the test hermetic: it
+            # must pass on CI / any clean checkout where FastVLM+torch is absent,
+            # instead of relying on a host-local fastvlm-venv. The live ensemble
+            # path is environment-gated and cannot run on ubuntu CI by design.
+            with mock.patch.dict(os.environ, {"POI_VLM_MODE": "off"}):
+                preds, _dur = ra._run_subprocess(path, "python", cases)
             self.assertEqual(len(preds), 1)
             self.assertIsNone(preds[0].get("error"))
-            # Deterministic core should demote access-point rank-1.
             self.assertEqual(preds[0].get("prediction"), "Banff Gondola")
 
 
