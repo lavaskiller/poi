@@ -35,6 +35,7 @@ from collections import Counter
 from typing import Any, Callable, Dict, List, Optional
 
 import match_score as ms
+import run_manifest
 from file_ops import atomic_write_json, file_lock
 
 _TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -917,6 +918,15 @@ def prepare_submission(*, name: str, script_text: str, lang: str, dataset: str, 
     if relations and os.path.isfile(rel_path):
         hash_paths.append(rel_path)
 
+    # Full lineage beyond the flat data_snapshot_sha256: code / runtime / model /
+    # prompt / cache identity plus per-artifact digests. Never raises.
+    labeled_inputs = {"eval_csv": csv_path, "config": config_path}
+    for cp in candidate_paths:
+        labeled_inputs[f"candidates:{os.path.basename(cp)}"] = cp
+    if relations and os.path.isfile(rel_path):
+        labeled_inputs["label_relations"] = rel_path
+    manifest = run_manifest.build(input_paths=labeled_inputs)
+
     job = (job_id or "").strip() or hashlib.sha256(
         f"{safe}:{time.time()}".encode("utf-8")
     ).hexdigest()[:12]
@@ -954,6 +964,7 @@ def prepare_submission(*, name: str, script_text: str, lang: str, dataset: str, 
             "script_sha256": hashlib.sha256(script_text.encode("utf-8")).hexdigest(),
             "evaluation_set_sha256": evaluation_set_sha256(cases),
             "data_snapshot_sha256": data_snapshot_sha256(hash_paths),
+            "run_manifest": manifest,
             "label_relations_path": rel_path if relations else None,
             "script_text": script_text,
             "metrics": empty_metrics,
