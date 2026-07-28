@@ -47,15 +47,20 @@ def main() -> int:
     skipped_have = 0
     for _idx, row in targets:
         ph = (row.get("photo") or "").strip()
+        dataset = (row.get("dataset") or "").strip()
         if not ph:
             continue
-        if args.only_missing and ph in existing and (existing[ph].get("scene_labels") or "").strip():
+        # A photo basename is only unique *within* a dataset. Persist the
+        # qualified key so labels cannot cross-contaminate datasets and match
+        # the gate's (dataset, photo) case identity.
+        key = rc.row_key(row)
+        if args.only_missing and key in existing and (existing[key].get("scene_labels") or "").strip():
             skipped_have += 1
             continue
-        pdir = rc.photo_dir_for((row.get("dataset") or "").strip()) or ""
+        pdir = rc.photo_dir_for(dataset) or ""
         p = os.path.join(dd, pdir, ph) if ph else ""
         if ph and os.path.isfile(p):
-            resolved.append((ph, p))
+            resolved.append((key, p))
         else:
             skipped_no_photo += 1
 
@@ -79,7 +84,7 @@ def main() -> int:
 
     in_tsv = os.path.join(dd, "rerun_scene_input.tsv")
     out_tmp = os.path.join(dd, "rerun_scene_output.tsv")
-    # Key by photo basename (same join key as ocr_text.tsv / caption rows).
+    # Key by dataset/photo (the stable case identity), not bare basename.
     with open(in_tsv, "w", encoding="utf-8") as f:
         for ph, p in resolved:
             f.write(f"{ph}\t{p}\n")

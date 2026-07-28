@@ -217,7 +217,7 @@ export interface ConfSnapshotMeta {
   run_version?: number | null;
   dataset?: string | null;
   eval_mode?: "exact" | "relations" | null;
-  preset?: "faithful" | "explore" | null;
+  preset?: "faithful" | "explore" | "validated" | null;
   mode?: string | null;
   budget?: number | null;
   kpis?: ConfSnapshotKpis;
@@ -239,7 +239,7 @@ export interface ConfSnapshotSaveRequest {
   run_version?: number | null;
   dataset?: string | null;
   eval_mode?: "exact" | "relations";
-  preset?: "faithful" | "explore";
+  preset?: "faithful" | "explore" | "validated";
   mode?: string;
   budget?: number | null;
   params?: Record<string, number | boolean>;

@@ -48,7 +48,7 @@ export interface Params {
   catPrior: CatPrior | null;
 }
 
-export type Preset = "faithful" | "explore";
+export type Preset = "faithful" | "explore" | "validated";
 
 /** How labeled POIs are scored against GT (eval only — never a gate input). */
 export type CorrectMode = "exact" | "relations";
@@ -93,6 +93,17 @@ export const EXPLORE: Params = {
   wCat: 0.3,
   wCatPrior: 0,
   catPrior: null,
+};
+
+/**
+ * Explore operating point selected from repeated, label-stratified 5-fold CV
+ * on the current 160-case cohort. Its category-prior table is intentionally
+ * fitted from the active cohort/train fold, not embedded in this constant.
+ */
+export const VALIDATED_EXPLORE: Params = {
+  ...EXPLORE,
+  wCat: 0.7,
+  wCatPrior: 0.7,
 };
 
 export function ocrTermValue(strength: OcrStrength | undefined): number {
@@ -507,9 +518,26 @@ export interface CrossVal {
   feasibleFolds: number;
 }
 
-/** Stable fold assignment by hash (independent of the train/val split seed). */
-function foldOf(c: ConfSimCase, k: number, seed: number): number {
-  return hashStr(`${seed}:cv:${c.dataset}/${c.photo}`) % k;
+/**
+ * Deterministic, label-stratified fold assignment.
+ *
+ * Gate CV budgets are deliberately small, so an unstratified hash split can
+ * put very different correct/wrong base rates in each held-out fold and turn
+ * an operating-point comparison into split noise. `correct` is evaluation
+ * data, not a runtime feature; using it to balance an offline CV partition is
+ * valid and makes the reported held-out variance more useful. Hash ordering
+ * retains a reproducible seed-controlled shuffle within each label group.
+ */
+function foldAssignments(cases: ConfSimCase[], k: number, seed: number): Map<string, number> {
+  const out = new Map<string, number>();
+  const keyOf = (c: ConfSimCase) => `${c.dataset}/${c.photo}`;
+  for (const group of [cases.filter((c) => c.correct), cases.filter((c) => !c.correct)]) {
+    const ordered = [...group].sort(
+      (a, b) => hashStr(`${seed}:cv:${keyOf(a)}`) - hashStr(`${seed}:cv:${keyOf(b)}`),
+    );
+    ordered.forEach((c, i) => out.set(keyOf(c), i % k));
+  }
+  return out;
 }
 
 /** Refit the per-category prior on each fold's train split (leak-free CV). */
@@ -538,6 +566,7 @@ export function crossValidate(
   seed = 0,
   catCfg: CatCvConfig | null = null,
 ): CrossVal {
+  const assignment = foldAssignments(cases, k, seed);
   const folds: FoldResult[] = [];
   const covs: number[] = [];
   const wrongs: number[] = [];
@@ -545,7 +574,7 @@ export function crossValidate(
   for (let f = 0; f < k; f++) {
     const train: ConfSimCase[] = [];
     const val: ConfSimCase[] = [];
-    for (const c of cases) (foldOf(c, k, seed) === f ? val : train).push(c);
+    for (const c of cases) (assignment.get(`${c.dataset}/${c.photo}`) === f ? val : train).push(c);
     if (!val.length || !train.length) {
       folds.push({ fold: f, n: val.length, tau: weights.tau, valCov: 0, valWrong: 0, feasible: false });
       continue;

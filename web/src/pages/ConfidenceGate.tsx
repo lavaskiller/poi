@@ -10,6 +10,7 @@ import {
   type CrossVal,
   crossValidate,
   EXPLORE,
+  VALIDATED_EXPLORE,
   fitCatPrior,
   evaluate,
   FAITHFUL,
@@ -175,6 +176,14 @@ export default function ConfidenceGate() {
     setCatCv(null);
   }, [cases, correctMode, catAlpha, catMinSup, catBudget, catW, seed]);
 
+  // "validated" names one measured recipe, not a sticky mode. Any category
+  // prior edit makes the configuration custom Explore again.
+  useEffect(() => {
+    if (preset === "validated" && (catW !== 0.7 || catAlpha !== 8 || catMinSup !== 10)) {
+      setPreset("explore");
+    }
+  }, [preset, catW, catAlpha, catMinSup]);
+
   // Timer-driven coordinate ascent; each tick re-renders every panel.
   useEffect(() => {
     if (mode !== "learn" || !running || learn.done) return;
@@ -192,9 +201,25 @@ export default function ConfidenceGate() {
 
   const applyPreset = (name: Preset) => {
     setPreset(name);
-    setP(name === "faithful" ? { ...FAITHFUL } : { ...EXPLORE });
+    setP(
+      name === "faithful"
+        ? { ...FAITHFUL }
+        : name === "validated"
+          ? { ...VALIDATED_EXPLORE }
+          : { ...EXPLORE },
+    );
+    if (name === "validated") {
+      // Recipe selected by repeated stratified 5-fold CV; fit table remains
+      // live so it never embeds labels from a stale cohort.
+      setCatW(0.7);
+      setCatAlpha(8);
+      setCatMinSup(10);
+      setCatOpen(true);
+    } else if (name === "explore") {
+      setCatW(0);
+    }
     // Faithful locks weights/hard gates — only τ is free. Explore opens the rest.
-    setShowWeights(name === "explore");
+    setShowWeights(name !== "faithful");
   };
 
   const touch = (next: Params) => {
@@ -203,29 +228,36 @@ export default function ConfidenceGate() {
       setPreset("explore");
       setShowWeights(true);
     }
+    if (preset === "validated") setPreset("explore");
     setP(next);
   };
 
   /** Faithful: hard gates + decide()-matching weights locked; τ remains the only free knob. */
   const faithfulLocked = preset === "faithful";
 
-  // Score ceiling for the τ range (see gateModel.scoreCeiling).
-  const sMax = useMemo(() => scoreCeiling(cases, p), [cases, p]);
-
-  const autoFit = useMemo(() => {
-    if (mode !== "auto" || !n) {
-      return { tau: p.tau, feasible: true, minWrongPct: 0, wrongAtTau: 0 };
-    }
-    return fitTau(cases, p, allowedWrong, sMax);
-  }, [mode, allowedWrong, cases, n, p, sMax]);
-
-  const autoTau = autoFit.tau;
   // Category prior is an explore-only add-on (faithful = pure decide()).
   const catActive = !faithfulLocked && catW > 0;
-  const active: Params = useMemo(() => {
-    const base = mode === "auto" ? { ...p, tau: autoTau } : p;
-    return catActive ? { ...base, wCatPrior: catW, catPrior: labPrior } : base;
-  }, [mode, p, autoTau, catActive, catW, labPrior]);
+  const paramsWithPrior: Params = useMemo(
+    () => (catActive ? { ...p, wCatPrior: catW, catPrior: labPrior } : p),
+    [p, catActive, catW, labPrior],
+  );
+
+  // Fit τ against the *same score* shown in the KPI/gallery. Previously Auto
+  // fit τ before attaching the category prior, so it chose an operating point
+  // for a different model and understated the prior's value.
+  const sMax = useMemo(() => scoreCeiling(cases, paramsWithPrior), [cases, paramsWithPrior]);
+  const autoFit = useMemo(() => {
+    if (mode !== "auto" || !n) {
+      return { tau: paramsWithPrior.tau, feasible: true, minWrongPct: 0, wrongAtTau: 0 };
+    }
+    return fitTau(cases, paramsWithPrior, allowedWrong, sMax);
+  }, [mode, allowedWrong, cases, n, paramsWithPrior, sMax]);
+
+  const autoTau = autoFit.tau;
+  const active: Params = useMemo(
+    () => (mode === "auto" ? { ...paramsWithPrior, tau: autoTau } : paramsWithPrior),
+    [mode, paramsWithPrior, autoTau],
+  );
 
   const stats = useMemo(() => {
     let correct = 0,
@@ -864,6 +896,14 @@ export default function ConfidenceGate() {
                   onClick={() => applyPreset("explore")}
                 >
                   explore
+                </button>
+                <button
+                  type="button"
+                  className={preset === "validated" ? styles.presetOn : styles.presetBtn}
+                  onClick={() => applyPreset("validated")}
+                  title="Scene + category-prior recipe selected by repeated label-stratified 5-fold CV on this cohort"
+                >
+                  validated
                 </button>
               </div>
             </div>

@@ -32,7 +32,7 @@ weighted top, density) are recomputed against MapKit candidates.
 
 | Mode | Use when | What moves |
 |---|---|---|
-| **Lab** | Understanding the frontier; matching `decide()` via **faithful** preset | **faithful:** τ only (hard gates + weights locked). **explore:** R, M_ref, D_ref, hard gates, weights |
+| **Lab** | Understanding the frontier; matching `decide()` via **faithful** preset | **faithful:** τ only (hard gates + weights locked). **explore:** R, M_ref, D_ref, hard gates, weights. **validated:** a measured Explore recipe; inspect it as a cohort-specific starting point, not a universal model. |
 | **Auto** | One-knob operating point on the **full** cohort | τ only (wrong-budget → max coverage) |
 | **Learn** | Searching margin/dist/spatial/VLM/density/scene weights with a **held-out** split | weights (+ fitted τ); Apply → Lab |
 
@@ -55,7 +55,8 @@ and an offline audit dump. Snapshots persist server-side under
 one back into Lab. Nothing is lost on refresh.
 
 **k-fold cross-validation (Learn).** The live search uses one held-out split,
-which a lucky partition can flatter. **Cross-validate** runs *k*-fold CV of the
+which a lucky partition can flatter. **Cross-validate** runs label-stratified,
+seeded *k*-fold CV of the
 learned weight direction — τ is refit per fold, val is scored per fold — and
 reports val coverage / wrong-leak as **mean ± std** plus how many folds were
 feasible at the budget. Wide std or `< k` feasible folds means the weights do not
@@ -118,6 +119,10 @@ default 0 in faithful) and is a **searched** signal in Learn. On the current
 `margin` 0.61 and `dist` 0.60); when agreement ≥ 0.35 fires (31 cases) precision
 rises 0.36 → 0.71. A confident scene that maps to a *different* family than the
 pick is exposed as `scene_conflict` (soft diagnostic, not a hard pre-filter).
+The generated TSV is keyed by stable `dataset/photo`, not a bare filename:
+`tools/rerun_scene_classify.py --only-missing` refreshes labels without
+cross-dataset basename collisions. The server retains legacy bare-name lookup
+only for old seed packs.
 
 ### B. Eval-only — never a gate input (GT-derived)
 
@@ -214,6 +219,17 @@ slider = τ   (default 1.0)   ends: permissive/coverage ↔ strict/block
 |---|---|---|
 | **faithful** (default) | `w_m=1.0, w_o=1.0, spatial=hard-filter, w_d=0, w_ρ=0, w_g=0.5, w_v=0.3 cap, τ=1.0` | reproduce current `decide()` (faithful test) |
 | **explore** | + `w_d>0`, `w_ρ=0.5` (+ `R` slider), … | fold in density/distance to search a better gate |
+| **validated** | Explore recipe: `w_cat=0.7`, `w_catprior=0.7`, `α=8`, min support `10` | a CV-selected starting point for the current 160-case policy cohort; refits its category-prior table live |
+
+**Validated recipe evidence (not a deployment guarantee).** Repeated,
+label-stratified 5-fold CV over 50 seeds on the current 160-case policy cohort
+compared the base scene-only Explore score (`w_cat=0.3`) with the validated
+scene + category-prior recipe. All folds were feasible. At wrong budgets of
+2% / 3% / 5%, mean held-out coverage moved from **9.0 / 10.5 / 15.4%** to
+**11.5 / 16.1 / 23.0%** respectively (fold-to-fold std 1.3 / 1.3 / 1.8 pt).
+This validates an in-cohort operating point only: different cities, collection
+periods, selectors, or a changed category mix require fresh held-out evaluation
+before using it as a production default.
 
 Faithful preset reproduces `decide()`:
 

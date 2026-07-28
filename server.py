@@ -2129,8 +2129,9 @@ def build_confidence_sim(dataset="all", base="policy", run_name=None, run_versio
                     )
                     break
 
-        # Photo scene (VNClassifyImageRequest) — a-priori; missing TSV → zeros.
-        scene_row = scene_by_photo.get(ph) or scene_by_photo.get(
+        # Photo scene (VNClassifyImageRequest) — a-priori. Prefer the
+        # dataset-qualified key; bare basenames are legacy seed-pack fallback.
+        scene_row = scene_by_photo.get(f"{ds}/{ph}") or scene_by_photo.get(ph) or scene_by_photo.get(
             (ph or "").split("/")[-1]
         ) or {}
         scene_top1 = scene_row.get("scene_top1") or ""
