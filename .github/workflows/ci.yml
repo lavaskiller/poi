@@ -1,0 +1,78 @@
+name: CI
+
+# Required checks for every PR into main: the full test suite, the
+# import-isolation trip-wire, and the eval-gate config coherence check. The
+# data-backed release gate (release_gate.py score) activates automatically once
+# a golden run + baseline are committed under eval/ — until then it runs
+# report-only by design, and this workflow says so rather than pretending to
+# cover it. See docs/reproducible-runtime.md and docs/release-gate.md.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: unittest (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 matches the host interpreter (reproducibility floor); 3.11 matches
+        # the container base image. The suite must stay green on both.
+        python-version: ["3.9", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pinned backend deps
+        run: python -m pip install -r requirements.lock
+      - name: Run test suite
+        run: python -m unittest discover -s tests -v
+
+  import-isolation:
+    name: import isolation (no torch in the backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # Intentionally NO pip install: the backend must import on a bare stdlib
+      # interpreter. If this needs a wheel, isolation has already been broken.
+      - name: Assert backend imports without the heavy ML stack
+        run: python tools/check_import_isolation.py
+
+  release-gate:
+    name: release gate (config + data-backed when fixtures exist)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pinned backend deps
+        run: python -m pip install -r requirements.lock
+      - name: Validate committed split policy + baseline
+        run: python tools/check_eval_config.py
+      - name: Score the golden run against the baseline (if committed)
+        run: |
+          BASELINE=eval/baselines/baseline.v1.json
+          GOLDEN=eval/golden/run.json
+          if [ -f "$BASELINE" ] && [ -f "$GOLDEN" ]; then
+            echo "Golden fixtures present — enforcing the data-backed gate."
+            python tools/release_gate.py score --run "$GOLDEN" --baseline "$BASELINE" --split test
+          else
+            echo "No committed golden run + baseline yet — gate is report-only."
+            echo "Add eval/golden/run.json and $BASELINE to make this blocking."
+          fi
