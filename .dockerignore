@@ -1,0 +1,31 @@
+# Keep the image deterministic and free of private data / host cruft.
+# Real datasets and run snapshots mount at runtime; they must never be baked in.
+poi-data
+poi-data-seed
+poi-data-seed.zip
+generated
+eval_set_reconciled.csv
+
+# Frontend + node — not part of the backend image.
+web
+node_modules
+
+# VCS / CI / editor / os
+.git
+.github
+.grok
+.worktrees
+.vscode
+.DS_Store
+*.log
+
+# Secrets — defense in depth (also excluded by scope above).
+.ssh
+*.pem
+*_key
+*_key.pub
+
+# Python caches
+__pycache__
+*.pyc
+.pytest_cache

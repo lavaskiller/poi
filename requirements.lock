@@ -1,0 +1,11 @@
+# Pinned lock for the POI eval backend (server.py + tools/), consumed by the
+# Dockerfile and recorded (by SHA-256) in every run manifest via run_manifest.py.
+#
+# Regenerate with hashes for a hard supply-chain pin:
+#   pip-compile --generate-hashes --output-file=requirements.lock requirements.txt
+#
+# Scope: the standard-library + Pillow eval backend and tools only. FastVLM /
+# torch and the macOS Swift/MapKit toolchain are NOT covered here — they run in
+# a separate venv / on the host (see docs/reproducible-runtime.md).
+
+Pillow==11.3.0

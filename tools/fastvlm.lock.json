@@ -1,0 +1,8 @@
+{
+  "_schema": "fastvlm-pin/v1",
+  "_note": "Pin the FastVLM selector's model + framework so a run is reproducible. Fill fastvlm_commit / torch / checkpoint / checkpoint_sha256 from the provisioned venv (see docs/reproducible-runtime.md); run_manifest.model_provenance records these and, when POI_FASTVLM_CHECKPOINT is set, verifies the on-disk checkpoint against checkpoint_sha256. Null values are recorded verbatim and never fail a run.",
+  "fastvlm_commit": null,
+  "torch": null,
+  "checkpoint": null,
+  "checkpoint_sha256": null
+}
