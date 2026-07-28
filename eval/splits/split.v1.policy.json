@@ -1,0 +1,20 @@
+{
+  "schema": "eval-split/v1",
+  "generated_at": "2026-07-28T13:03:42",
+  "salt": "poi-eval-split-v1",
+  "ratios": {
+    "train": 0.6,
+    "val": 0.2,
+    "test": 0.2
+  },
+  "group_definition": "dataset|username|geocell@3dp(lat,lon)",
+  "eligibility": "canonical GT, MapKit provider, non-Korea, not non_poi (run_algorithm.row_ineligibility)",
+  "source_csv_sha256": "34cf226ac50652a79a6a3c1f2a7fee21323fc4bc7c45eaa921e6ab90d686c23b",
+  "counts": {
+    "train": 79,
+    "val": 40,
+    "test": 25,
+    "eligible": 144,
+    "groups": 128
+  }
+}
